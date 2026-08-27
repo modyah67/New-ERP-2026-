@@ -1,0 +1,5 @@
+[{"id":30,"invoice_number":"PUR-20260618-0001","supplier_id":"7e3907a3-a800-4941-b98b-2e5b3b7974a6","invoice_date":"2026-06-18","total_amount":1000.00,"status":"confirmed","created_at":"2026-06-18T18:30:59.105833+00:00"}, 
+ {"id":31,"invoice_number":"PUR-20260618-0002","supplier_id":"003e144b-04c6-4755-bfdb-af0333058055","invoice_date":"2026-06-18","total_amount":50.00,"status":"confirmed","created_at":"2026-06-18T18:55:25.627997+00:00"}, 
+ {"id":32,"invoice_number":"PUR-20260618-0003","supplier_id":"003e144b-04c6-4755-bfdb-af0333058055","invoice_date":"2026-06-18","total_amount":154.00,"status":"confirmed","created_at":"2026-06-18T18:56:19.193347+00:00"}, 
+ {"id":33,"invoice_number":"PUR-20260618-0004","supplier_id":"003e144b-04c6-4755-bfdb-af0333058055","invoice_date":"2026-06-18","total_amount":50.00,"status":"confirmed","created_at":"2026-06-18T19:32:00.954441+00:00"}, 
+ {"id":34,"invoice_number":"PUR-20260618-0005","supplier_id":"003e144b-04c6-4755-bfdb-af0333058055","invoice_date":"2026-06-18","total_amount":100.00,"status":"confirmed","created_at":"2026-06-18T19:33:23.918437+00:00"}]

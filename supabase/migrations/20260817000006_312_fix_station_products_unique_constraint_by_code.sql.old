@@ -1,0 +1,78 @@
+-- Migration 312: Fix station_products unique constraint and upsert by product_code
+-- Problem: station_products previously had UNIQUE (station_id, product_name).
+-- When multiple materials or fruit types share the same name (e.g. Code 1, Code 2, Code 3),
+-- purchase confirmation or lot receipts merged their stock into a single row.
+
+-- 1. Drop the legacy unique constraint on (station_id, product_name)
+ALTER TABLE public.station_products
+  DROP CONSTRAINT IF EXISTS station_products_station_id_product_name_key;
+
+-- 2. Drop any legacy unique index on (station_id, product_name)
+DROP INDEX IF EXISTS public.station_products_station_id_product_name_key;
+
+-- 3. Ensure clean unique constraint on (station_id, product_code, product_name)
+ALTER TABLE public.station_products
+  DROP CONSTRAINT IF EXISTS station_products_station_id_code_name_key;
+
+ALTER TABLE public.station_products
+  ADD CONSTRAINT station_products_station_id_code_name_key UNIQUE (station_id, product_code, product_name);
+
+-- 4. Update upsert_station_product_quantity to use (station_id, product_code, product_name)
+CREATE OR REPLACE FUNCTION public.upsert_station_product_quantity(
+  p_station_id BIGINT,
+  p_product_name TEXT,
+  p_product_code TEXT,
+  p_delta INT
+) RETURNS VOID
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_code TEXT := COALESCE(p_product_code, '');
+BEGIN
+  IF p_delta = 0 THEN
+    RETURN;
+  END IF;
+
+  INSERT INTO station_products (station_id, product_name, product_code, quantity)
+  VALUES (p_station_id, p_product_name, v_code, p_delta)
+  ON CONFLICT (station_id, product_code, product_name)
+  DO UPDATE SET
+    quantity = station_products.quantity + p_delta;
+
+  DELETE FROM station_products
+  WHERE station_id = p_station_id
+    AND product_code = v_code
+    AND product_name = p_product_name
+    AND quantity <= 0;
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.upsert_station_product_quantity(BIGINT, TEXT, TEXT, INT) TO authenticated;
+
+-- 5. Split any existing collapsed rows in station_products according to station_product_batches
+DO $$
+DECLARE
+  r RECORD;
+BEGIN
+  -- For each batch with a distinct code not yet in station_products, insert or update
+  FOR r IN
+    SELECT
+      spb.station_id,
+      spb.product_name,
+      spb.product_code,
+      SUM(spb.remaining_quantity) AS total_remaining
+    FROM station_product_batches spb
+    WHERE spb.product_code <> ''
+    GROUP BY spb.station_id, spb.product_name, spb.product_code
+  LOOP
+    INSERT INTO station_products (station_id, product_name, product_code, quantity)
+    VALUES (r.station_id, r.product_name, r.product_code, r.total_remaining)
+    ON CONFLICT (station_id, product_code, product_name)
+    DO UPDATE SET quantity = r.total_remaining;
+  END LOOP;
+END;
+$$;
+
+NOTIFY pgrst, 'reload schema';

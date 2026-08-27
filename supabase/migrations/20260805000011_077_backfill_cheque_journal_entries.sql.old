@@ -1,0 +1,296 @@
+-- Migration 077: Backfill journal entries for old cleared cheques
+--
+-- PROBLEM:
+-- Old cleared cheques may not have journal_entry_id because clear_cheque
+-- was previously not creating proper GL entries.
+--
+-- FIX:
+-- This migration backfills journal entries for all cleared cheques
+-- that don't have journal_entry_id yet.
+--
+-- IMPORTANT: This is a one-time migration to fix historical data.
+
+BEGIN;
+
+-- ============================================================
+-- 1. Create a temporary function to backfill a single cheque
+-- ============================================================
+CREATE OR REPLACE FUNCTION public._backfill_single_cheque(p_cheque_id BIGINT)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+    v_cheque RECORD;
+    v_desc TEXT;
+    v_bank_id INTEGER;
+    v_bank_bal NUMERIC;
+    v_currency TEXT;
+    v_company_id UUID;
+    v_new_bank_bal NUMERIC;
+    v_bank_acct BIGINT;
+    v_counterparty_acct BIGINT;
+    v_je_id BIGINT;
+    v_bank_tx_id BIGINT;
+BEGIN
+    SELECT * INTO v_cheque
+    FROM public.cheques
+    WHERE id = p_cheque_id;
+
+    IF NOT FOUND THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Cheque not found');
+    END IF;
+
+    IF v_cheque.journal_entry_id IS NOT NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Already has journal entry');
+    END IF;
+
+    IF v_cheque.status != 'cleared' THEN
+        RETURN jsonb_build_object('success', false, 'error', 'Not cleared');
+    END IF;
+
+    IF v_cheque.type = 'outgoing' THEN
+        v_desc := 'صرف شيك رقم: ' || v_cheque.cheque_number;
+    ELSE
+        v_desc := 'تحصيل شيك رقم: ' || v_cheque.cheque_number;
+    END IF;
+
+    -- Get bank account for this currency
+    SELECT id, balance, ba.company_id INTO v_bank_id, v_bank_bal, v_company_id
+    FROM public.bank_accounts ba
+    WHERE ba.currency = v_cheque.currency
+    LIMIT 1;
+
+    IF v_bank_id IS NULL THEN
+        RETURN jsonb_build_object('success', false, 'error', 'No bank account for currency');
+    END IF;
+
+    v_currency := v_cheque.currency;
+
+    -- Resolve bank GL account by currency
+    v_bank_acct := public.resolve_gl_account(
+        CASE v_currency
+            WHEN 'EGP' THEN '11201'
+            WHEN 'USD' THEN '11202'
+            WHEN 'EUR' THEN '11203'
+            WHEN 'GBP' THEN '11204'
+            ELSE '11201'
+        END,
+        v_company_id
+    );
+
+    -- ================================================================
+    -- OUTGOING CHEQUE: Dr Counterparty / Cr Bank
+    -- ================================================================
+    IF v_cheque.type = 'outgoing' THEN
+        -- Determine debit account (counterparty)
+        v_counterparty_acct := NULL;
+
+        IF v_cheque.counterparty_type = 'customer' AND v_cheque.counterparty_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct
+            FROM public.customers WHERE id = v_cheque.counterparty_id;
+
+        ELSIF v_cheque.counterparty_type = 'supplier' AND v_cheque.supplier_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct
+            FROM public.suppliers WHERE id = v_cheque.supplier_id;
+
+        ELSIF v_cheque.counterparty_type = 'clearing_agent' AND v_cheque.clearing_agent_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct
+            FROM public.clearing_agents WHERE id = v_cheque.clearing_agent_id;
+
+        ELSIF v_cheque.counterparty_type = 'shipping_company' AND v_cheque.shipping_company_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct
+            FROM public.shipping_companies WHERE id = v_cheque.shipping_company_id;
+
+        ELSIF v_cheque.counterparty_type = 'shareholder' AND v_cheque.shareholder_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct
+            FROM public.shareholders WHERE id = v_cheque.shareholder_id;
+
+        ELSIF v_cheque.counterparty_type = 'expense' AND v_cheque.expense_account_id IS NOT NULL THEN
+            v_counterparty_acct := v_cheque.expense_account_id;
+
+        ELSIF v_cheque.counterparty_type = 'account' AND v_cheque.expense_account_id IS NOT NULL THEN
+            v_counterparty_acct := v_cheque.expense_account_id;
+
+        ELSIF v_cheque.counterparty_type = 'treasury' THEN
+            v_counterparty_acct := public.resolve_equity_account(v_currency, v_company_id);
+
+        END IF;
+
+        -- Fallback to equity if no counterparty account found
+        IF v_counterparty_acct IS NULL THEN
+            v_counterparty_acct := public.resolve_equity_account(v_currency, v_company_id);
+        END IF;
+
+        -- Post journal entry: Dr Counterparty / Cr Bank
+        v_je_id := public.post_journal_entry(
+            'bank_withdraw',
+            v_desc,
+            COALESCE(v_cheque.cleared_at, v_cheque.created_at)::DATE,
+            v_company_id,
+            v_cheque.created_by,
+            jsonb_build_array(
+                jsonb_build_object(
+                    'account_id', v_counterparty_acct,
+                    'debit', v_cheque.amount,
+                    'credit', 0,
+                    'currency', v_currency,
+                    'description', v_desc
+                ),
+                jsonb_build_object(
+                    'account_id', v_bank_acct,
+                    'debit', 0,
+                    'credit', v_cheque.amount,
+                    'currency', v_currency,
+                    'description', v_desc
+                )
+            )
+        );
+
+        -- Update cheque with journal_entry_id
+        UPDATE public.cheques
+        SET journal_entry_id = v_je_id
+        WHERE id = p_cheque_id;
+
+        -- Update bank transactions with journal_entry_id
+        UPDATE public.bank_account_transactions
+        SET journal_entry_id = v_je_id
+        WHERE entity_type = 'cheque' 
+          AND entity_id = p_cheque_id::TEXT
+          AND journal_entry_id IS NULL;
+
+    -- ================================================================
+    -- INCOMING CHEQUE: Dr Bank / Cr Counterparty
+    -- ================================================================
+    ELSIF v_cheque.type = 'incoming' THEN
+        -- Determine credit account (counterparty)
+        v_counterparty_acct := NULL;
+
+        IF v_cheque.counterparty_type = 'customer' AND v_cheque.counterparty_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct
+            FROM public.customers WHERE id = v_cheque.counterparty_id;
+
+        ELSIF v_cheque.counterparty_type = 'supplier' AND v_cheque.supplier_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct
+            FROM public.suppliers WHERE id = v_cheque.supplier_id;
+
+        ELSIF v_cheque.counterparty_type = 'clearing_agent' AND v_cheque.clearing_agent_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct
+            FROM public.clearing_agents WHERE id = v_cheque.clearing_agent_id;
+
+        ELSIF v_cheque.counterparty_type = 'shipping_company' AND v_cheque.shipping_company_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct
+            FROM public.shipping_companies WHERE id = v_cheque.shipping_company_id;
+
+        ELSIF v_cheque.counterparty_type = 'shareholder' AND v_cheque.shareholder_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct
+            FROM public.shareholders WHERE id = v_cheque.shareholder_id;
+
+        ELSIF v_cheque.counterparty_type = 'account' AND v_cheque.expense_account_id IS NOT NULL THEN
+            v_counterparty_acct := v_cheque.expense_account_id;
+
+        ELSIF v_cheque.counterparty_type = 'treasury' THEN
+            v_counterparty_acct := public.resolve_equity_account(v_currency, v_company_id);
+
+        END IF;
+
+        -- Fallback to equity if no counterparty account found
+        IF v_counterparty_acct IS NULL THEN
+            v_counterparty_acct := public.resolve_equity_account(v_currency, v_company_id);
+        END IF;
+
+        -- Post journal entry: Dr Bank / Cr Counterparty
+        v_je_id := public.post_journal_entry(
+            'bank_deposit',
+            v_desc,
+            COALESCE(v_cheque.cleared_at, v_cheque.created_at)::DATE,
+            v_company_id,
+            v_cheque.created_by,
+            jsonb_build_array(
+                jsonb_build_object(
+                    'account_id', v_bank_acct,
+                    'debit', v_cheque.amount,
+                    'credit', 0,
+                    'currency', v_currency,
+                    'description', v_desc
+                ),
+                jsonb_build_object(
+                    'account_id', v_counterparty_acct,
+                    'debit', 0,
+                    'credit', v_cheque.amount,
+                    'currency', v_currency,
+                    'description', v_desc
+                )
+            )
+        );
+
+        -- Update cheque with journal_entry_id
+        UPDATE public.cheques
+        SET journal_entry_id = v_je_id
+        WHERE id = p_cheque_id;
+
+        -- Update bank transactions with journal_entry_id
+        UPDATE public.bank_account_transactions
+        SET journal_entry_id = v_je_id
+        WHERE entity_type = 'cheque' 
+          AND entity_id = p_cheque_id::TEXT
+          AND journal_entry_id IS NULL;
+
+    END IF;
+
+    RETURN jsonb_build_object('success', true, 'journal_entry_id', v_je_id);
+END;
+$$;
+
+-- ============================================================
+-- 2. Backfill all cleared cheques without journal entries
+-- ============================================================
+DO $$
+DECLARE
+    v_cheque RECORD;
+    v_result JSONB;
+    v_count INTEGER := 0;
+    v_errors INTEGER := 0;
+BEGIN
+    RAISE NOTICE 'Starting backfill of cheque journal entries...';
+    
+    FOR v_cheque IN 
+        SELECT id FROM public.cheques 
+        WHERE status = 'cleared' 
+          AND journal_entry_id IS NULL
+        ORDER BY created_at
+    LOOP
+        BEGIN
+            v_result := public._backfill_single_cheque(v_cheque.id);
+            
+            IF (v_result->>'success')::BOOLEAN = true THEN
+                v_count := v_count + 1;
+                RAISE NOTICE 'Backfilled cheque ID: %, Journal Entry ID: %', 
+                    v_cheque.id, v_result->>'journal_entry_id';
+            ELSE
+                v_errors := v_errors + 1;
+                RAISE NOTICE 'Failed to backfill cheque ID: %, Error: %', 
+                    v_cheque.id, v_result->>'error';
+            END IF;
+        EXCEPTION WHEN OTHERS THEN
+            v_errors := v_errors + 1;
+            RAISE NOTICE 'Exception backfilling cheque ID: %, Error: %', 
+                v_cheque.id, SQLERRM;
+        END;
+    END LOOP;
+    
+    RAISE NOTICE 'Backfill complete. Success: %, Errors: %', v_count, v_errors;
+END $$;
+
+-- ============================================================
+-- 3. Drop the temporary function
+-- ============================================================
+DROP FUNCTION IF EXISTS public._backfill_single_cheque(BIGINT);
+
+-- ============================================================
+-- 4. Notify PostgREST to reload schema cache
+-- ============================================================
+NOTIFY pgrst, 'reload schema';
+
+COMMIT;

@@ -1,0 +1,97 @@
+CREATE OR REPLACE FUNCTION public.deposit_treasury(p_treasury_id integer, p_currency text, p_amount numeric, p_description text DEFAULT ''::text, p_revenue_account_id integer DEFAULT NULL::integer)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public'
+AS $function$
+DECLARE
+    v_current_balance NUMERIC;
+    v_new_balance     NUMERIC;
+    v_tx_id           INTEGER;
+    v_company_id      UUID;
+    v_treasury_acct   BIGINT;
+    v_revenue_acct    BIGINT;
+    v_je_id           BIGINT;
+    v_desc            TEXT;
+    v_treasury_name   TEXT;
+BEGIN
+    IF NOT public._is_admin() THEN
+        RAISE EXCEPTION 'غير مصرح بهذه العملية';
+    END IF;
+
+    IF p_amount <= 0 THEN
+        RAISE EXCEPTION 'المبلغ يجب أن يكون أكبر من صفر';
+    END IF;
+
+    SELECT t.company_id INTO v_company_id FROM treasuries t WHERE t.id = p_treasury_id;
+
+    IF v_company_id IS NULL THEN
+        RAISE EXCEPTION 'Treasury % not found', p_treasury_id;
+    END IF;
+
+    SELECT name INTO v_treasury_name FROM treasuries WHERE id = p_treasury_id;
+    v_desc := COALESCE(
+        NULLIF(p_description, ''),
+        'إيداع نقدي ' || p_currency || ' في ' || COALESCE(v_treasury_name, 'الخزينة')
+    );
+
+    SELECT COALESCE(balance, 0) INTO v_current_balance
+    FROM treasury_balances
+    WHERE treasury_id = p_treasury_id AND currency = p_currency;
+
+    v_new_balance := COALESCE(v_current_balance, 0) + p_amount;
+
+    INSERT INTO treasury_balances (treasury_id, currency, balance, account_id)
+    VALUES (p_treasury_id, p_currency, v_new_balance,
+        public.resolve_gl_account(
+            CASE p_currency WHEN 'EGP' THEN '11101' WHEN 'USD' THEN '11102' WHEN 'EUR' THEN '11103' WHEN 'GBP' THEN '11104' END,
+            v_company_id
+        )
+    )
+    ON CONFLICT (treasury_id, currency) DO UPDATE
+    SET balance = v_new_balance;
+
+    v_treasury_acct := public.resolve_gl_account(
+        CASE p_currency WHEN 'EGP' THEN '11101' WHEN 'USD' THEN '11102' WHEN 'EUR' THEN '11103' WHEN 'GBP' THEN '11104' END,
+        v_company_id
+    );
+
+    IF p_revenue_account_id IS NOT NULL THEN
+        v_revenue_acct := p_revenue_account_id;
+    ELSE
+        v_revenue_acct := public.resolve_gl_account(
+            CASE p_currency WHEN 'EGP' THEN '3001' WHEN 'USD' THEN '3002' WHEN 'EUR' THEN '3003' WHEN 'GBP' THEN '3004' ELSE '3000' END,
+            v_company_id
+        );
+    END IF;
+
+    v_je_id := public.post_journal_entry(
+        'treasury_deposit',
+        v_desc,
+        CURRENT_DATE,
+        v_company_id,
+        auth.uid(),
+        jsonb_build_array(
+            jsonb_build_object('account_id', v_treasury_acct, 'debit', p_amount, 'credit', 0, 'currency', p_currency, 'description', v_desc),
+            jsonb_build_object('account_id', v_revenue_acct, 'debit', 0, 'credit', p_amount, 'currency', p_currency, 'description', v_desc)
+        )
+    );
+
+    INSERT INTO treasury_transactions (
+        treasury_id, type, currency, amount,
+        balance_before, balance_after, description, source_type, journal_entry_id, created_by,
+        revenue_account_id
+    ) VALUES (
+        p_treasury_id, 'deposit', p_currency, p_amount,
+        v_current_balance, v_new_balance, v_desc, 'treasury_deposit', v_je_id, auth.uid(),
+        v_revenue_acct
+    ) RETURNING id INTO v_tx_id;
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'tx_id', v_tx_id,
+        'journal_entry_id', v_je_id,
+        'new_balance', v_new_balance
+    );
+END;
+$function$;

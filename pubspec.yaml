@@ -1,0 +1,117 @@
+name: accounting_system
+description: Complete Accounting & Invoicing System
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State management
+  flutter_bloc: ^8.1.6
+  equatable: ^2.0.5
+  collection: ^1.18.0
+
+  # Routing
+  go_router: ^14.0.0
+
+  # Dependency injection
+  get_it: ^8.0.2
+  injectable: ^2.5.0
+
+  # Supabase
+  supabase_flutter: ^2.8.0
+
+  # HTTP for Admin API calls
+  http: ^1.2.0
+
+  # Security
+  crypto: ^3.0.6
+
+  # PDF
+  pdf: ^3.10.7
+  printing: ^5.12.0
+
+  # Share & Export
+  share_plus: ^7.2.1
+  url_launcher: ^6.3.0
+  font_awesome_flutter: ^11.0.0
+  excel: ^4.0.6
+  path_provider: ^2.1.5
+  open_filex: ^4.5.0
+
+  # UI
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
+  file_picker: ^11.0.2
+  csv: ^8.0.0
+  path: ^1.9.0
+  flutter_typeahead: ^5.2.0
+  dropdown_search: ^6.0.1
+  flutter_svg: ^2.0.10+1
+  encrypt: ^5.0.3
+  win32: ^5.15.0
+  win32_registry: ^2.1.0
+  dotenv: ^4.2.0
+  flutter_dotenv: ^6.0.1
+  postgres: ^3.5.12
+  supabase_client: ^0.0.33
+  supabase: ^2.14.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+  build_runner: ^2.4.12
+  injectable_generator: ^2.6.2
+  flutter_launcher_icons: ^0.14.4
+  flutter_native_splash: ^2.4.1
+
+flutter_launcher_icons:
+  android: "launcher_icon"
+  ios: true
+  image_path: "assets/images/logo-design.png"
+  macos:
+    generate: true
+    image_path: "assets/images/logo-design.png"
+  windows:
+    generate: true
+    image_path: "assets/images/logo-design.png"
+    icon_size: 256
+  web:
+    generate: true
+    image_path: "assets/images/logo-design.png"
+    background_color: "#ffffff"
+    theme_color: "#ffffff"
+
+flutter_native_splash:
+  color: "#0a1e35"
+  image: "assets/images/logo-design.png"
+  android_12:
+    image: "assets/images/logo-design.png"
+    color: "#0a1e35"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/fonts/
+    - assets/images/
+    - assets/fruits/citrus/
+    - assets/fruits/tropical/
+    - assets/fruits/pome/
+    - assets/fruits/stone/
+    - assets/fruits/berries/
+    - assets/fruits/melon/
+    - assets/fruits/dried/
+    - assets/fruits/exotic/
+    - assets/fruits/other/
+  fonts:
+    - family: Cairo
+      fonts:
+        - asset: assets/fonts/Cairo-Regular.ttf
+        - asset: assets/fonts/Cairo-Bold.ttf
+          weight: 700

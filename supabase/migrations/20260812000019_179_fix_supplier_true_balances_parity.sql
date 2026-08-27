@@ -1,0 +1,61 @@
+-- ============================================================================
+-- 179: Fix get_supplier_true_balances to perfectly match the UI Statement
+-- ============================================================================
+
+-- The previous migration assumed all supplier activity was fully represented in ledger_entries.
+-- However, ERPA's Supplier Statement UI actually aggregates data directly from multiple tables
+-- (purchase_invoices, treasury_transactions, bank_transactions, cheques, and ledger_entries).
+-- This updated function exactly mirrors the UI's aggregation logic to guarantee 100% parity.
+
+CREATE OR REPLACE FUNCTION public.get_supplier_true_balances()
+RETURNS TABLE (
+  supplier_id uuid,
+  true_balance numeric
+)
+LANGUAGE sql
+SECURITY DEFINER
+AS $$
+  SELECT
+    s.id,
+    (
+      -- 1. Initial Balance
+      (CASE WHEN s.initial_balance_direction = 'CREDIT' THEN COALESCE(s.initial_balance, 0) ELSE -COALESCE(s.initial_balance, 0) END)
+      
+      -- 2. Purchases (We take the full total_amount for confirmed invoices, because payments are handled separately below)
+      + COALESCE((SELECT SUM(total_amount) FROM purchase_invoices WHERE supplier_id = s.id AND status = 'confirmed'), 0)
+      
+      -- 3. Treasury Transactions
+      + COALESCE((SELECT SUM(amount) FROM treasury_transactions WHERE supplier_id = s.id AND type IN ('deposit', 'receive', 'income', 'supplier_refund')), 0)
+      - COALESCE((SELECT SUM(amount) FROM treasury_transactions WHERE supplier_id = s.id AND type IN ('expense', 'supplier_payment')), 0)
+      
+      -- 4. Bank Transactions
+      + COALESCE((SELECT SUM(amount) FROM bank_account_transactions WHERE entity_type = 'supplier' AND entity_id = s.id::TEXT AND type IN ('deposit', 'receive', 'income', 'supplier_refund')), 0)
+      - COALESCE((SELECT SUM(amount) FROM bank_account_transactions WHERE entity_type = 'supplier' AND entity_id = s.id::TEXT AND type IN ('withdraw', 'expense', 'supplier_payment')), 0)
+      
+      -- 5. Cheques
+      + COALESCE((SELECT SUM(amount) FROM cheques WHERE supplier_id = s.id AND type = 'incoming' AND status IN ('cleared', 'collected')), 0)
+      - COALESCE((SELECT SUM(amount) FROM cheques WHERE supplier_id = s.id AND type = 'outgoing' AND status IN ('cleared', 'collected')), 0)
+      
+      -- 6. Ledger Entries (Lot Receipts, manual journal entries, etc.)
+      -- We EXCLUDE entries that are already represented by treasury_transactions or bank_transactions above 
+      -- (based on reference_id) to prevent double counting, exactly like the UI Statement does.
+      + COALESCE((
+          SELECT SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE -amount END)
+          FROM ledger_entries le
+          WHERE le.entity_type = 'supplier' 
+            AND le.entity_id IN (s.id::text, s.code)
+            AND NOT EXISTS (
+                SELECT 1 FROM treasury_transactions tt WHERE tt.id::TEXT = le.reference_id::TEXT
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM bank_account_transactions bt WHERE bt.id::TEXT = le.reference_id::TEXT
+            )
+      ), 0)
+    ) AS true_balance
+  FROM suppliers s;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.get_supplier_true_balances() TO authenticated;
+
+-- Force schema reload
+NOTIFY pgrst, 'reload schema';
