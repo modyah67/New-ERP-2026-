@@ -860,8 +860,14 @@ class _MultiInvoicePaymentDialogState extends State<MultiInvoicePaymentDialog> {
                                       child: Column(
                                         crossAxisAlignment: CrossAxisAlignment.start,
                                         children: [
-                                          Text('$refTitle #${inv.referenceNumber} (${inv.liabilityDate.toLocal().toString().split(' ')[0]})', 
-                                            style: TextStyle(fontFamily: 'Cairo', fontWeight: alloc > 0 ? FontWeight.bold : FontWeight.normal, color: AppTheme.textPrimary)),
+                                          Builder(builder: (_) {
+                                            final hasHashOrNum = int.tryParse(inv.referenceNumber) != null || inv.referenceNumber.startsWith('#');
+                                            final displayLabel = hasHashOrNum 
+                                                ? '$refTitle #${inv.referenceNumber.replaceAll('#', '')}' 
+                                                : '$refTitle: ${inv.referenceNumber}';
+                                            return Text('$displayLabel (${inv.liabilityDate.toLocal().toString().split(' ')[0]})', 
+                                              style: TextStyle(fontFamily: 'Cairo', fontWeight: alloc > 0 ? FontWeight.bold : FontWeight.normal, color: AppTheme.textPrimary));
+                                          }),
                                           Text('المستحق: ${inv.dueAmount} $_currency', 
                                             style: const TextStyle(fontFamily: 'Cairo', color: AppTheme.textSecondary, fontSize: 12)),
                                         ],
