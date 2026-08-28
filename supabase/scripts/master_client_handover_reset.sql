@@ -7673,6 +7673,7 @@ CREATE OR REPLACE FUNCTION public.rpc_save_shipment_admin_expenses(
 RETURNS JSONB
 LANGUAGE plpgsql
 SECURITY DEFINER
+SET search_path = public
 AS $$
 DECLARE
     v_shipment RECORD;
@@ -7716,17 +7717,28 @@ BEGIN
     WHERE id = p_shipment_id;
 
     -- ── D. Resolve Accounts ──
-    SELECT company_id INTO v_company_id FROM public.accounts WHERE account_code = '5102' LIMIT 1;
+    SELECT company_id INTO v_company_id FROM public.accounts WHERE account_code = '5210' LIMIT 1;
     IF v_company_id IS NULL THEN SELECT id INTO v_company_id FROM public.sys_companies LIMIT 1; END IF;
 
-    SELECT id INTO v_admin_exp_account_id FROM public.accounts WHERE account_code = '5102' LIMIT 1;
+    -- 5210: Allocated Admin Expenses (مصروفات إدارية محملة)
+    SELECT id INTO v_admin_exp_account_id FROM public.accounts WHERE account_code = '5210' LIMIT 1;
     IF v_admin_exp_account_id IS NULL THEN
-        SELECT id INTO v_admin_exp_account_id FROM public.accounts WHERE account_code = '5100' LIMIT 1;
+        SELECT id INTO v_admin_exp_account_id FROM public.accounts WHERE account_code = '6002' LIMIT 1;
+    END IF;
+    IF v_admin_exp_account_id IS NULL THEN
+        SELECT id INTO v_admin_exp_account_id FROM public.accounts WHERE account_code = '6000' LIMIT 1;
+    END IF;
+    IF v_admin_exp_account_id IS NULL THEN
+        SELECT id INTO v_admin_exp_account_id FROM public.accounts WHERE account_type = 'expense' LIMIT 1;
     END IF;
 
-    SELECT id INTO v_provision_account_id FROM public.accounts WHERE account_code = '2401' LIMIT 1;
+    -- 2105: Admin Expenses Provision (مخصص / وسيط مصروفات إدارية)
+    SELECT id INTO v_provision_account_id FROM public.accounts WHERE account_code = '2105' LIMIT 1;
     IF v_provision_account_id IS NULL THEN
-        SELECT id INTO v_provision_account_id FROM public.accounts WHERE account_code = '2400' LIMIT 1;
+        SELECT id INTO v_provision_account_id FROM public.accounts WHERE account_code = '2100' LIMIT 1;
+    END IF;
+    IF v_provision_account_id IS NULL THEN
+        SELECT id INTO v_provision_account_id FROM public.accounts WHERE account_type = 'liability' LIMIT 1;
     END IF;
 
     -- ── E. Manage GL Journal Entry ──

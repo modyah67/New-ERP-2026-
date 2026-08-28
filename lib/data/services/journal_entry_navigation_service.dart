@@ -15,11 +15,12 @@ class JournalEntryNavigationService {
 
   /// Navigate directly to a journal entry by its journal_entry_id.
   static void openById(BuildContext context, {required dynamic journalEntryId}) {
+    final navContext = rootNavigatorKey.currentContext ?? context;
     final rawId = journalEntryId?.toString().trim() ?? '';
     final id = rawId.replaceAll('#', '').trim();
     if (id.isEmpty || id == '0') {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      if (navContext.mounted) {
+        ScaffoldMessenger.of(navContext).showSnackBar(
           const SnackBar(
             content: Text('لا يوجد قيد محاسبي مرتبط بهذه العملية.'),
             backgroundColor: AppTheme.warning,
@@ -28,7 +29,7 @@ class JournalEntryNavigationService {
       }
       return;
     }
-    context.go(
+    navContext.go(
       Uri(
         path: RoutePaths.journalEntry,
         queryParameters: {'journalEntryId': id},
