@@ -1,6 +1,5 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/clearing_agent_model.dart';
-import '../../core/services/tenant_service.dart';
 
 class ClearingAgentDao {
   final _client = Supabase.instance.client;
@@ -40,6 +39,11 @@ class ClearingAgentDao {
     String? str(dynamic v) => v?.toString();
     num? numVal(dynamic v) => v is num ? v : num.tryParse('$v');
 
+    final computedBal = row['computed_balance'];
+    final effectiveBal = computedBal != null
+        ? (computedBal as num).toDouble()
+        : (numVal(row['balance'])?.toDouble() ?? 0.0);
+
     return ClearingAgentModel(
       id: str(row['id']),
       code: str(row['code']) ?? '',
@@ -53,7 +57,7 @@ class ClearingAgentDao {
       contactPersonPhone: str(row['contact_person_phone']) ?? '',
       contactPersonEmail: str(row['contact_person_email']) ?? '',
       addresses: _parseAddresses(row['addresses']),
-      balance: numVal(row['balance'])?.toDouble() ?? 0.0,
+      balance: effectiveBal,
       initialBalance: numVal(row['initial_balance'])?.toDouble() ?? 0.0,
       currency: str(row['currency']) ?? 'EGP',
       createdAt: str(row['created_at']) ?? '',
@@ -61,12 +65,33 @@ class ClearingAgentDao {
   }
 
   Future<List<ClearingAgentModel>> getAll({int limit = 50, int offset = 0}) async {
-    final data = await _client
+    final rows = await _client
         .from(_table)
         .select()
         .order('name')
         .range(offset, offset + limit - 1);
-    return data.map(_fromRow).toList();
+
+    Map<String, double>? trueBalances;
+    try {
+      final res = await _client.rpc('get_clearing_agent_true_balances');
+      if (res is List) {
+        trueBalances = {};
+        for (final r in res) {
+          final id = r['clearing_agent_id']?.toString();
+          if (id != null) {
+            trueBalances[id] = (r['true_balance'] as num?)?.toDouble() ?? 0.0;
+          }
+        }
+      }
+    } catch (_) {}
+
+    return rows.map((row) {
+      final id = row['id']?.toString();
+      if (trueBalances != null && id != null && trueBalances.containsKey(id)) {
+        row['computed_balance'] = trueBalances[id];
+      }
+      return _fromRow(row);
+    }).toList();
   }
 
   Future<List<ClearingAgentModel>> search(String query, {String? typeFilter, int limit = 50, int offset = 0}) async {
@@ -80,10 +105,31 @@ class ClearingAgentDao {
       queryBuilder = queryBuilder.or('name.ilike.%$query%,code.ilike.%$query%,phone.ilike.%$query%');
     }
 
-    final data = await queryBuilder
+    final rows = await queryBuilder
         .order('name')
         .range(offset, offset + limit - 1);
-    return data.map(_fromRow).toList();
+
+    Map<String, double>? trueBalances;
+    try {
+      final res = await _client.rpc('get_clearing_agent_true_balances');
+      if (res is List) {
+        trueBalances = {};
+        for (final r in res) {
+          final id = r['clearing_agent_id']?.toString();
+          if (id != null) {
+            trueBalances[id] = (r['true_balance'] as num?)?.toDouble() ?? 0.0;
+          }
+        }
+      }
+    } catch (_) {}
+
+    return rows.map((row) {
+      final id = row['id']?.toString();
+      if (trueBalances != null && id != null && trueBalances.containsKey(id)) {
+        row['computed_balance'] = trueBalances[id];
+      }
+      return _fromRow(row);
+    }).toList();
   }
 
   Future<String> insert(ClearingAgentModel agent) async {

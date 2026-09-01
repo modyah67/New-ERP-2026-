@@ -2007,6 +2007,127 @@ $func$;
 GRANT EXECUTE ON FUNCTION public.get_supplier_true_balances() TO authenticated, anon, service_role;
 
 -- ============================================================================
+-- 10.1 True Balances for Shipping Companies & Clearing Agents
+-- ============================================================================
+CREATE OR REPLACE FUNCTION public.get_shipping_company_true_balances()
+RETURNS TABLE (
+  shipping_company_id bigint,
+  true_balance numeric
+)
+LANGUAGE sql
+SECURITY DEFINER
+AS $func$
+  SELECT
+    sc.id,
+    (
+      -- 1. Initial Balance
+      (CASE WHEN sc.initial_balance_direction = 'CREDIT' THEN COALESCE(sc.initial_balance, 0) ELSE -COALESCE(sc.initial_balance, 0) END)
+      
+      -- 2. Shipment Cost Items (تكاليف الشحن)
+      + COALESCE((
+          SELECT SUM(sci.total_price / COALESCE(NULLIF(sci.exchange_rate, 0), 1.0))
+          FROM public.shipment_cost_items sci
+          WHERE (
+            (sci.shipping_company_id IS NOT NULL AND sci.shipping_company_id = sc.id)
+            OR
+            (sci.vendor_type = 'shipping_company' AND sci.vendor_id = sc.id)
+          )
+        ), 0)
+      
+      -- 3. Treasury Transactions
+      + COALESCE((SELECT SUM(amount) FROM public.treasury_transactions WHERE shipping_company_id = sc.id AND type IN ('deposit', 'receive', 'income') AND (status = 'confirmed' OR status IS NULL)), 0)
+      - COALESCE((SELECT SUM(amount) FROM public.treasury_transactions WHERE shipping_company_id = sc.id AND type IN ('expense', 'shipping_company_payment', 'payment') AND (status = 'confirmed' OR status IS NULL)), 0)
+      
+      -- 4. Bank Transactions
+      + COALESCE((SELECT SUM(amount) FROM public.bank_account_transactions WHERE entity_type = 'shipping_company' AND entity_id = sc.id::TEXT AND type IN ('deposit', 'receive', 'income') AND (status = 'confirmed' OR status IS NULL)), 0)
+      - COALESCE((SELECT SUM(amount) FROM public.bank_account_transactions WHERE entity_type = 'shipping_company' AND entity_id = sc.id::TEXT AND type IN ('withdraw', 'withdrawal', 'expense', 'shipping_company_payment', 'payment') AND (status = 'confirmed' OR status IS NULL)), 0)
+      
+      -- 5. Cheques
+      + COALESCE((SELECT SUM(amount) FROM public.cheques WHERE (shipping_company_id = sc.id OR (counterparty_type = 'shipping_company' AND counterparty_id = sc.id)) AND type = 'incoming' AND status IN ('cleared', 'collected')), 0)
+      - COALESCE((SELECT SUM(amount) FROM public.cheques WHERE (shipping_company_id = sc.id OR (counterparty_type = 'shipping_company' AND counterparty_id = sc.id)) AND type = 'outgoing' AND status IN ('cleared', 'collected')), 0)
+
+      -- 6. Direct Ledger Entries (excluding ones created for treasury/bank transactions already counted)
+      + COALESCE((
+          SELECT SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE -amount END)
+          FROM public.ledger_entries le
+          WHERE le.entity_type = 'shipping_company' 
+            AND le.entity_id = sc.id::text
+            AND le.reference_type NOT IN ('shipment_cost_item', 'expense', 'receive')
+            AND NOT (
+                le.reference_type IN ('shipping_company_payment', 'treasury_deposit', 'treasury_withdrawal', 'treasury_transaction', 'cash_payment', 'receive', 'deposit')
+                AND EXISTS (SELECT 1 FROM public.treasury_transactions tt WHERE tt.id::TEXT = le.reference_id::TEXT)
+            )
+            AND NOT (
+                le.reference_type IN ('bank_payment', 'bank_receipt', 'bank_transaction', 'cheque', 'shipping_company_payment', 'receive', 'deposit')
+                AND EXISTS (SELECT 1 FROM public.bank_account_transactions bt WHERE bt.id::TEXT = le.reference_id::TEXT)
+            )
+      ), 0)
+    ) AS true_balance
+  FROM public.shipping_companies sc;
+$func$;
+
+GRANT EXECUTE ON FUNCTION public.get_shipping_company_true_balances() TO authenticated, anon, service_role;
+
+CREATE OR REPLACE FUNCTION public.get_clearing_agent_true_balances()
+RETURNS TABLE (
+  clearing_agent_id bigint,
+  true_balance numeric
+)
+LANGUAGE sql
+SECURITY DEFINER
+AS $func$
+  SELECT
+    ca.id,
+    (
+      -- 1. Initial Balance
+      (CASE WHEN ca.initial_balance_direction = 'CREDIT' THEN COALESCE(ca.initial_balance, 0) ELSE -COALESCE(ca.initial_balance, 0) END)
+      
+      -- 2. Shipment Cost Items (تكاليف التخليص)
+      + COALESCE((
+          SELECT SUM(sci.total_price / COALESCE(NULLIF(sci.exchange_rate, 0), 1.0))
+          FROM public.shipment_cost_items sci
+          WHERE (
+            (sci.clearing_agent_id IS NOT NULL AND sci.clearing_agent_id = ca.id)
+            OR
+            (sci.vendor_type = 'clearing_agent' AND sci.vendor_id = ca.id)
+          )
+        ), 0)
+      
+      -- 3. Treasury Transactions
+      + COALESCE((SELECT SUM(amount) FROM public.treasury_transactions WHERE clearing_agent_id = ca.id AND type IN ('deposit', 'receive', 'income') AND (status = 'confirmed' OR status IS NULL)), 0)
+      - COALESCE((SELECT SUM(amount) FROM public.treasury_transactions WHERE clearing_agent_id = ca.id AND type IN ('expense', 'clearing_agent_payment', 'payment') AND (status = 'confirmed' OR status IS NULL)), 0)
+      
+      -- 4. Bank Transactions
+      + COALESCE((SELECT SUM(amount) FROM public.bank_account_transactions WHERE entity_type = 'clearing_agent' AND entity_id = ca.id::TEXT AND type IN ('deposit', 'receive', 'income') AND (status = 'confirmed' OR status IS NULL)), 0)
+      - COALESCE((SELECT SUM(amount) FROM public.bank_account_transactions WHERE entity_type = 'clearing_agent' AND entity_id = ca.id::TEXT AND type IN ('withdraw', 'withdrawal', 'expense', 'clearing_agent_payment', 'payment') AND (status = 'confirmed' OR status IS NULL)), 0)
+      
+      -- 5. Cheques
+      + COALESCE((SELECT SUM(amount) FROM public.cheques WHERE (clearing_agent_id = ca.id OR (counterparty_type = 'clearing_agent' AND counterparty_id = ca.id)) AND type = 'incoming' AND status IN ('cleared', 'collected')), 0)
+      - COALESCE((SELECT SUM(amount) FROM public.cheques WHERE (clearing_agent_id = ca.id OR (counterparty_type = 'clearing_agent' AND counterparty_id = ca.id)) AND type = 'outgoing' AND status IN ('cleared', 'collected')), 0)
+
+      -- 6. Direct Ledger Entries (excluding ones created for treasury/bank transactions already counted)
+      + COALESCE((
+          SELECT SUM(CASE WHEN entry_type = 'credit' THEN amount ELSE -amount END)
+          FROM public.ledger_entries le
+          WHERE le.entity_type = 'clearing_agent' 
+            AND le.entity_id = ca.id::text
+            AND le.reference_type NOT IN ('shipment_cost_item', 'expense', 'receive')
+            AND NOT (
+                le.reference_type IN ('clearing_agent_payment', 'treasury_deposit', 'treasury_withdrawal', 'treasury_transaction', 'cash_payment', 'receive', 'deposit')
+                AND EXISTS (SELECT 1 FROM public.treasury_transactions tt WHERE tt.id::TEXT = le.reference_id::TEXT)
+            )
+            AND NOT (
+                le.reference_type IN ('bank_payment', 'bank_receipt', 'bank_transaction', 'cheque', 'clearing_agent_payment', 'receive', 'deposit')
+                AND EXISTS (SELECT 1 FROM public.bank_account_transactions bt WHERE bt.id::TEXT = le.reference_id::TEXT)
+            )
+      ), 0)
+    ) AS true_balance
+  FROM public.clearing_agents ca;
+$func$;
+
+GRANT EXECUTE ON FUNCTION public.get_clearing_agent_true_balances() TO authenticated, anon, service_role;
+
+-- ============================================================================
 -- 11. ترتيب دفتر قيود اليومية حسب الأحدث إضافة (created_at DESC)
 -- ============================================================================
 CREATE OR REPLACE FUNCTION rpc_get_journal_history(
@@ -3879,6 +4000,12 @@ BEGIN
         RETURN NEW;
     END IF;
 
+    -- Skip revenue account check for internal transfers, cheque feedings, custody settlements, and opening balances
+    IF NEW.source_type IN ('cheque', 'transfer', 'bank_transfer', 'treasury_transfer', 'opening_balance', 'custody_settlement')
+       OR NEW.reference_type IN ('cheque', 'transfer', 'bank_transfer', 'custody_settlement') THEN
+        RETURN NEW;
+    END IF;
+
     IF NEW.type = 'deposit' 
        AND NEW.revenue_account_id IS NULL 
        AND NEW.customer_id IS NULL 
@@ -5243,9 +5370,16 @@ BEGIN
     ) THEN
         ALTER TABLE public.cheques ADD COLUMN treasury_id BIGINT REFERENCES public.treasuries(id) ON DELETE SET NULL;
     END IF;
+
+    IF NOT EXISTS (
+        SELECT 1 FROM information_schema.columns 
+        WHERE table_schema = 'public' AND table_name = 'cheques' AND column_name = 'bank_transaction_id'
+    ) THEN
+        ALTER TABLE public.cheques ADD COLUMN bank_transaction_id BIGINT;
+    END IF;
 END $$;
 
--- ── 7.5 Unified clear_cheque with Multi-Payment Integration (Migration 378 / 380 / 381) ──
+-- ── 7.5 Unified clear_cheque with Multi-Payment Integration (Migration 421 / 428) ──
 CREATE OR REPLACE FUNCTION public.clear_cheque(p_cheque_id bigint)
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -5276,20 +5410,32 @@ DECLARE
     v_book_rate NUMERIC := 1.0;
     v_snapshot JSONB;
     v_entity_id TEXT;
-    v_multi_res JSONB;
-    v_je_lines JSONB;
+    v_norm_counterparty_type TEXT;
+    v_je_lines JSONB := '[]'::jsonb;
+    v_treasury_id BIGINT;
+    v_tr_bal NUMERIC := 0;
+    v_tr_cost_base NUMERIC := 0;
+    v_tr_book_rate NUMERIC := 1.0;
+    v_new_tr_bal NUMERIC := 0;
+    v_new_tr_cost_base NUMERIC := 0;
+    v_new_tr_book_rate NUMERIC := 1.0;
 
-    -- Shipment matching & FX calculation variables
-    v_total_cust_base NUMERIC;
-    v_total_gain      NUMERIC := 0;
-    v_total_loss      NUMERIC := 0;
+    -- Liability matching & FX calculation variables
+    v_total_ap_base   NUMERIC := 0.0;
+    v_total_gain      NUMERIC := 0.0;
+    v_total_loss      NUMERIC := 0.0;
     v_remaining_alloc NUMERIC;
     v_alloc           NUMERIC;
+    v_inv_rate        NUMERIC;
+    v_inv_base        NUMERIC;
+    v_paid_base       NUMERIC;
+    v_diff            NUMERIC;
+    v_liab            RECORD;
+    v_shipment        RECORD;
+    v_spec_shipment   RECORD;
+    v_total_cust_base NUMERIC;
     v_alloc_bank_base NUMERIC;
     v_alloc_cust_base NUMERIC;
-    v_diff            NUMERIC;
-    v_spec_shipment   RECORD;
-    v_shipment        RECORD;
 BEGIN
     SELECT * INTO v_cheque
     FROM public.cheques
@@ -5307,6 +5453,7 @@ BEGIN
     v_currency := v_cheque.currency;
     v_rate := public.fn_get_exchange_rate(v_currency);
     v_base_amount := ROUND(v_cheque.amount * v_rate, 2);
+    v_norm_counterparty_type := LOWER(COALESCE(v_cheque.counterparty_type, ''));
 
     IF v_cheque.type = 'outgoing' THEN
         v_desc := 'صرف شيك رقم: ' || v_cheque.cheque_number;
@@ -5340,7 +5487,7 @@ BEGIN
     END IF;
 
     -- ================================================================
-    -- 1. OUTGOING CHEQUE: Dr Counterparty / Cr Bank (Book Rate)
+    -- 1. OUTGOING CHEQUE: Dr Counterparty / Cr Bank (With Liability Allocation & Realized FX)
     -- ================================================================
     IF v_cheque.type = 'outgoing' THEN
         IF v_bank_bal < v_cheque.amount THEN
@@ -5370,30 +5517,40 @@ BEGIN
         END IF;
 
         v_counterparty_acct := NULL;
+        v_entity_id := NULL;
+        v_treasury_id := NULL;
 
-        IF v_cheque.counterparty_type = 'supplier' AND v_cheque.supplier_id IS NOT NULL THEN
+        IF v_norm_counterparty_type = 'supplier' AND v_cheque.supplier_id IS NOT NULL THEN
+            v_entity_id := v_cheque.supplier_id::text;
             SELECT account_id INTO v_counterparty_acct FROM public.suppliers WHERE id = v_cheque.supplier_id;
-            UPDATE public.suppliers SET outstanding_balance = outstanding_balance - v_cheque.amount WHERE id = v_cheque.supplier_id;
-        ELSIF v_cheque.counterparty_type = 'customer' AND v_cheque.counterparty_id IS NOT NULL THEN
+        ELSIF v_norm_counterparty_type = 'shipping_company' AND COALESCE(v_cheque.shipping_company_id, v_cheque.counterparty_id) IS NOT NULL THEN
+            v_entity_id := COALESCE(v_cheque.shipping_company_id, v_cheque.counterparty_id)::text;
+            SELECT account_id INTO v_counterparty_acct FROM public.shipping_companies WHERE id = v_entity_id::bigint;
+        ELSIF v_norm_counterparty_type = 'clearing_agent' AND COALESCE(v_cheque.clearing_agent_id, v_cheque.counterparty_id) IS NOT NULL THEN
+            v_entity_id := COALESCE(v_cheque.clearing_agent_id, v_cheque.counterparty_id)::text;
+            SELECT account_id INTO v_counterparty_acct FROM public.clearing_agents WHERE id = v_entity_id::bigint;
+        ELSIF v_norm_counterparty_type = 'customer' AND v_cheque.counterparty_id IS NOT NULL THEN
+            v_entity_id := v_cheque.counterparty_id::text;
             SELECT account_id INTO v_counterparty_acct FROM public.customers WHERE id = v_cheque.counterparty_id;
-            UPDATE public.customers SET balance = balance + v_cheque.amount WHERE id = v_cheque.counterparty_id;
-        ELSIF v_cheque.counterparty_type = 'clearing_agent' AND v_cheque.clearing_agent_id IS NOT NULL THEN
-            SELECT account_id INTO v_counterparty_acct FROM public.clearing_agents WHERE id = v_cheque.clearing_agent_id;
-            UPDATE public.clearing_agents SET balance = balance - v_cheque.amount WHERE id = v_cheque.clearing_agent_id;
-        ELSIF v_cheque.counterparty_type = 'shipping_company' AND v_cheque.shipping_company_id IS NOT NULL THEN
-            SELECT account_id INTO v_counterparty_acct FROM public.shipping_companies WHERE id = v_cheque.shipping_company_id;
-            UPDATE public.shipping_companies SET balance = balance - v_cheque.amount WHERE id = v_cheque.shipping_company_id;
-        ELSIF v_cheque.counterparty_type = 'shareholder' AND v_cheque.shareholder_id IS NOT NULL THEN
+        ELSIF v_norm_counterparty_type = 'shareholder' AND v_cheque.shareholder_id IS NOT NULL THEN
+            v_entity_id := v_cheque.shareholder_id::text;
             SELECT account_id INTO v_counterparty_acct FROM public.shareholders WHERE id = v_cheque.shareholder_id;
-            IF v_currency = 'EGP' THEN UPDATE public.shareholders SET current_balance_egp = current_balance_egp - v_cheque.amount WHERE id = v_cheque.shareholder_id;
-            ELSIF v_currency = 'USD' THEN UPDATE public.shareholders SET current_balance_usd = current_balance_usd - v_cheque.amount WHERE id = v_cheque.shareholder_id;
-            ELSIF v_currency = 'EUR' THEN UPDATE public.shareholders SET current_balance_eur = current_balance_eur - v_cheque.amount WHERE id = v_cheque.shareholder_id;
-            ELSIF v_currency = 'GBP' THEN UPDATE public.shareholders SET current_balance_gbp = current_balance_gbp - v_cheque.amount WHERE id = v_cheque.shareholder_id;
-            END IF;
+        ELSIF v_norm_counterparty_type = 'treasury' OR v_cheque.treasury_id IS NOT NULL THEN
+            v_treasury_id := COALESCE(v_cheque.treasury_id, v_cheque.counterparty_id::bigint);
+            v_entity_id := v_treasury_id::text;
+            v_counterparty_acct := public.resolve_treasury_account(v_treasury_id::integer, v_currency, v_company_id);
         END IF;
 
         IF v_counterparty_acct IS NULL THEN
-            v_counterparty_acct := public.resolve_gl_account('51101', v_company_id);
+            IF v_norm_counterparty_type = 'supplier' THEN
+                v_counterparty_acct := public.resolve_gl_account('2000', v_company_id);
+            ELSIF v_norm_counterparty_type = 'shipping_company' THEN
+                v_counterparty_acct := public.resolve_gl_account('2103', v_company_id);
+            ELSIF v_norm_counterparty_type = 'clearing_agent' THEN
+                v_counterparty_acct := public.resolve_gl_account('2104', v_company_id);
+            ELSE
+                v_counterparty_acct := public.resolve_gl_account('51101', v_company_id);
+            END IF;
         END IF;
 
         v_bank_acct := public.resolve_gl_account(
@@ -5401,16 +5558,182 @@ BEGIN
             v_company_id
         );
 
+        -- Multi-liability allocation and FX Calculation for Supplier / Shipping Company / Clearing Agent
+        v_remaining_alloc := v_cheque.amount;
+        v_total_ap_base := 0.0;
+        v_total_gain := 0.0;
+        v_total_loss := 0.0;
+
+        IF v_norm_counterparty_type IN ('supplier', 'shipping_company', 'clearing_agent') AND v_entity_id IS NOT NULL THEN
+            FOR v_liab IN 
+                SELECT liability_type, liability_id, reference_number, currency, currency_snapshot, due_amount
+                FROM public.vw_unpaid_liabilities
+                WHERE LOWER(entity_type) = v_norm_counterparty_type
+                  AND entity_id = v_entity_id
+                  AND currency = v_currency
+                ORDER BY liability_date ASC, liability_id ASC
+            LOOP
+                EXIT WHEN v_remaining_alloc <= 0;
+
+                IF v_remaining_alloc >= v_liab.due_amount THEN
+                    v_alloc := v_liab.due_amount;
+                ELSE
+                    v_alloc := v_remaining_alloc;
+                END IF;
+
+                v_inv_rate := COALESCE(
+                    (v_liab.currency_snapshot->>'exchange_rate')::NUMERIC,
+                    v_rate
+                );
+
+                v_inv_base  := ROUND(v_alloc * v_inv_rate, 2);
+                v_paid_base := ROUND(v_alloc * v_book_rate, 2);
+                v_diff      := v_paid_base - v_inv_base;
+
+                v_total_ap_base := v_total_ap_base + v_inv_base;
+
+                IF v_diff < 0 THEN
+                    v_total_gain := v_total_gain + ABS(v_diff);
+                ELSIF v_diff > 0 THEN
+                    v_total_loss := v_total_loss + v_diff;
+                END IF;
+
+                -- Update individual liability records
+                IF v_liab.liability_type = 'purchase_invoice' THEN
+                    IF v_norm_counterparty_type = 'supplier' THEN
+                        INSERT INTO public.supplier_payment_allocations (
+                            source_type, source_id, purchase_invoice_id, supplier_id, allocation_type, amount
+                        ) VALUES (
+                            'bank', p_cheque_id, v_liab.liability_id::integer, v_cheque.supplier_id, 'invoice', v_alloc
+                        );
+                    END IF;
+                    UPDATE public.purchase_invoices
+                    SET paid_amount = paid_amount + v_alloc,
+                        payment_status = CASE WHEN (paid_amount + v_alloc) >= (total_amount - discount_amount) THEN 'paid' ELSE 'partial' END,
+                        payment_bank_account_id = v_bank_id,
+                        payment_source_type = 'bank'
+                    WHERE id::text = v_liab.liability_id;
+                    
+                ELSIF v_liab.liability_type = 'lot_receipt' THEN
+                    IF v_norm_counterparty_type = 'supplier' THEN
+                        INSERT INTO public.supplier_payment_allocations (
+                            source_type, source_id, lot_receipt_id, supplier_id, allocation_type, amount
+                        ) VALUES (
+                            'bank', p_cheque_id, v_liab.liability_id::bigint, v_cheque.supplier_id, 'lot_receipt', v_alloc
+                        );
+                    END IF;
+                    UPDATE public.lot_receipts
+                    SET paid_amount = COALESCE(paid_amount, 0) + v_alloc,
+                        payment_status = CASE WHEN (COALESCE(paid_amount, 0) + v_alloc) >= COALESCE(total_fruit_cost, 0) THEN 'paid' ELSE 'partial' END,
+                        payment_bank_account_id = v_bank_id,
+                        payment_source_type = 'bank',
+                        updated_at = NOW()
+                    WHERE id::text = v_liab.liability_id;
+                    
+                ELSIF v_liab.liability_type = 'packing_cost_item' THEN
+                    IF v_norm_counterparty_type = 'supplier' THEN
+                        INSERT INTO public.supplier_payment_allocations (
+                            source_type, source_id, packing_order_cost_item_id, supplier_id, allocation_type, amount
+                        ) VALUES (
+                            'bank', p_cheque_id, v_liab.liability_id::bigint, v_cheque.supplier_id, 'packing_cost', v_alloc
+                        );
+                    END IF;
+                    UPDATE public.packing_order_cost_items
+                    SET paid_amount = paid_amount + v_alloc,
+                        payment_status = CASE WHEN (paid_amount + v_alloc) >= COALESCE(original_amount, 0) THEN 'paid' ELSE 'partial' END,
+                        payment_bank_account_id = v_bank_id,
+                        payment_source_type = 'bank'
+                    WHERE id::text = v_liab.liability_id;
+                    
+                ELSIF v_liab.liability_type = 'shipment_cost_item' THEN
+                    IF v_norm_counterparty_type = 'supplier' THEN
+                        INSERT INTO public.supplier_payment_allocations (
+                            source_type, source_id, shipment_cost_item_id, supplier_id, allocation_type, amount
+                        ) VALUES (
+                            'bank', p_cheque_id, v_liab.liability_id::bigint, v_cheque.supplier_id, 'shipment_cost', v_alloc
+                        );
+                    END IF;
+                    UPDATE public.shipment_cost_items
+                    SET paid_amount = paid_amount + v_alloc,
+                        payment_status = CASE WHEN (paid_amount + v_alloc) >= ROUND(COALESCE(NULLIF(total_price, 0), quantity * unit_price, 0) / COALESCE(NULLIF(exchange_rate, 0), 1.0), 2) THEN 'paid' ELSE 'partial' END,
+                        payment_bank_account_id = v_bank_id,
+                        payment_source_type = 'bank'
+                    WHERE id::text = v_liab.liability_id;
+                END IF;
+
+                v_remaining_alloc := v_remaining_alloc - v_alloc;
+            END LOOP;
+
+            IF v_remaining_alloc > 0 THEN
+                v_total_ap_base := v_total_ap_base + ROUND(v_remaining_alloc * v_book_rate, 2);
+            END IF;
+        ELSE
+            v_total_ap_base := v_cost_released;
+        END IF;
+
+        -- Build Journal Entry with single balanced structure & Realized FX
+        v_je_lines := jsonb_build_array(
+            jsonb_build_object(
+                'account_id', v_counterparty_acct,
+                'debit', v_cheque.amount,
+                'credit', 0,
+                'base_debit', v_total_ap_base,
+                'base_credit', 0,
+                'currency', v_currency,
+                'description', v_desc || ' (تسوية ذمم دائنة)'
+            )
+        );
+
+        IF v_total_loss > 0 THEN
+            v_realized_loss_acct := public.resolve_realized_fx_loss_account(v_company_id);
+            v_je_lines := v_je_lines || jsonb_build_array(
+                jsonb_build_object(
+                    'account_id', v_realized_loss_acct,
+                    'debit', v_total_loss,
+                    'credit', 0,
+                    'base_debit', v_total_loss,
+                    'base_credit', 0,
+                    'currency', 'EGP',
+                    'description', 'خسائر فروق أسعار عملة محققة - ' || v_desc
+                )
+            );
+        END IF;
+
+        v_je_lines := v_je_lines || jsonb_build_array(
+            jsonb_build_object(
+                'account_id', v_bank_acct,
+                'debit', 0,
+                'credit', v_cheque.amount,
+                'base_debit', 0,
+                'base_credit', v_cost_released,
+                'currency', v_currency,
+                'description', v_desc || ' (صرف شيك من البنك)'
+            )
+        );
+
+        IF v_total_gain > 0 THEN
+            v_realized_gain_acct := public.resolve_realized_fx_gain_account(v_company_id);
+            v_je_lines := v_je_lines || jsonb_build_array(
+                jsonb_build_object(
+                    'account_id', v_realized_gain_acct,
+                    'debit', 0,
+                    'credit', v_total_gain,
+                    'base_debit', 0,
+                    'base_credit', v_total_gain,
+                    'currency', 'EGP',
+                    'description', 'أرباح فروق أسعار عملة محققة - ' || v_desc
+                )
+            );
+        END IF;
+
         v_je_id := public.post_journal_entry(
             'bank_withdrawal',
             v_desc,
             CURRENT_DATE,
             v_company_id,
             auth.uid(),
-            jsonb_build_array(
-                jsonb_build_object('account_id', v_counterparty_acct, 'debit', v_cheque.amount, 'credit', 0, 'base_debit', v_cost_released, 'base_credit', 0, 'currency', v_currency, 'description', v_desc),
-                jsonb_build_object('account_id', v_bank_acct,         'debit', 0, 'credit', v_cheque.amount, 'base_debit', 0, 'base_credit', v_cost_released, 'currency', v_currency, 'description', v_desc)
-            )
+            v_je_lines,
+            v_entity_id
         );
 
         UPDATE public.bank_accounts
@@ -5435,9 +5758,80 @@ BEGIN
                 'amount', v_cheque.amount,
                 'amount_in_base_currency', v_cost_released,
                 'rate_date', CURRENT_DATE,
-                'rate_source', 'bank_book_rate'
+                'rate_source', 'bank_book_rate',
+                'realized_fx_gain', v_total_gain,
+                'realized_fx_loss', v_total_loss
              ))
         RETURNING id INTO v_bank_tx_id;
+
+        -- If outgoing cheque feeds a treasury
+        IF v_treasury_id IS NOT NULL THEN
+            SELECT COALESCE(balance, 0), COALESCE(cost_base, 0), COALESCE(book_rate, 1.0)
+            INTO v_tr_bal, v_tr_cost_base, v_tr_book_rate
+            FROM public.treasury_balances
+            WHERE treasury_id = v_treasury_id AND currency = v_currency
+            FOR UPDATE;
+
+            IF NOT FOUND THEN
+                v_tr_bal := 0;
+                v_tr_cost_base := 0;
+                v_tr_book_rate := 1.0;
+            END IF;
+
+            v_new_tr_bal := v_tr_bal + v_cheque.amount;
+            v_new_tr_cost_base := v_tr_cost_base + v_cost_released;
+
+            IF v_currency = 'EGP' THEN
+                v_new_tr_book_rate := 1.0;
+            ELSIF v_new_tr_bal > 0 THEN
+                v_new_tr_book_rate := ROUND(v_new_tr_cost_base / v_new_tr_bal, 4);
+            ELSE
+                v_new_tr_book_rate := v_book_rate;
+            END IF;
+
+            INSERT INTO public.treasury_balances (treasury_id, currency, balance, cost_base, book_rate, account_id, updated_at)
+            VALUES (v_treasury_id, v_currency, v_new_tr_bal, v_new_tr_cost_base, v_new_tr_book_rate, v_counterparty_acct, NOW())
+            ON CONFLICT (treasury_id, currency) DO UPDATE
+            SET balance = v_new_tr_bal,
+                cost_base = v_new_tr_cost_base,
+                book_rate = v_new_tr_book_rate,
+                updated_at = NOW();
+
+            INSERT INTO public.treasury_transactions (
+                treasury_id, type, currency, amount,
+                balance_before, balance_after, description, source_type, journal_entry_id, created_by,
+                reference_type, reference_id, exchange_rate, amount_in_base_currency, currency_snapshot
+            ) VALUES (
+                v_treasury_id, 'deposit', v_currency, v_cheque.amount,
+                v_tr_bal, v_new_tr_bal, 'تغذية الخزينة من صرف شيك رقم: ' || COALESCE(v_cheque.cheque_number, ''), 'cheque', v_je_id, auth.uid(),
+                'cheque', p_cheque_id::text, v_book_rate, v_cost_released,
+                jsonb_build_object(
+                    'currency', v_currency,
+                    'exchange_rate', v_book_rate,
+                    'book_rate', v_new_tr_book_rate,
+                    'cost_base', v_new_tr_cost_base,
+                    'amount', v_cheque.amount,
+                    'amount_in_base_currency', v_cost_released,
+                    'rate_date', CURRENT_DATE,
+                    'rate_source', 'bank_book_rate'
+                )
+            );
+        END IF;
+
+        -- Sync Entity True Balance
+        IF v_norm_counterparty_type = 'supplier' AND v_cheque.supplier_id IS NOT NULL THEN
+            UPDATE public.suppliers
+            SET outstanding_balance = (SELECT true_balance FROM public.get_supplier_true_balances() WHERE supplier_id = v_cheque.supplier_id)
+            WHERE id = v_cheque.supplier_id;
+        ELSIF v_norm_counterparty_type = 'shipping_company' AND v_entity_id IS NOT NULL THEN
+            UPDATE public.shipping_companies
+            SET balance = (SELECT true_balance FROM public.get_shipping_company_true_balances() WHERE shipping_company_id = v_entity_id::bigint)
+            WHERE id = v_entity_id::bigint;
+        ELSIF v_norm_counterparty_type = 'clearing_agent' AND v_entity_id IS NOT NULL THEN
+            UPDATE public.clearing_agents
+            SET balance = (SELECT true_balance FROM public.get_clearing_agent_true_balances() WHERE clearing_agent_id = v_entity_id::bigint)
+            WHERE id = v_entity_id::bigint;
+        END IF;
 
     -- ================================================================
     -- 2. INCOMING CHEQUE: Dr Bank / Cr Counterparty (Customer Shipment Matching & FX)
@@ -5458,67 +5852,30 @@ BEGIN
             v_new_book_rate := 1.0;
         ELSE
             v_new_book_rate := v_rate;
+            v_new_cost_base := v_base_amount;
         END IF;
 
         v_counterparty_acct := NULL;
 
-        IF v_cheque.counterparty_type = 'customer' AND v_cheque.counterparty_id IS NOT NULL THEN
-            SELECT account_id INTO v_counterparty_acct
-            FROM public.customers WHERE id = v_cheque.counterparty_id;
-            
-            UPDATE public.customers SET balance = balance - v_cheque.amount
-            WHERE id = v_cheque.counterparty_id;
-
-            -- Sync to ledger_entries for statement reflection
-            INSERT INTO public.ledger_entries (
-                entity_type, entity_id, entry_type, amount, currency,
-                reference_type, reference_id, reference_text, description, created_by
-            ) VALUES (
-                'customer', v_cheque.counterparty_id::text, 'credit', v_cheque.amount, v_currency,
-                'payment', p_cheque_id, v_cheque.cheque_number, v_desc, auth.uid()
-            );
-
-        ELSIF v_cheque.counterparty_type = 'supplier' AND v_cheque.supplier_id IS NOT NULL THEN
-            SELECT account_id INTO v_counterparty_acct
-            FROM public.suppliers WHERE id = v_cheque.supplier_id;
-            UPDATE public.suppliers SET outstanding_balance = outstanding_balance + v_cheque.amount
-            WHERE id = v_cheque.supplier_id;
-
-        ELSIF v_cheque.counterparty_type = 'clearing_agent' AND v_cheque.clearing_agent_id IS NOT NULL THEN
-            SELECT account_id INTO v_counterparty_acct
-            FROM public.clearing_agents WHERE id = v_cheque.clearing_agent_id;
-            UPDATE public.clearing_agents SET balance = balance + v_cheque.amount
-            WHERE id = v_cheque.clearing_agent_id;
-
-        ELSIF v_cheque.counterparty_type = 'shipping_company' AND v_cheque.shipping_company_id IS NOT NULL THEN
-            SELECT account_id INTO v_counterparty_acct
-            FROM public.shipping_companies WHERE id = v_cheque.shipping_company_id;
-            UPDATE public.shipping_companies SET balance = balance + v_cheque.amount
-            WHERE id = v_cheque.shipping_company_id;
-
-        ELSIF v_cheque.counterparty_type = 'shareholder' AND v_cheque.shareholder_id IS NOT NULL THEN
-            SELECT account_id INTO v_counterparty_acct
-            FROM public.shareholders WHERE id = v_cheque.shareholder_id;
-            IF v_currency = 'EGP' THEN UPDATE public.shareholders SET current_balance_egp = current_balance_egp + v_cheque.amount WHERE id = v_cheque.shareholder_id;
-            ELSIF v_currency = 'USD' THEN UPDATE public.shareholders SET current_balance_usd = current_balance_usd + v_cheque.amount WHERE id = v_cheque.shareholder_id;
-            ELSIF v_currency = 'EUR' THEN UPDATE public.shareholders SET current_balance_eur = current_balance_eur + v_cheque.amount WHERE id = v_cheque.shareholder_id;
-            ELSIF v_currency = 'GBP' THEN UPDATE public.shareholders SET current_balance_gbp = current_balance_gbp - v_cheque.amount WHERE id = v_cheque.shareholder_id;
-            END IF;
-
-        ELSIF v_cheque.counterparty_type = 'treasury' THEN
-            v_counterparty_acct := public.resolve_gl_account(
-                CASE v_currency WHEN 'EGP' THEN '11101' WHEN 'USD' THEN '11102' WHEN 'EUR' THEN '11103' WHEN 'GBP' THEN '11104' ELSE '11101' END,
-                v_company_id
-            );
+        IF v_norm_counterparty_type = 'customer' AND v_cheque.counterparty_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct FROM public.customers WHERE id = v_cheque.counterparty_id;
+        ELSIF v_norm_counterparty_type = 'supplier' AND v_cheque.supplier_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct FROM public.suppliers WHERE id = v_cheque.supplier_id;
+        ELSIF v_norm_counterparty_type = 'clearing_agent' AND v_cheque.clearing_agent_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct FROM public.clearing_agents WHERE id = v_cheque.clearing_agent_id;
+        ELSIF v_norm_counterparty_type = 'shipping_company' AND v_cheque.shipping_company_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct FROM public.shipping_companies WHERE id = v_cheque.shipping_company_id;
+        ELSIF v_norm_counterparty_type = 'shareholder' AND v_cheque.shareholder_id IS NOT NULL THEN
+            SELECT account_id INTO v_counterparty_acct FROM public.shareholders WHERE id = v_cheque.shareholder_id;
+        ELSIF v_norm_counterparty_type = 'treasury' OR v_cheque.treasury_id IS NOT NULL THEN
+            v_counterparty_acct := public.resolve_treasury_account(COALESCE(v_cheque.treasury_id, v_cheque.counterparty_id::bigint)::integer, v_currency, v_company_id);
         END IF;
 
         IF v_counterparty_acct IS NULL THEN
-            SELECT account_id INTO v_counterparty_acct FROM public.shareholders WHERE id = v_cheque.shareholder_id;
-            IF v_counterparty_acct IS NOT NULL THEN
-                SELECT id INTO v_counterparty_acct FROM public.accounts WHERE id = v_counterparty_acct AND is_leaf = true AND is_active = true;
-            END IF;
-            IF v_counterparty_acct IS NULL THEN
-                v_counterparty_acct := public.resolve_equity_account(v_currency, v_company_id);
+            IF v_norm_counterparty_type = 'customer' THEN
+                v_counterparty_acct := public.resolve_gl_account('1020', v_company_id);
+            ELSE
+                v_counterparty_acct := public.resolve_gl_account('41101', v_company_id);
             END IF;
         END IF;
 
@@ -5532,7 +5889,7 @@ BEGIN
         v_total_gain := 0;
         v_total_loss := 0;
 
-        IF v_cheque.counterparty_type = 'customer' AND v_currency != 'EGP' AND v_cheque.counterparty_id IS NOT NULL THEN
+        IF v_norm_counterparty_type = 'customer' AND v_cheque.counterparty_id IS NOT NULL AND v_currency != 'EGP' THEN
             v_remaining_alloc := v_cheque.amount;
             v_total_cust_base := 0;
 
@@ -5702,15 +6059,16 @@ BEGIN
         cleared_at = NOW(),
         bank_account_id = v_bank_id,
         journal_entry_id = v_je_id,
-        exchange_rate = v_rate,
-        amount_in_base_currency = v_base_amount,
+        bank_transaction_id = v_bank_tx_id,
+        exchange_rate = CASE WHEN v_cheque.type = 'outgoing' THEN v_book_rate ELSE v_rate END,
+        amount_in_base_currency = CASE WHEN v_cheque.type = 'outgoing' THEN v_cost_released ELSE v_base_amount END,
         currency_snapshot = jsonb_build_object(
             'currency', v_currency,
-            'exchange_rate', v_rate,
+            'exchange_rate', CASE WHEN v_cheque.type = 'outgoing' THEN v_book_rate ELSE v_rate END,
             'amount', v_cheque.amount,
-            'amount_in_base_currency', v_base_amount,
+            'amount_in_base_currency', CASE WHEN v_cheque.type = 'outgoing' THEN v_cost_released ELSE v_base_amount END,
             'rate_date', CURRENT_DATE,
-            'rate_source', 'exchange_rates_table',
+            'rate_source', CASE WHEN v_cheque.type = 'outgoing' THEN 'bank_book_rate' ELSE 'exchange_rates_table' END,
             'realized_fx_gain', v_total_gain,
             'realized_fx_loss', v_total_loss
         )
@@ -5718,18 +6076,24 @@ BEGIN
 
     RETURN jsonb_build_object(
         'success', true,
+        'cheque_id', p_cheque_id,
         'journal_entry_id', v_je_id,
-        'bank_tx_id', v_bank_tx_id,
+        'bank_transaction_id', v_bank_tx_id,
         'realized_fx_gain', v_total_gain,
         'realized_fx_loss', v_total_loss
     );
 END;
 $function$;
 
-GRANT EXECUTE ON FUNCTION public.rpc_record_raw_material_opening_gl(uuid, numeric, numeric, text, uuid, numeric) TO authenticated, service_role, anon;
+-- ============================================================================
+-- Ensure schema columns exist for cost items
+-- ============================================================================
+ALTER TABLE public.packing_order_cost_items ADD COLUMN IF NOT EXISTS supplier_id text;
+ALTER TABLE public.packing_order_cost_items ADD COLUMN IF NOT EXISTS paid_amount numeric DEFAULT 0;
+ALTER TABLE public.packing_order_cost_items ADD COLUMN IF NOT EXISTS payment_status text DEFAULT 'unpaid';
 
 -- ============================================================================
--- Unified View for Unpaid Liabilities (including Lot Receipts)
+-- Unified View for Unpaid Liabilities (including Lot Receipts, Packing & Shipment Costs)
 -- ============================================================================
 DROP VIEW IF EXISTS public.vw_unpaid_liabilities CASCADE;
 
@@ -5787,9 +6151,6 @@ WHERE (
     OR
     (packing_order_cost_items.currency_snapshot->>'supplier_id' IS NOT NULL AND packing_order_cost_items.currency_snapshot->>'supplier_id' <> ''::text AND packing_order_cost_items.currency_snapshot->>'supplier_id' <> 'null'::text)
   )
-  AND (packing_order_cost_items.payment_source_type IS NULL OR packing_order_cost_items.payment_source_type = 'none'::text) 
-  AND packing_order_cost_items.treasury_transaction_id IS NULL 
-  AND packing_order_cost_items.bank_transaction_id IS NULL 
   AND (packing_order_cost_items.payment_status IS NULL OR (packing_order_cost_items.payment_status = ANY (ARRAY['unpaid'::text, 'partial'::text]))) 
   AND (COALESCE(packing_order_cost_items.original_amount, 0::numeric) - COALESCE(packing_order_cost_items.paid_amount, 0::numeric)) > 0.001
 
@@ -5814,15 +6175,15 @@ SELECT
     END AS entity_id,
     COALESCE(NULLIF(shipment_cost_items.original_currency, ''::text), NULLIF(shipment_cost_items.supplier_currency, ''::text), 'EGP'::text) AS currency,
     jsonb_build_object('exchange_rate', COALESCE(shipment_cost_items.exchange_rate, 1.0)) AS currency_snapshot,
-    round(COALESCE(NULLIF(shipment_cost_items.total_price, 0::numeric), shipment_cost_items.quantity * shipment_cost_items.unit_price, 0::numeric) / COALESCE(NULLIF(shipment_cost_items.exchange_rate, 0::numeric), 1.0) - COALESCE(shipment_cost_items.paid_amount, 0::numeric), 2)::double precision AS due_amount,
+    round(
+        (COALESCE(NULLIF(shipment_cost_items.total_price, 0::numeric), shipment_cost_items.quantity * shipment_cost_items.unit_price, 0::numeric) / COALESCE(NULLIF(shipment_cost_items.exchange_rate, 0::numeric), 1.0))
+        - COALESCE(shipment_cost_items.paid_amount, 0::numeric), 2
+    )::double precision AS due_amount,
     shipment_cost_items.created_at::date AS liability_date
 FROM public.shipment_cost_items
 LEFT JOIN public.export_shipments ON export_shipments.id = shipment_cost_items.shipment_id
-WHERE shipment_cost_items.treasury_transaction_id IS NULL 
-  AND shipment_cost_items.bank_transaction_id IS NULL 
-  AND (shipment_cost_items.payment_source_type IS NULL OR shipment_cost_items.payment_source_type = 'none'::text) 
-  AND (shipment_cost_items.payment_status IS NULL OR (shipment_cost_items.payment_status = ANY (ARRAY['unpaid'::text, 'partial'::text]))) 
-  AND (round(COALESCE(NULLIF(shipment_cost_items.total_price, 0::numeric), shipment_cost_items.quantity * shipment_cost_items.unit_price, 0::numeric) / COALESCE(NULLIF(shipment_cost_items.exchange_rate, 0::numeric), 1.0) - COALESCE(shipment_cost_items.paid_amount, 0::numeric), 2)) > 0.001;
+WHERE (shipment_cost_items.payment_status IS NULL OR (shipment_cost_items.payment_status = ANY (ARRAY['unpaid'::text, 'partial'::text]))) 
+  AND round((COALESCE(NULLIF(shipment_cost_items.total_price, 0::numeric), shipment_cost_items.quantity * shipment_cost_items.unit_price, 0::numeric) / COALESCE(NULLIF(shipment_cost_items.exchange_rate, 0::numeric), 1.0)) - COALESCE(shipment_cost_items.paid_amount, 0::numeric), 2) > 0.001;
 
 -- ============================================================================
 -- Unified Entity Multi-Payment Function, Document Types & Timezone Engine
@@ -5936,12 +6297,23 @@ END;
 $$;
 
 -- Update deposit_treasury with Local Timezone Date
+DROP FUNCTION IF EXISTS public.deposit_treasury(bigint, text, numeric, text, integer);
+DROP FUNCTION IF EXISTS public.deposit_treasury(bigint, text, numeric, text, bigint);
+DROP FUNCTION IF EXISTS public.deposit_treasury(integer, text, numeric, text, integer);
+DROP FUNCTION IF EXISTS public.deposit_treasury(integer, text, numeric, text, integer, text, text);
+DROP FUNCTION IF EXISTS public.deposit_treasury(integer, text, numeric, text, integer, text, text, text);
+DROP FUNCTION IF EXISTS public.deposit_treasury(bigint, text, numeric, text, integer, text, text, text);
+DROP FUNCTION IF EXISTS public.deposit_treasury(bigint, text, numeric, text, bigint, text, text, text);
+
 CREATE OR REPLACE FUNCTION public.deposit_treasury(
     p_treasury_id bigint,
     p_currency text,
     p_amount numeric,
-    p_description text DEFAULT ''::text,
-    p_revenue_account_id integer DEFAULT NULL::integer
+    p_description text DEFAULT NULL::text,
+    p_revenue_account_id bigint DEFAULT NULL::bigint,
+    p_reference_type text DEFAULT NULL::text,
+    p_reference_id text DEFAULT NULL::text,
+    p_notes text DEFAULT NULL::text
 )
 RETURNS jsonb
 LANGUAGE plpgsql
@@ -6011,7 +6383,7 @@ BEGIN
     v_source_type := CASE WHEN p_revenue_account_id IS NOT NULL THEN 'revenue' ELSE 'opening_balance' END;
     v_desc := COALESCE(NULLIF(p_description, ''), 'إيداع في الخزينة');
 
-    v_treasury_acct := public.resolve_treasury_account(p_treasury_id, p_currency, v_company_id);
+    v_treasury_acct := public.resolve_treasury_account(p_treasury_id::integer, p_currency, v_company_id);
 
     IF p_revenue_account_id IS NOT NULL THEN
         v_revenue_acct := p_revenue_account_id;
@@ -6055,11 +6427,12 @@ BEGIN
     INSERT INTO public.treasury_transactions (
         treasury_id, type, currency, amount,
         balance_before, balance_after, description, source_type, journal_entry_id, created_by,
-        revenue_account_id, exchange_rate, amount_in_base_currency, currency_snapshot
+        revenue_account_id, reference_type, reference_id, notes, exchange_rate, amount_in_base_currency, currency_snapshot
     ) VALUES (
         p_treasury_id, 'deposit', p_currency, p_amount,
         v_current_balance, v_new_balance, v_desc, v_source_type, v_je_id, auth.uid(),
         CASE WHEN p_revenue_account_id IS NOT NULL THEN p_revenue_account_id ELSE NULL END,
+        p_reference_type, p_reference_id, p_notes,
         v_rate, v_base_amount, v_snapshot
     ) RETURNING id INTO v_tx_id;
 
@@ -6075,6 +6448,11 @@ END;
 $$;
 
 -- Update deposit_bank_account with Local Timezone Date
+DROP FUNCTION IF EXISTS public.deposit_bank_account(bigint, numeric, text, bigint, text, text, text, text, text);
+DROP FUNCTION IF EXISTS public.deposit_bank_account(integer, numeric, text, text, text, text, text, text, text);
+DROP FUNCTION IF EXISTS public.deposit_bank_account(integer, numeric, text, integer, text, text, text, text, text);
+DROP FUNCTION IF EXISTS public.deposit_bank_account(bigint, numeric, text, text, text, text, text, text, text);
+
 CREATE OR REPLACE FUNCTION public.deposit_bank_account(
     p_account_id bigint,
     p_amount numeric,
@@ -6419,6 +6797,11 @@ BEGIN
 END;
 $$;
 
+DROP FUNCTION IF EXISTS public.withdraw_bank_account(bigint, numeric, text, bigint, text, text, text, text, text, text);
+DROP FUNCTION IF EXISTS public.withdraw_bank_account(integer, numeric, text, text, text, text, integer, text, text, text);
+DROP FUNCTION IF EXISTS public.withdraw_bank_account(integer, numeric, text, integer, text, text, text, text, text, text);
+DROP FUNCTION IF EXISTS public.withdraw_bank_account(bigint, numeric, text, text, text, text, text, text, text, text);
+
 CREATE OR REPLACE FUNCTION public.withdraw_bank_account(
     p_account_id bigint,
     p_amount numeric,
@@ -6701,9 +7084,6 @@ WHERE (
     OR
     (packing_order_cost_items.currency_snapshot->>'supplier_id' IS NOT NULL AND packing_order_cost_items.currency_snapshot->>'supplier_id' <> ''::text AND packing_order_cost_items.currency_snapshot->>'supplier_id' <> 'null'::text)
   )
-  AND (packing_order_cost_items.payment_source_type IS NULL OR packing_order_cost_items.payment_source_type = 'none'::text) 
-  AND packing_order_cost_items.treasury_transaction_id IS NULL 
-  AND packing_order_cost_items.bank_transaction_id IS NULL 
   AND (packing_order_cost_items.payment_status IS NULL OR (packing_order_cost_items.payment_status = ANY (ARRAY['unpaid'::text, 'partial'::text]))) 
   AND (COALESCE(packing_order_cost_items.original_amount, 0::numeric) - COALESCE(packing_order_cost_items.paid_amount, 0::numeric)) > 0.001
 
@@ -6728,15 +7108,15 @@ SELECT
     END AS entity_id,
     COALESCE(NULLIF(shipment_cost_items.original_currency, ''::text), NULLIF(shipment_cost_items.supplier_currency, ''::text), 'EGP'::text) AS currency,
     jsonb_build_object('exchange_rate', COALESCE(shipment_cost_items.exchange_rate, 1.0)) AS currency_snapshot,
-    round(COALESCE(NULLIF(shipment_cost_items.total_price, 0::numeric), shipment_cost_items.quantity * shipment_cost_items.unit_price, 0::numeric) / COALESCE(NULLIF(shipment_cost_items.exchange_rate, 0::numeric), 1.0) - COALESCE(shipment_cost_items.paid_amount, 0::numeric), 2)::double precision AS due_amount,
+    round(
+        (COALESCE(NULLIF(shipment_cost_items.total_price, 0::numeric), shipment_cost_items.quantity * shipment_cost_items.unit_price, 0::numeric) / COALESCE(NULLIF(shipment_cost_items.exchange_rate, 0::numeric), 1.0))
+        - COALESCE(shipment_cost_items.paid_amount, 0::numeric), 2
+    )::double precision AS due_amount,
     shipment_cost_items.created_at::date AS liability_date
 FROM public.shipment_cost_items
 LEFT JOIN public.export_shipments ON export_shipments.id = shipment_cost_items.shipment_id
-WHERE shipment_cost_items.treasury_transaction_id IS NULL 
-  AND shipment_cost_items.bank_transaction_id IS NULL 
-  AND (shipment_cost_items.payment_source_type IS NULL OR shipment_cost_items.payment_source_type = 'none'::text) 
-  AND (shipment_cost_items.payment_status IS NULL OR (shipment_cost_items.payment_status = ANY (ARRAY['unpaid'::text, 'partial'::text]))) 
-  AND (COALESCE(NULLIF(shipment_cost_items.total_price, 0::numeric), shipment_cost_items.quantity * shipment_cost_items.unit_price, 0::numeric) / COALESCE(NULLIF(shipment_cost_items.exchange_rate, 0::numeric), 1.0) - COALESCE(shipment_cost_items.paid_amount, 0::numeric)) > 0.001;
+WHERE (shipment_cost_items.payment_status IS NULL OR (shipment_cost_items.payment_status = ANY (ARRAY['unpaid'::text, 'partial'::text]))) 
+  AND round((COALESCE(NULLIF(shipment_cost_items.total_price, 0::numeric), shipment_cost_items.quantity * shipment_cost_items.unit_price, 0::numeric) / COALESCE(NULLIF(shipment_cost_items.exchange_rate, 0::numeric), 1.0)) - COALESCE(shipment_cost_items.paid_amount, 0::numeric), 2) > 0.001;
 
 GRANT SELECT ON public.vw_unpaid_liabilities TO authenticated, anon, service_role;
 
@@ -7035,7 +7415,7 @@ BEGIN
             END IF;
             UPDATE public.shipment_cost_items
             SET paid_amount = paid_amount + v_allocation_amount,
-                payment_status = CASE WHEN (paid_amount + v_allocation_amount) >= COALESCE(NULLIF(total_price, 0), quantity * unit_price, 0) THEN 'paid' ELSE 'partial' END,
+                payment_status = CASE WHEN (paid_amount + v_allocation_amount) >= ROUND(COALESCE(NULLIF(total_price, 0), quantity * unit_price, 0) / COALESCE(NULLIF(exchange_rate, 0), 1.0), 2) THEN 'paid' ELSE 'partial' END,
                 payment_treasury_id = CASE WHEN p_source_type = 'treasury' THEN p_source_id::text END,
                 payment_bank_account_id = CASE WHEN p_source_type = 'bank' THEN p_source_id::integer END,
                 payment_source_type = p_source_type
@@ -7061,6 +7441,12 @@ BEGIN
 
     -- 8. Post / Adjust GL Journal Entry for Realized FX Differences
     IF v_total_realized_gain > 0 OR v_total_realized_loss > 0 THEN
+        -- CRITICAL: Delete initial journal entry to avoid double entry in ledger!
+        IF v_initial_je_id IS NOT NULL THEN
+            DELETE FROM public.account_ledger_entries WHERE journal_entry_id = v_initial_je_id;
+            DELETE FROM public.journal_entries WHERE id = v_initial_je_id;
+        END IF;
+
         v_realized_gain_acct := public.resolve_realized_fx_gain_account(v_company_id);
         v_realized_loss_acct := public.resolve_realized_fx_loss_account(v_company_id);
 
@@ -7134,37 +7520,33 @@ BEGIN
             UPDATE public.bank_account_transactions SET journal_entry_id = v_je_id WHERE id = v_tx_id;
         END IF;
     ELSE
-        IF p_source_type = 'treasury' THEN
-            SELECT journal_entry_id INTO v_je_id FROM public.treasury_transactions WHERE id = v_tx_id;
-        ELSIF p_source_type = 'bank' THEN
-            SELECT journal_entry_id INTO v_je_id FROM public.bank_account_transactions WHERE id = v_tx_id;
-        END IF;
+        v_je_id := v_initial_je_id;
     END IF;
 
-    -- 9. Recalculate & update outstanding_balance
+    -- 9. Recalculate & update true balance
     IF v_norm_entity_type = 'supplier' THEN
         UPDATE public.suppliers
         SET outstanding_balance = (SELECT true_balance FROM public.get_supplier_true_balances() WHERE supplier_id = v_supplier_uuid)
         WHERE id = v_supplier_uuid;
     ELSIF v_norm_entity_type = 'shipping_company' THEN
         UPDATE public.shipping_companies
-        SET balance = balance - p_amount
-        WHERE id = p_entity_id::integer;
+        SET balance = (SELECT true_balance FROM public.get_shipping_company_true_balances() WHERE shipping_company_id = p_entity_id::bigint)
+        WHERE id = p_entity_id::bigint;
     ELSIF v_norm_entity_type = 'clearing_agent' THEN
         UPDATE public.clearing_agents
-        SET balance = balance - p_amount
-        WHERE id = p_entity_id::integer;
+        SET balance = (SELECT true_balance FROM public.get_clearing_agent_true_balances() WHERE clearing_agent_id = p_entity_id::bigint)
+        WHERE id = p_entity_id::bigint;
     END IF;
 
     RETURN jsonb_build_object(
+        'success', true,
         'transaction_id', v_tx_id,
         'journal_entry_id', v_je_id,
-        'opening_balance_allocated', v_opening_alloc,
-        'liabilities_allocated_count', v_invoices_allocated_count,
-        'liabilities_allocated_amount', p_amount - v_opening_alloc - v_advance_alloc,
-        'advance_amount', v_advance_alloc,
+        'amount_paid', p_amount,
+        'invoices_settled_count', v_invoices_allocated_count,
         'realized_fx_gain', v_total_realized_gain,
-        'realized_fx_loss', v_total_realized_loss
+        'realized_fx_loss', v_total_realized_loss,
+        'remaining_advance', v_advance_alloc
     );
 END;
 $$;

@@ -1,7 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/shipping_company_model.dart';
-import '../../core/services/tenant_service.dart';
 
 class ShippingCompanyDao {
   final _client = Supabase.instance.client;
@@ -31,7 +30,7 @@ class ShippingCompanyDao {
       name: str(row['name']) ?? '',
       phone: str(row['phone']) ?? '',
       email: str(row['email']) ?? '',
-      balance: dbl(row['balance']),
+      balance: dbl(row['computed_balance'] ?? row['balance']),
       initialBalance: dbl(row['initial_balance']),
       initialBalanceDirection: str(row['initial_balance_direction']) ?? 'CREDIT',
       currency: str(row['currency']) ?? 'EGP',
@@ -40,12 +39,35 @@ class ShippingCompanyDao {
   }
 
   Future<List<ShippingCompanyModel>> getAll({int limit = 50, int offset = 0}) async {
-    final data = await _client
+    final rows = await _client
         .from(_table)
         .select()
         .order('name')
         .range(offset, offset + limit - 1);
-    return data.map(_fromRow).toList();
+
+    Map<int, double>? trueBalances;
+    try {
+      final res = await _client.rpc('get_shipping_company_true_balances');
+      if (res is List) {
+        trueBalances = {};
+        for (final r in res) {
+          final id = (r['shipping_company_id'] as num?)?.toInt();
+          if (id != null) {
+            trueBalances[id] = (r['true_balance'] as num?)?.toDouble() ?? 0.0;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('get_shipping_company_true_balances RPC error: $e');
+    }
+
+    return rows.map((row) {
+      final id = (row['id'] as num?)?.toInt();
+      if (trueBalances != null && id != null && trueBalances.containsKey(id)) {
+        row['computed_balance'] = trueBalances[id];
+      }
+      return _fromRow(row);
+    }).toList();
   }
 
   Future<ShippingCompanyModel?> getById(int id) async {
@@ -61,8 +83,31 @@ class ShippingCompanyDao {
       builder = builder.or('name.ilike.%$query%,code.ilike.%$query%,phone.ilike.%$query%');
     }
 
-    final data = await builder.order('name').range(offset, offset + limit - 1);
-    return data.map(_fromRow).toList();
+    final rows = await builder.order('name').range(offset, offset + limit - 1);
+
+    Map<int, double>? trueBalances;
+    try {
+      final res = await _client.rpc('get_shipping_company_true_balances');
+      if (res is List) {
+        trueBalances = {};
+        for (final r in res) {
+          final id = (r['shipping_company_id'] as num?)?.toInt();
+          if (id != null) {
+            trueBalances[id] = (r['true_balance'] as num?)?.toDouble() ?? 0.0;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('get_shipping_company_true_balances RPC error: $e');
+    }
+
+    return rows.map((row) {
+      final id = (row['id'] as num?)?.toInt();
+      if (trueBalances != null && id != null && trueBalances.containsKey(id)) {
+        row['computed_balance'] = trueBalances[id];
+      }
+      return _fromRow(row);
+    }).toList();
   }
 
   Future<int> insert(ShippingCompanyModel company) async {
