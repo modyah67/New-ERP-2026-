@@ -1,10 +1,10 @@
 import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/read_only_guard.dart';
+import '../../data/dao/customer_dao.dart';
 import '../../data/models/customer_model.dart';
 import 'customer_cubit.dart';
 import 'customer_state.dart';
@@ -57,7 +57,66 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
   Future<void> _save() async {
     if (!ReadOnlyGuard.check(context)) return;
-    if (_addressEditMode && _addressCtrl.text.trim().isNotEmpty) {
+
+    // ── Form Validation Guard: Strict Numerical Boundary Check ──
+    final codeText = _cubit.codeController.text.trim();
+    final codeValidationError = CustomerModel.validateCustomerCode(codeText);
+    if (codeValidationError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded,
+                  color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  codeValidationError,
+                  style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppTheme.danger,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    // ── Collision Check Guard ──
+    if (widget.customer == null || widget.customer!.code != codeText) {
+      final exists = await CustomerDao().checkCodeExists(codeText, excludeId: widget.customer?.id);
+      if (exists) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'كود العميل ($codeText) مستخدم بالفعل، يرجى اختيار كود آخر',
+                    style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: AppTheme.danger,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+    }
+
+    final isExport = _cubit.selectedCustomerType == 'export';
+    if (isExport && _addressEditMode && _addressCtrl.text.trim().isNotEmpty) {
       final text = _addressCtrl.text.trim();
       setState(() {
         if (_editingAddressIndex != null) {
@@ -118,14 +177,16 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.customer != null;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isExport = _cubit.selectedCustomerType == 'export';
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Dialog(
       clipBehavior: Clip.antiAlias,
-      backgroundColor: const Color(0xCC05192D),
+      backgroundColor: isDark ? const Color(0xCC05192D) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: AppTheme.glassBorder),
+        side: BorderSide(color: isDark ? AppTheme.glassBorder : AppTheme.lightBorder),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
@@ -136,9 +197,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
             constraints: BoxConstraints(
               maxHeight: MediaQuery.of(context).size.height * 0.92,
             ),
-            decoration: const BoxDecoration(
-              color: Color(0xB305192D),
-              borderRadius: BorderRadius.all(Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xB305192D) : Colors.white,
+              borderRadius: const BorderRadius.all(Radius.circular(24)),
             ),
             child: Form(
               key: _cubit.formKey,
@@ -157,20 +218,23 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                         const SizedBox(height: 20),
 
                         // 1️⃣ البيانات الأساسية للعميل
-                        _buildMainCustomerInfoSection(isEditing),
+                        _buildMainCustomerInfoSection(isEditing, isExport),
                         const SizedBox(height: 24),
 
-                        // 2️⃣ عناوين العميل الديناميكية (مقرات الشحن والتفريغ)
-                        _buildAddressesSection(),
-                        const SizedBox(height: 24),
+                        // ── الأقسام التفصيلية المخصصة لعملاء التصدير فقط ──
+                        if (isExport) ...[
+                          // 2️⃣ عناوين العميل الديناميكية (مقرات الشحن والتفريغ)
+                          _buildAddressesSection(),
+                          const SizedBox(height: 24),
 
-                        // 3️⃣ جهة الاتصال (Contact Person)
-                        _buildContactPersonSection(isEditing),
-                        const SizedBox(height: 24),
+                          // 3️⃣ جهة الاتصال (Contact Person)
+                          _buildContactPersonSection(isEditing),
+                          const SizedBox(height: 24),
 
-                        // 4️⃣ البيانات الجمركية والضريبية
-                        _buildTaxSection(isEditing),
-                        const SizedBox(height: 24),
+                          // 4️⃣ البيانات الجمركية والضريبية
+                          _buildTaxSection(isEditing),
+                          const SizedBox(height: 24),
+                        ],
 
                         // 5️⃣ الرصيد المبدئي
                         _sectionLabel('الرصيد المبدئي',
@@ -180,13 +244,15 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                           label: 'الرصيد المبدئي',
                           controller: _cubit.initialBalanceController,
                           hint: '0.00',
-                          keyboardType: TextInputType.numberWithOptions(decimal: true, signed: true),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true, signed: true),
                           isRequired: true,
                           inputFormatters: [
                             FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*')),
                           ],
                           validator: (v) {
-                            if (v == null || v.trim().isEmpty) return 'الرصيد المبدئي مطلوب';
+                            if (v != null && v.trim().isNotEmpty && double.tryParse(v.trim()) == null) {
+                              return 'يرجى إدخال رقم صحيح';
+                            }
                             return null;
                           },
                         ),
@@ -252,12 +318,15 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
   // ── HEADER ──
 
   Widget _buildHeader(bool isEditing) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isMobile = MediaQuery.of(context).size.width < 400;
+    final primaryColor = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+
     return Container(
       padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 28, vertical: isMobile ? 12 : 18),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+          bottom: BorderSide(color: isDark ? Colors.white.withValues(alpha: 0.08) : AppTheme.lightBorder),
         ),
       ),
       child: Row(
@@ -266,12 +335,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: AppTheme.primary.withValues(alpha: 0.1),
+              color: primaryColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               isEditing ? Icons.edit_outlined : Icons.person_add_outlined,
-              color: AppTheme.primary,
+              color: primaryColor,
               size: 20,
             ),
           ),
@@ -282,16 +351,16 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
               alignment: AlignmentDirectional.centerStart,
               child: Text(
                 isEditing ? 'تعديل عميل' : 'إضافة عميل جديد',
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w600,
-                    color: Colors.white,
+                    color: isDark ? Colors.white : AppTheme.lightTextPrimary,
                     fontFamily: 'Cairo'),
               ),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, size: 22),
+            icon: Icon(Icons.close, size: 22, color: isDark ? Colors.white70 : AppTheme.lightTextSecondary),
             onPressed: () => Navigator.pop(context),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -303,7 +372,7 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
 
   // ── 1️⃣ MAIN CUSTOMER INFO SECTION ──
 
-  Widget _buildMainCustomerInfoSection(bool isEditing) {
+  Widget _buildMainCustomerInfoSection(bool isEditing, bool isExport) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -318,13 +387,12 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
               child: AppTextField(
                 label: 'كود العميل',
                 controller: _cubit.codeController,
-                hint: '0001',
+                hint: CustomerModel.codeHint,
                 readOnly: isEditing,
                 isRequired: true,
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'كود العميل مطلوب';
-                  return null;
-                },
+                keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                validator: (v) => CustomerModel.validateCustomerCode(v),
               ),
             ),
             const SizedBox(width: 12),
@@ -342,6 +410,156 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                   return null;
                 },
                 onSubmitted: (_) => _cubit.phoneFocus.requestFocus(),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        Row(
+          children: [
+            // نوع العميل (Customer Type)
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                isExpanded: true,
+                value: _cubit.selectedCustomerType,
+                dropdownColor: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF0A1E38) : Colors.white,
+                style: TextStyle(
+                  color: Theme.of(context).brightness == Brightness.dark ? Colors.white : AppTheme.lightTextPrimary,
+                  fontFamily: 'Cairo',
+                  fontSize: 13,
+                ),
+                decoration: InputDecoration(
+                  labelText: 'نوع العميل *',
+                  labelStyle: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 13,
+                    color: Theme.of(context).brightness == Brightness.dark ? AppTheme.textSecondary : AppTheme.lightTextSecondary,
+                  ),
+                  filled: true,
+                  fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.white.withValues(alpha: 0.06) : Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: Theme.of(context).brightness == Brightness.dark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: Theme.of(context).brightness == Brightness.dark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1)),
+                  ),
+                  helperText: widget.customer != null ? 'مرتبط بالحساب الماستر' : 'توجيه شجرة الحسابات',
+                  helperStyle: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 11,
+                    color: Theme.of(context).brightness == Brightness.dark ? AppTheme.textMuted : AppTheme.lightTextSecondary,
+                  ),
+                ),
+                items: [
+                  DropdownMenuItem(
+                    value: 'export',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.flight_takeoff, size: 18, color: Colors.blueAccent),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'عميل تصدير (12511)',
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 13,
+                              color: Theme.of(context).brightness == Brightness.dark ? Colors.white : AppTheme.lightTextPrimary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  DropdownMenuItem(
+                    value: 'local',
+                    child: Row(
+                      children: [
+                        const Icon(Icons.storefront, size: 18, color: Colors.greenAccent),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'عميل محلي (12512)',
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 13,
+                              color: Theme.of(context).brightness == Brightness.dark ? Colors.white : AppTheme.lightTextPrimary,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+                onChanged: widget.customer != null
+                    ? null
+                    : (v) {
+                        if (v != null) {
+                          setState(() {
+                            _cubit.selectedCustomerType = v;
+                            if (v == 'local') {
+                              _cubit.selectedCurrency = 'EGP';
+                            }
+                          });
+                        }
+                      },
+              ),
+            ),
+            const SizedBox(width: 12),
+            // العملة
+            Expanded(
+              child: DropdownButtonFormField<String>(
+                isExpanded: true,
+                value: !isExport ? 'EGP' : _cubit.selectedCurrency,
+                dropdownColor: Theme.of(context).brightness == Brightness.dark ? const Color(0xFF0A1E38) : Colors.white,
+                style: TextStyle(
+                  color: Theme.of(context).brightness == Brightness.dark ? Colors.white : AppTheme.lightTextPrimary,
+                  fontFamily: 'Cairo',
+                  fontSize: 13,
+                ),
+                hint: const Text('اختر العملة', style: TextStyle(color: Colors.grey, fontFamily: 'Cairo', fontSize: 13)),
+                validator: (v) => (v == null || v.isEmpty) ? 'يرجى اختيار العملة' : null,
+                decoration: InputDecoration(
+                  labelText: 'العملة *',
+                  labelStyle: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 13,
+                    color: Theme.of(context).brightness == Brightness.dark ? AppTheme.textSecondary : AppTheme.lightTextSecondary,
+                  ),
+                  filled: true,
+                  fillColor: Theme.of(context).brightness == Brightness.dark ? Colors.white.withValues(alpha: 0.06) : Colors.white,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: Theme.of(context).brightness == Brightness.dark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1)),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(14),
+                    borderSide: BorderSide(color: Theme.of(context).brightness == Brightness.dark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1)),
+                  ),
+                  helperText: widget.customer != null
+                      ? 'لا يمكن تغييرها بعد الحفظ'
+                      : (!isExport ? 'العميل المحلي يتعامل بالجنيه المصري (EGP) فقط' : null),
+                  helperStyle: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 11,
+                    color: Theme.of(context).brightness == Brightness.dark ? AppTheme.textMuted : AppTheme.lightTextSecondary,
+                  ),
+                ),
+                items: [
+                  DropdownMenuItem(value: 'EGP', child: Text('جنيه مصري (EGP)', style: TextStyle(fontFamily: 'Cairo', color: Theme.of(context).brightness == Brightness.dark ? Colors.white : AppTheme.lightTextPrimary))),
+                  DropdownMenuItem(value: 'USD', child: Text('دولار أمريكي (USD)', style: TextStyle(fontFamily: 'Cairo', color: Theme.of(context).brightness == Brightness.dark ? Colors.white : AppTheme.lightTextPrimary))),
+                  DropdownMenuItem(value: 'EUR', child: Text('يورو (EUR)', style: TextStyle(fontFamily: 'Cairo', color: Theme.of(context).brightness == Brightness.dark ? Colors.white : AppTheme.lightTextPrimary))),
+                  DropdownMenuItem(value: 'GBP', child: Text('جنيه إسترليني (GBP)', style: TextStyle(fontFamily: 'Cairo', color: Theme.of(context).brightness == Brightness.dark ? Colors.white : AppTheme.lightTextPrimary))),
+                ],
+                onChanged: (widget.customer != null || !isExport)
+                    ? null
+                    : (v) {
+                        if (v != null) setState(() => _cubit.selectedCurrency = v);
+                      },
               ),
             ),
           ],
@@ -370,80 +588,61 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                 focusNode: _cubit.gmailFocus,
                 hint: 'example@domain.com',
                 keyboardType: TextInputType.emailAddress,
-                onSubmitted: (_) => _cubit.contactNameFocus.requestFocus(),
+                onSubmitted: (_) {
+                  if (isExport) {
+                    _cubit.cityFocus.requestFocus();
+                  } else {
+                    FocusScope.of(context).unfocus();
+                  }
+                },
               ),
             ),
           ],
         ),
-        const SizedBox(height: 14),
 
-        // احتياطي الـ city و country المتوافق مع الـ Model لتجنب أي كراش كاش
-        Row(
-          children: [
-            Expanded(
-              child: AppTextField(
-                label: 'المدينة (الرئيسية)',
-                controller: _cubit.cityController,
-                focusNode: _cubit.cityFocus,
-                hint: 'مثال: القاهرة',
-                readOnly: isEditing,
-                isRequired: true,
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'هذا الحقل مطلوب';
-                  return null;
-                },
-                onSubmitted: (_) => _cubit.countryFocus.requestFocus(),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: AppTextField(
-                label: 'الدولة (الرئيسية)',
-                controller: _cubit.countryController,
-                focusNode: _cubit.countryFocus,
-                hint: 'مثال: مصر',
-                readOnly: isEditing,
-                isRequired: true,
-                validator: (v) {
-                  if (v == null || v.trim().isEmpty) return 'هذا الحقل مطلوب';
-                  return null;
-                },
-                onSubmitted: (_) => _cubit.contactNameFocus.requestFocus(),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 14),
-
-        Row(
-          children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                value: _cubit.selectedCurrency,
-                hint: const Text('اختر العملة', style: TextStyle(color: Colors.grey, fontFamily: 'Cairo', fontSize: 13)),
-                validator: (v) => (v == null || v.isEmpty) ? 'يرجى اختيار العملة' : null,
-                decoration: InputDecoration(
-                  labelText: 'العملة *',
-                  labelStyle: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
-                  border: const OutlineInputBorder(),
-                  helperText: widget.customer != null ? 'لا يمكن تغييرها بعد الحفظ' : null,
-                  helperStyle: const TextStyle(fontFamily: 'Cairo', fontSize: 11),
+        // بيانات الموقع (المدينة والدولة) - تظهر فقط لعملاء التصدير
+        if (isExport) ...[
+          const SizedBox(height: 14),
+          Row(
+            children: [
+              Expanded(
+                child: AppTextField(
+                  label: 'المدينة (الرئيسية)',
+                  controller: _cubit.cityController,
+                  focusNode: _cubit.cityFocus,
+                  hint: 'مثال: القاهرة',
+                  readOnly: isEditing,
+                  isRequired: true,
+                  validator: (v) {
+                    if (isExport && (v == null || v.trim().isEmpty)) {
+                      return 'هذا الحقل مطلوب';
+                    }
+                    return null;
+                  },
+                  onSubmitted: (_) => _cubit.countryFocus.requestFocus(),
                 ),
-                items: const [
-                  DropdownMenuItem(value: 'EGP', child: Text('جنيه مصري (EGP)')),
-                  DropdownMenuItem(value: 'USD', child: Text('دولار أمريكي (USD)')),
-                  DropdownMenuItem(value: 'EUR', child: Text('يورو (EUR)')),
-                  DropdownMenuItem(value: 'GBP', child: Text('جنيه إسترليني (GBP)')),
-                ],
-                onChanged: widget.customer != null
-                    ? null
-                    : (v) {
-                        if (v != null) setState(() => _cubit.selectedCurrency = v);
-                      },
               ),
-            ),
-          ],
-        ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: AppTextField(
+                  label: 'الدولة (الرئيسية)',
+                  controller: _cubit.countryController,
+                  focusNode: _cubit.countryFocus,
+                  hint: 'مثال: مصر',
+                  readOnly: isEditing,
+                  isRequired: true,
+                  validator: (v) {
+                    if (isExport && (v == null || v.trim().isEmpty)) {
+                      return 'هذا الحقل مطلوب';
+                    }
+                    return null;
+                  },
+                  onSubmitted: (_) => _cubit.contactNameFocus.requestFocus(),
+                ),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
@@ -476,9 +675,9 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 decoration: BoxDecoration(
-                  color: const Color(0x80141A24),
+                  color: Theme.of(context).brightness == Brightness.dark ? const Color(0x80141A24) : const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+                  border: Border.all(color: Theme.of(context).brightness == Brightness.dark ? Colors.white.withValues(alpha: 0.06) : AppTheme.lightBorder),
                 ),
                 child: Row(
                   children: [
@@ -490,11 +689,11 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
                         children: [
                           if (addrText.isNotEmpty)
                             Text(addrText,
-                                style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Cairo'),
+                                style: TextStyle(color: Theme.of(context).brightness == Brightness.dark ? Colors.white70 : AppTheme.lightTextPrimary, fontSize: 14, fontFamily: 'Cairo'),
                                 maxLines: 2, overflow: TextOverflow.ellipsis),
                           if (city.isNotEmpty || country.isNotEmpty)
                             Text([city, country].where((s) => s.isNotEmpty).join(', '),
-                                style: const TextStyle(color: AppTheme.textMuted, fontSize: 12, fontFamily: 'Cairo')),
+                                style: TextStyle(color: Theme.of(context).brightness == Brightness.dark ? AppTheme.textMuted : AppTheme.lightTextSecondary, fontSize: 12, fontFamily: 'Cairo')),
                         ],
                       ),
                     ),
@@ -738,12 +937,15 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
         final formState = _cubit.formState;
         final isSaving = formState.isSaving;
         final isMobile = MediaQuery.of(context).size.width < 400;
+        final isDark = Theme.of(context).brightness == Brightness.dark;
 
         return Container(
           padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 28, vertical: 16),
           decoration: BoxDecoration(
             border: Border(
-              top: BorderSide(color: Colors.white.withValues(alpha: 0.08)),
+              top: BorderSide(
+                color: isDark ? Colors.white.withValues(alpha: 0.08) : AppTheme.lightBorder,
+              ),
             ),
           ),
           child: Row(
@@ -752,8 +954,10 @@ class _CustomerFormDialogState extends State<CustomerFormDialog> {
               Expanded(
                 child: OutlinedButton(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.textSecondary,
-                    side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                    foregroundColor: isDark ? AppTheme.textSecondary : AppTheme.lightTextSecondary,
+                    side: BorderSide(
+                      color: isDark ? Colors.white.withValues(alpha: 0.15) : AppTheme.lightBorder,
+                    ),
                     padding:
                         EdgeInsets.symmetric(horizontal: isMobile ? 12 : 24, vertical: 14),
                     shape: RoundedRectangleBorder(

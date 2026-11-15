@@ -3,7 +3,6 @@ library;
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:accounting_system/core/utils/file_helper.dart';
-import 'package:flutter/services.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../accounting/reporting/models/report_models.dart';
@@ -34,10 +33,16 @@ class GeneralLedgerConfig {
       fixedWidth: 180,
     ),
     ReportColumn(
+      key: 'costCenter',
+      label: 'Cost Center',
+      labelAr: 'مركز التكلفة',
+      fixedWidth: 200,
+    ),
+    ReportColumn(
       key: 'description',
       label: 'Description',
       labelAr: 'البيان',
-      minWidth: 450,
+      minWidth: 400,
       flex: 4,
     ),
     ReportColumn(
@@ -66,13 +71,17 @@ class GeneralLedgerConfig {
     ),
   ];
 
-  static List<MetricData> buildMetrics(LedgerReport report) {
+  static List<MetricData> buildMetrics(LedgerReport report, BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final textPrimary = AppTheme.getTextPrimary(context);
+
     return [
       MetricData(
         title: 'العمليات',
         value: '${report.transactionCount}',
         icon: Icons.receipt_long_outlined,
-        color: AppTheme.primary,
+        color: primary,
       ),
       MetricData(
         title: 'إجمالي المدين',
@@ -96,7 +105,7 @@ class GeneralLedgerConfig {
         title: 'الرصيد الختامي',
         value: AppUtils.formatNumber(report.closingBalance),
         icon: Icons.flag_outlined,
-        color: AppTheme.textPrimary,
+        color: textPrimary,
       ),
     ];
   }
@@ -118,15 +127,17 @@ class GeneralLedgerConfig {
               final timestamp = DateTime.now().millisecondsSinceEpoch;
               final file = File('${dir.path}/general_ledger_$timestamp.xlsx');
               await file.writeAsBytes(bytes);
-              
+
+              // ignore: use_build_context_synchronously
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
+                const SnackBar(
                   content: Text('تم حفظ ملف الإكسيل بنجاح في المستندات'),
                   backgroundColor: AppTheme.success,
                 ),
               );
             }
           } catch (e) {
+            // ignore: use_build_context_synchronously
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                 content: Text('خطأ: $e'),
@@ -149,6 +160,8 @@ class GeneralLedgerConfig {
         return cellMap['entryNumber']?.toString() ?? '';
       case 'accountCode':
         return cellMap['accountCode']?.toString() ?? '';
+      case 'costCenter':
+        return cellMap['costCenter']?.toString() ?? '';
       case 'description':
         final desc = cellMap['description']?.toString() ?? '';
         return desc.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
@@ -167,5 +180,82 @@ class GeneralLedgerConfig {
       default:
         return '';
     }
+  }
+
+  /// Custom widget renderer for cells that need rich rendering (badges, tooltips).
+  /// Returns null for columns that should use the default text renderer.
+  static Widget? renderCellWidget(BuildContext context,
+      Map<String, dynamic> cellMap, ReportColumn column, bool isParent) {
+    if (column.key != 'costCenter') return null;
+
+    final isDark = AppTheme.isDark(context);
+    final ccName = cellMap['costCenter']?.toString() ?? '';
+
+    if (ccName.isEmpty) {
+      return Text(
+        '—',
+        style: TextStyle(
+          color: isDark ? Colors.white24 : const Color(0xFFCBD5E1),
+          fontFamily: 'Cairo',
+          fontSize: 12,
+        ),
+      );
+    }
+
+    // Theme-aware colors
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final tooltipBg = isDark ? const Color(0xFF0E2A47) : const Color(0xFF0F172A);
+
+    return Tooltip(
+      message: ccName,
+      waitDuration: const Duration(milliseconds: 250),
+      textStyle: const TextStyle(
+        fontSize: 13,
+        color: Colors.white,
+        fontFamily: 'Cairo',
+        fontWeight: FontWeight.w600,
+      ),
+      decoration: BoxDecoration(
+        color: tooltipBg,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: primary.withAlpha(100)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.4),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: primary.withAlpha(25),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: primary.withAlpha(60)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.account_tree_outlined,
+                size: 13, color: primary.withAlpha(180)),
+            const SizedBox(width: 5),
+            Flexible(
+              child: Text(
+                ccName,
+                style: TextStyle(
+                  color: primary,
+                  fontSize: 11.5,
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.w600,
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }

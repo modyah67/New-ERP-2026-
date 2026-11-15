@@ -47,7 +47,9 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
   }
 
   void _showEditRateDialog(ExchangeRateModel item) {
-    final controller = TextEditingController(text: item.rateToEgp.toStringAsFixed(4));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final controller =
+        TextEditingController(text: item.rateToEgp.toStringAsFixed(4));
     final formKey = GlobalKey<FormState>();
     bool isSaving = false;
 
@@ -56,20 +58,24 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
         builder: (dialogCtx, setDialogState) => AlertDialog(
-          backgroundColor: AppTheme.surface,
+          backgroundColor: isDark ? AppTheme.surface : Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: const BorderSide(color: AppTheme.border),
+            side: BorderSide(
+                color: isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
           ),
           title: Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  color: AppTheme.primary.withAlpha(25),
+                  color: (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                      .withValues(alpha: isDark ? 0.1 : 0.12),
                   borderRadius: BorderRadius.circular(10),
                 ),
-                child: const Icon(Icons.currency_exchange, color: AppTheme.primary, size: 24),
+                child: Icon(Icons.currency_exchange,
+                    color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                    size: 24),
               ),
               const SizedBox(width: 12),
               Expanded(
@@ -77,20 +83,23 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Text(
+                    Text(
                       'تعديل سعر الصرف',
                       style: TextStyle(
                         fontWeight: FontWeight.bold,
                         fontSize: 18,
-                        color: AppTheme.textPrimary,
+                        color: isDark ? AppTheme.textPrimary : Colors.black,
                         fontFamily: 'Cairo',
                       ),
                     ),
                     Text(
                       item.displayName,
-                      style: const TextStyle(
-                        color: AppTheme.textSecondary,
+                      style: TextStyle(
+                        color: isDark
+                            ? AppTheme.textSecondary
+                            : const Color(0xFF64748B),
                         fontSize: 13,
+                        fontWeight: FontWeight.w600,
                         fontFamily: 'Cairo',
                       ),
                     ),
@@ -109,21 +118,28 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: AppTheme.navy,
+                    color: isDark ? AppTheme.navy : const Color(0xFFF1F5F9),
                     borderRadius: BorderRadius.circular(10),
-                    border: Border.all(color: AppTheme.border),
+                    border: Border.all(
+                        color:
+                            isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
                   ),
                   child: Row(
                     children: [
-                      const Icon(Icons.info_outline, color: AppTheme.primary, size: 20),
+                      Icon(Icons.info_outline,
+                          color: isDark
+                              ? AppTheme.primary
+                              : const Color(0xFF0284C7),
+                          size: 20),
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           '1 ${item.currencyCode} = ؟ جنيه مصري (EGP)',
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
-                            color: AppTheme.textPrimary,
-                            fontWeight: FontWeight.w600,
+                            color:
+                                isDark ? AppTheme.textPrimary : Colors.black,
+                            fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo',
                           ),
                         ),
@@ -134,35 +150,60 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: controller,
-                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
                   textAlign: TextAlign.left,
                   autofocus: true,
                   textDirection: TextDirection.ltr,
-                  style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Cairo'),
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textPrimary : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo'),
                   decoration: InputDecoration(
                     labelText: 'سعر الصرف مقابل الجنيه المصري',
-                    labelStyle: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+                    labelStyle: TextStyle(
+                        color: isDark
+                            ? AppTheme.textSecondary
+                            : const Color(0xFF64748B),
+                        fontFamily: 'Cairo'),
                     suffixText: 'EGP',
-                    suffixStyle: const TextStyle(color: AppTheme.primary),
+                    suffixStyle: TextStyle(
+                        color:
+                            isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                        fontWeight: FontWeight.bold),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppTheme.border),
+                      borderSide: BorderSide(
+                          color: isDark
+                              ? AppTheme.border
+                              : const Color(0xFFCBD5E1)),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppTheme.border),
+                      borderSide: BorderSide(
+                          color: isDark
+                              ? AppTheme.border
+                              : const Color(0xFFCBD5E1)),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(10),
-                      borderSide: const BorderSide(color: AppTheme.primary),
+                      borderSide: BorderSide(
+                          color: isDark
+                              ? AppTheme.primary
+                              : const Color(0xFF0284C7),
+                          width: 1.5),
                     ),
                     filled: true,
-                    fillColor: AppTheme.navy,
+                    fillColor: isDark ? AppTheme.navy : const Color(0xFFF8FAFC),
                   ),
                   validator: (val) {
-                    if (val == null || val.trim().isEmpty) return 'يرجى إدخال السعر';
+                    if (val == null || val.trim().isEmpty) {
+                      return 'يرجى إدخال السعر';
+                    }
                     final num = double.tryParse(val.trim());
-                    if (num == null || num <= 0) return 'يرجى إدخال رقم موجب صحيح';
+                    if (num == null || num <= 0) {
+                      return 'يرجى إدخال رقم موجب صحيح';
+                    }
                     return null;
                   },
                 ),
@@ -172,14 +213,22 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
           actions: [
             TextButton(
               onPressed: isSaving ? null : () => Navigator.pop(dialogCtx),
-              child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+              child: Text('إلغاء',
+                  style: TextStyle(
+                      color: isDark
+                          ? AppTheme.textSecondary
+                          : const Color(0xFF64748B),
+                      fontFamily: 'Cairo')),
             ),
             ElevatedButton(
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                foregroundColor: AppTheme.navy,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                backgroundColor:
+                    isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                foregroundColor: isDark ? AppTheme.navy : Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
               ),
               onPressed: isSaving
                   ? null
@@ -194,29 +243,38 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                         if (dialogCtx.mounted) Navigator.pop(dialogCtx);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('تم تحديث سعر صرف ${item.currencyCode} بنجاح', style: const TextStyle(fontFamily: 'Cairo')),
+                            content: Text(
+                                'تم تحديث سعر صرف ${item.currencyCode} بنجاح',
+                                style: const TextStyle(fontFamily: 'Cairo')),
                             backgroundColor: AppTheme.success,
                           ),
                         );
                         _loadRates();
                       } catch (e) {
-                        if (dialogCtx.mounted) setDialogState(() => isSaving = false);
+                        if (dialogCtx.mounted) {
+                          setDialogState(() => isSaving = false);
+                        }
                         if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                            content: Text('خطأ أثناء التحديث: $e', style: const TextStyle(fontFamily: 'Cairo')),
+                            content: Text('خطأ أثناء التحديث: $e',
+                                style: const TextStyle(fontFamily: 'Cairo')),
                             backgroundColor: AppTheme.danger,
                           ),
                         );
                       }
                     },
               child: isSaving
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 18,
                       height: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.navy),
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: isDark ? AppTheme.navy : Colors.white),
                     )
-                  : const Text('حفظ التعديل', style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                  : const Text('حفظ التعديل',
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
             ),
           ],
         ),
@@ -226,27 +284,34 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final dateFormat = intl.DateFormat('yyyy/MM/dd hh:mm a', 'ar');
 
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
       appBar: AppBar(
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.currency_exchange, size: 24, color: AppTheme.primary),
-            SizedBox(width: 10),
+            Icon(Icons.currency_exchange,
+                size: 24,
+                color: isDark ? AppTheme.primary : const Color(0xFF0284C7)),
+            const SizedBox(width: 10),
             Text(
               'أسعار الصرف الرسمية',
-              style: TextStyle(fontWeight: FontWeight.bold, color: AppTheme.textPrimary, fontFamily: 'Cairo'),
+              style: TextStyle(
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? AppTheme.textPrimary : Colors.black,
+                  fontFamily: 'Cairo'),
             ),
           ],
         ),
         elevation: 0,
-        backgroundColor: AppTheme.surface,
-        foregroundColor: AppTheme.textPrimary,
+        backgroundColor: isDark ? AppTheme.surface : Colors.white,
+        foregroundColor: isDark ? AppTheme.textPrimary : Colors.black,
         actions: [
           IconButton(
-            icon: const Icon(Icons.refresh, color: AppTheme.primary),
+            icon: Icon(Icons.refresh,
+                color: isDark ? AppTheme.primary : const Color(0xFF0284C7)),
             tooltip: 'تحديث البيانات',
             onPressed: _loadRates,
           ),
@@ -254,20 +319,34 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
+          ? Center(
+              child: CircularProgressIndicator(
+                  color: isDark ? AppTheme.primary : const Color(0xFF0284C7)))
           : _errorMessage != null
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      const Icon(Icons.error_outline, size: 48, color: AppTheme.danger),
+                      const Icon(Icons.error_outline,
+                          size: 48, color: AppTheme.danger),
                       const SizedBox(height: 16),
-                      Text(_errorMessage!, style: const TextStyle(fontSize: 16, color: AppTheme.textPrimary, fontFamily: 'Cairo')),
+                      Text(_errorMessage!,
+                          style: TextStyle(
+                              fontSize: 16,
+                              color:
+                                  isDark ? AppTheme.textPrimary : Colors.black,
+                              fontFamily: 'Cairo')),
                       const SizedBox(height: 16),
                       ElevatedButton(
-                        style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary, foregroundColor: AppTheme.navy),
+                        style: ElevatedButton.styleFrom(
+                            backgroundColor: isDark
+                                ? AppTheme.primary
+                                : const Color(0xFF0284C7),
+                            foregroundColor:
+                                isDark ? AppTheme.navy : Colors.white),
                         onPressed: _loadRates,
-                        child: const Text('إعادة المحاولة', style: TextStyle(fontFamily: 'Cairo')),
+                        child: const Text('إعادة المحاولة',
+                            style: TextStyle(fontFamily: 'Cairo')),
                       ),
                     ],
                   ),
@@ -282,14 +361,18 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                         width: double.infinity,
                         padding: const EdgeInsets.all(20),
                         decoration: BoxDecoration(
-                          color: AppTheme.surface,
+                          color: isDark ? AppTheme.surface : Colors.white,
                           borderRadius: BorderRadius.circular(16),
-                          border: Border.all(color: AppTheme.border),
-                          boxShadow: const [
+                          border: Border.all(
+                              color: isDark
+                                  ? AppTheme.border
+                                  : const Color(0xFFCBD5E1)),
+                          boxShadow: [
                             BoxShadow(
-                              color: Colors.black26,
+                              color: Colors.black.withValues(
+                                  alpha: isDark ? 0.26 : 0.05),
                               blurRadius: 10,
-                              offset: Offset(0, 4),
+                              offset: const Offset(0, 4),
                             ),
                           ],
                         ),
@@ -298,29 +381,44 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                             Container(
                               padding: const EdgeInsets.all(12),
                               decoration: BoxDecoration(
-                                color: AppTheme.primary.withAlpha(25),
+                                color: (isDark
+                                        ? AppTheme.primary
+                                        : const Color(0xFF0284C7))
+                                    .withValues(alpha: isDark ? 0.1 : 0.12),
                                 borderRadius: BorderRadius.circular(12),
                               ),
-                              child: const Icon(Icons.account_balance, color: AppTheme.primary, size: 32),
+                              child: Icon(Icons.account_balance,
+                                  color: isDark
+                                      ? AppTheme.primary
+                                      : const Color(0xFF0284C7),
+                                  size: 32),
                             ),
                             const SizedBox(width: 16),
-                            const Expanded(
+                            Expanded(
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Text(
                                     'العملة الأساسية للنظام: الجنيه المصري (EGP = 1.0000)',
                                     style: TextStyle(
-                                      color: AppTheme.textPrimary,
+                                      color: isDark
+                                          ? AppTheme.textPrimary
+                                          : Colors.black,
                                       fontSize: 18,
                                       fontWeight: FontWeight.bold,
                                       fontFamily: 'Cairo',
                                     ),
                                   ),
-                                  SizedBox(height: 4),
+                                  const SizedBox(height: 4),
                                   Text(
                                     'تُستخدم هذه الأسعار كمرجع رسمي لحساب القيمة بالعملة الأساسية في الخزينة، البنوك، والشيكات.',
-                                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo'),
+                                    style: TextStyle(
+                                        color: isDark
+                                            ? AppTheme.textSecondary
+                                            : const Color(0xFF64748B),
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w500,
+                                        fontFamily: 'Cairo'),
                                   ),
                                 ],
                               ),
@@ -333,35 +431,56 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                       // Rates Table
                       Expanded(
                         child: Card(
-                          color: AppTheme.surface,
+                          color: isDark ? AppTheme.surface : Colors.white,
                           elevation: 0,
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(12),
-                            side: const BorderSide(color: AppTheme.border),
+                            side: BorderSide(
+                                color: isDark
+                                    ? AppTheme.border
+                                    : const Color(0xFFCBD5E1)),
                           ),
                           clipBehavior: Clip.antiAlias,
                           child: _rates.isEmpty
-                              ? const Center(
-                                  child: Text('لا توجد أسعار صرف مسجلة', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                              ? Center(
+                                  child: Text('لا توجد أسعار صرف مسجلة',
+                                      style: TextStyle(
+                                          color: isDark
+                                              ? AppTheme.textSecondary
+                                              : const Color(0xFF64748B),
+                                          fontFamily: 'Cairo')),
                                 )
                               : ListView.separated(
                                   itemCount: _rates.length,
-                                  separatorBuilder: (context, index) => const Divider(height: 1, color: AppTheme.border),
+                                  separatorBuilder: (context, index) => Divider(
+                                      height: 1,
+                                      color: isDark
+                                          ? AppTheme.border
+                                          : const Color(0xFFE2E8F0)),
                                   itemBuilder: (context, index) {
                                     final rate = _rates[index];
                                     final formattedDate = rate.updatedAt != null
-                                        ? dateFormat.format(rate.updatedAt!.toLocal())
+                                        ? dateFormat
+                                            .format(rate.updatedAt!.toLocal())
                                         : 'غير محدد';
 
                                     return ListTile(
-                                      contentPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 20, vertical: 12),
                                       leading: CircleAvatar(
                                         radius: 22,
-                                        backgroundColor: AppTheme.primary.withAlpha(25),
+                                        backgroundColor: (isDark
+                                                ? AppTheme.primary
+                                                : const Color(0xFF0284C7))
+                                            .withValues(
+                                                alpha: isDark ? 0.1 : 0.12),
                                         child: Text(
                                           rate.currencyCode,
-                                          style: const TextStyle(
-                                            color: AppTheme.primary,
+                                          style: TextStyle(
+                                            color: isDark
+                                                ? AppTheme.primary
+                                                : const Color(0xFF0284C7),
                                             fontWeight: FontWeight.bold,
                                             fontSize: 13,
                                           ),
@@ -371,25 +490,36 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                                         children: [
                                           Text(
                                             rate.displayName,
-                                            style: const TextStyle(
+                                            style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 16,
-                                              color: AppTheme.textPrimary,
+                                              color: isDark
+                                                  ? AppTheme.textPrimary
+                                                  : Colors.black,
                                               fontFamily: 'Cairo',
                                             ),
                                           ),
                                           const SizedBox(width: 8),
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 2),
                                             decoration: BoxDecoration(
-                                              color: AppTheme.navy,
-                                              borderRadius: BorderRadius.circular(6),
-                                              border: Border.all(color: AppTheme.border),
+                                              color: isDark
+                                                  ? AppTheme.navy
+                                                  : const Color(0xFFF1F5F9),
+                                              borderRadius:
+                                                  BorderRadius.circular(6),
+                                              border: Border.all(
+                                                  color: isDark
+                                                      ? AppTheme.border
+                                                      : const Color(0xFFCBD5E1)),
                                             ),
                                             child: Text(
                                               rate.currencyCode,
-                                              style: const TextStyle(
-                                                color: AppTheme.primary,
+                                              style: TextStyle(
+                                                color: isDark
+                                                    ? AppTheme.primary
+                                                    : const Color(0xFF0284C7),
                                                 fontSize: 12,
                                                 fontWeight: FontWeight.bold,
                                               ),
@@ -398,14 +528,24 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                                         ],
                                       ),
                                       subtitle: Padding(
-                                        padding: const EdgeInsets.only(top: 4.0),
+                                        padding:
+                                            const EdgeInsets.only(top: 4.0),
                                         child: Row(
                                           children: [
-                                            const Icon(Icons.schedule, size: 14, color: AppTheme.textSecondary),
+                                            Icon(Icons.schedule,
+                                                size: 14,
+                                                color: isDark
+                                                    ? AppTheme.textSecondary
+                                                    : const Color(0xFF64748B)),
                                             const SizedBox(width: 4),
                                             Text(
                                               'آخر تحديث: $formattedDate',
-                                              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo'),
+                                              style: TextStyle(
+                                                  color: isDark
+                                                      ? AppTheme.textSecondary
+                                                      : const Color(0xFF64748B),
+                                                  fontSize: 12,
+                                                  fontFamily: 'Cairo'),
                                             ),
                                           ],
                                         ),
@@ -414,33 +554,60 @@ class _ExchangeRatesPageState extends State<ExchangeRatesPage> {
                                         mainAxisSize: MainAxisSize.min,
                                         children: [
                                           Container(
-                                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 14, vertical: 8),
                                             decoration: BoxDecoration(
-                                              color: AppTheme.navy,
-                                              borderRadius: BorderRadius.circular(8),
-                                              border: Border.all(color: AppTheme.border),
+                                              color: isDark
+                                                  ? AppTheme.navy
+                                                  : const Color(0xFFF1F5F9),
+                                              borderRadius:
+                                                  BorderRadius.circular(8),
+                                              border: Border.all(
+                                                  color: isDark
+                                                      ? AppTheme.border
+                                                      : const Color(0xFFCBD5E1)),
                                             ),
                                             child: Text(
                                               '${rate.rateToEgp.toStringAsFixed(4)} ج.م',
-                                              style: const TextStyle(
+                                              style: TextStyle(
                                                 fontWeight: FontWeight.bold,
                                                 fontSize: 16,
-                                                color: AppTheme.primary,
+                                                color: isDark
+                                                    ? AppTheme.primary
+                                                    : const Color(0xFF0F172A),
                                               ),
                                             ),
                                           ),
                                           const SizedBox(width: 12),
                                           ElevatedButton.icon(
                                             style: ElevatedButton.styleFrom(
-                                              backgroundColor: AppTheme.primary.withAlpha(35),
-                                              foregroundColor: AppTheme.primary,
+                                              backgroundColor: (isDark
+                                                      ? AppTheme.primary
+                                                      : const Color(0xFF0284C7))
+                                                  .withValues(
+                                                      alpha:
+                                                          isDark ? 0.15 : 0.12),
+                                              foregroundColor: isDark
+                                                  ? AppTheme.primary
+                                                  : const Color(0xFF0284C7),
                                               elevation: 0,
-                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                              shape: RoundedRectangleBorder(
+                                                  borderRadius:
+                                                      BorderRadius.circular(8)),
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                      horizontal: 12,
+                                                      vertical: 8),
                                             ),
-                                            onPressed: () => _showEditRateDialog(rate),
-                                            icon: const Icon(Icons.edit, size: 16),
-                                            label: const Text('تعديل السعر', style: TextStyle(fontFamily: 'Cairo')),
+                                            onPressed: () =>
+                                                _showEditRateDialog(rate),
+                                            icon:
+                                                const Icon(Icons.edit, size: 16),
+                                            label: const Text('تعديل السعر',
+                                                style: TextStyle(
+                                                    fontFamily: 'Cairo',
+                                                    fontWeight:
+                                                        FontWeight.bold)),
                                           ),
                                         ],
                                       ),

@@ -1,11 +1,24 @@
 import 'package:flutter/material.dart';
-import '../../core/services/tenant_service.dart';
-import '../../core/theme.dart';
+import '../services/account_status_service.dart';
+import '../services/tenant_service.dart';
+import '../theme.dart';
 
 class ReadOnlyGuard {
-  /// Checks if write is allowed using cached tenant status.
-  /// Tenant status auto-refreshes every 60 seconds via ShellPage timer.
+  static bool get isReadOnly => AccountStatusService().isReadOnly || TenantService().isReadOnly;
+  static bool get isFrozen => AccountStatusService().isFrozen || TenantService().isFrozen;
+  static bool get isExpired => TenantService().isExpired;
+  static bool get isWriteBlocked => isFrozen || isReadOnly || isExpired || !TenantService().canWrite();
+
+  /// فحص فوري متزامن (Synchronous Check)
   static bool check(BuildContext context) {
+    if (isFrozen) {
+      if (context.mounted) AccountStatusService.showFrozenDialog(context);
+      return false;
+    }
+    if (isReadOnly) {
+      if (context.mounted) AccountStatusService.showReadOnlySnackBar(context);
+      return false;
+    }
     final tenant = TenantService();
     if (!tenant.isSubscriptionActive) {
       if (context.mounted) {
@@ -19,44 +32,6 @@ class ReadOnlyGuard {
               ],
             ),
             backgroundColor: AppTheme.danger,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
-      }
-      return false;
-    }
-    if (!tenant.isActive) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.block, color: Colors.white, size: 18),
-                SizedBox(width: 10),
-                Text('الحساب مجمد — تواصل مع الإدارة', style: TextStyle(fontFamily: 'Cairo', fontSize: 14)),
-              ],
-            ),
-            backgroundColor: AppTheme.danger,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          ),
-        );
-      }
-      return false;
-    }
-    if (tenant.isReadOnly) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Row(
-              children: [
-                Icon(Icons.lock_outline, color: Colors.white, size: 18),
-                SizedBox(width: 10),
-                Text('النظام في وضع القراءة فقط', style: TextStyle(fontFamily: 'Cairo', fontSize: 14)),
-              ],
-            ),
-            backgroundColor: AppTheme.accent,
             behavior: SnackBarBehavior.floating,
             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           ),
@@ -84,5 +59,10 @@ class ReadOnlyGuard {
       return false;
     }
     return true;
+  }
+
+  /// فحص غير متزامن مع التحقق الحي السريع من السيرفر قبل الحفظ مباشرة
+  static Future<bool> checkAsync(BuildContext context) async {
+    return AccountStatusService.checkWriteAllowed(context, fastRemoteCheck: true);
   }
 }

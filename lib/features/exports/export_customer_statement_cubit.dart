@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../data/dao/customer_dao.dart';
+import '../../data/dao/invoice_dao.dart';
 import '../../data/dao/statement_notes_dao.dart';
 import '../../data/models/customer_model.dart';
 import '../../data/models/export_shipment_model.dart';
+import '../../data/models/invoice_model.dart';
 import '../../data/models/statement_row_model.dart';
 import '../../core/utils.dart';
 import 'export_customer_statement_state.dart';
@@ -12,6 +14,7 @@ import 'export_customer_statement_state.dart';
 class ExportCustomerStatementCubit
     extends Cubit<ExportCustomerStatementState> {
   final CustomerDao _customerDao = CustomerDao();
+  final InvoiceDao _invoiceDao = InvoiceDao();
   final StatementNotesDao _notesDao = StatementNotesDao();
 
   ExportCustomerStatementCubit()
@@ -23,7 +26,7 @@ class ExportCustomerStatementCubit
 
   Future<void> _init() async {
     try {
-      final customers = await _customerDao.getAll(limit: 1000, offset: 0);
+      final customers = await _customerDao.getAll(limit: 2000, offset: 0);
       final now = DateTime.now();
       if (!isClosed) {
         emit(ExportCustomerStatementLoaded(
@@ -42,11 +45,33 @@ class ExportCustomerStatementCubit
     }
   }
 
+  void setCustomerTypeFilter(String filter) {
+    final currentState = state;
+    if (currentState is! ExportCustomerStatementLoaded) return;
+    if (currentState.customerTypeFilter == filter) return;
+
+    bool clearSelected = false;
+    if (currentState.selectedCustomer != null) {
+      final isLocal = currentState.selectedCustomer!.customerType == 'local';
+      if (filter == 'local' && !isLocal) clearSelected = true;
+      if (filter == 'export' && isLocal) clearSelected = true;
+    }
+
+    emit(currentState.copyWith(
+      customerTypeFilter: filter,
+      clearSelectedCustomer: clearSelected,
+      statementRows: clearSelected ? [] : null,
+      totalDebit: clearSelected ? 0 : null,
+      totalCredit: clearSelected ? 0 : null,
+      finalBalance: clearSelected ? 0 : null,
+    ));
+  }
+
   Future<void> refreshData() async {
     final currentState = state;
     if (currentState is ExportCustomerStatementLoaded) {
       try {
-        final customers = await _customerDao.getAll(limit: 1000, offset: 0);
+        final customers = await _customerDao.getAll(limit: 2000, offset: 0);
         emit(currentState.copyWith(customers: customers));
       } catch (e) {
         emit(ExportCustomerStatementError(message: 'فشل تحميل البيانات: $e'));
@@ -122,6 +147,10 @@ class ExportCustomerStatementCubit
       final shipments = await _fetchShipments(customerId, from, to);
       debugPrint('📦 ExportStatement: Found ${shipments.length} shipments');
 
+      // 1.5. Fetch local invoices for this customer
+      final invoices = await _fetchInvoices(customerId, from, to);
+      debugPrint('🧾 ExportStatement: Found ${invoices.length} invoices');
+
       // 2. Fetch payments from ledger_entries for this customer
       final payments = await _fetchPayments(customerId, from, to);
       debugPrint('💰 ExportStatement: Found ${payments.length} payments');
@@ -138,6 +167,10 @@ class ExportCustomerStatementCubit
       final bankTxs = await _fetchBankTx(customerId, from, to);
       debugPrint('💳 ExportStatement: Found ${bankTxs.length} bank txs');
 
+      // 4.8. Fetch general ledger journal entries (cash receipts, payments, sorting sales, settlements)
+      final glEntries = await _fetchGlEntries(customerId, currentState.selectedCustomer!.accountId, from, to);
+      debugPrint('📑 ExportStatement: Found ${glEntries.length} gl entries');
+
       // 5. Build statement rows
       final rows = <StatementRow>[];
 
@@ -153,20 +186,35 @@ class ExportCustomerStatementCubit
           _fetchCheques(customerId, null, beforeStr),
           _fetchTreasuryTx(customerId, null, beforeStr),
           _fetchBankTx(customerId, null, beforeStr),
+          _fetchInvoices(customerId, null, beforeStr),
+          _fetchGlEntries(customerId, currentState.selectedCustomer!.accountId, null, beforeStr),
         ]);
         final priorShipments = results[0] as List<ExportShipmentModel>;
         final priorPayments = results[1] as List<Map<String, dynamic>>;
         final priorCheques = results[2] as List<Map<String, dynamic>>;
         final priorTreasuryTxs = results[3] as List<Map<String, dynamic>>;
         final priorBankTxs = results[4] as List<Map<String, dynamic>>;
+        final priorInvoices = results[5] as List<InvoiceModel>;
+        final priorGlEntries = results[6] as List<Map<String, dynamic>>;
 
         final priorTreasuryIds = priorTreasuryTxs.map((tx) => tx['id']?.toString() ?? '').toSet();
         final priorBankTxIds = priorBankTxs.map((tx) => tx['id']?.toString() ?? '').toSet();
+        final priorGlJeIds = priorGlEntries
+            .map((gl) => (gl['journal_entry_id'] ?? gl['entry_id'])?.toString() ?? '')
+            .where((id) => id.isNotEmpty)
+            .toSet();
 
         for (final s in priorShipments) {
           openingBalance += await _getShipmentAmountFromItems(s.id, s, customerCurrency);
           if (s.discountAmount > 0) {
             openingBalance -= s.discountAmount;
+          }
+        }
+        for (final inv in priorInvoices) {
+          if (inv.type == 'return') {
+            openingBalance -= inv.netAmount;
+          } else {
+            openingBalance += inv.netAmount;
           }
         }
         for (final p in priorPayments) {
@@ -180,6 +228,8 @@ class ExportCustomerStatementCubit
           openingBalance -= _getChequeAmount(ch);
         }
         for (final tx in priorTreasuryTxs) {
+          final jeId = tx['journal_entry_id']?.toString() ?? '';
+          if (jeId.isNotEmpty && priorGlJeIds.contains(jeId)) continue;
           final isCredit = tx['type']?.toString() == 'deposit' || tx['type']?.toString() == 'receive' || tx['type']?.toString() == 'income';
           final amt = (tx['amount'] as num?)?.toDouble() ?? 0;
           openingBalance += isCredit ? -amt : amt;
@@ -187,6 +237,26 @@ class ExportCustomerStatementCubit
         for (final tx in priorBankTxs) {
           final isCredit = tx['type']?.toString() == 'deposit';
           final amt = (tx['amount'] as num?)?.toDouble() ?? 0;
+          openingBalance += isCredit ? -amt : amt;
+        }
+        for (final gl in priorGlEntries) {
+          final sType = gl['source_type']?.toString() ?? '';
+          if (sType == 'opening_balance' ||
+              sType == 'export_shipment' ||
+              sType == 'shipment' ||
+              sType == 'invoice' ||
+              sType == 'sales_invoice' ||
+              sType == 'invoice_return' ||
+              sType == 'cheque' ||
+              sType == 'cheque_clearance' ||
+              sType == 'treasury_tx' ||
+              sType == 'bank_tx') {
+            continue;
+          }
+          final debit = (gl['debit'] as num?)?.toDouble() ?? 0.0;
+          final credit = (gl['credit'] as num?)?.toDouble() ?? 0.0;
+          final isCredit = credit > 0;
+          final amt = isCredit ? credit : debit;
           openingBalance += isCredit ? -amt : amt;
         }
       }
@@ -250,6 +320,26 @@ class ExportCustomerStatementCubit
         }
       }
 
+      // Add local invoices as debit/credit rows
+      for (final inv in invoices) {
+        final isReturn = inv.type == 'return';
+        final invDate = inv.invoiceDate;
+        rows.add(StatementRow(
+          transactionNumber: 'فاتورة #${inv.invoiceNumber}',
+          date: invDate,
+          accountName: isReturn ? 'مرتجع مبيعات' : 'فاتورة مبيعات',
+          description: inv.notes?.isNotEmpty == true ? inv.notes! : (isReturn ? 'مرتجع مبيعات' : 'فاتورة مبيعات محلي'),
+          piecesCount: 0,
+          quantity: 0,
+          unitPrice: 0,
+          debit: isReturn ? 0 : inv.netAmount,
+          credit: isReturn ? inv.netAmount : 0,
+          balance: 0,
+          type: isReturn ? 'invoice_return' : 'invoice',
+          createdAt: inv.createdAt,
+        ));
+      }
+
       // Add payments as credit/debit rows
       // Fetch treasury txs first for dedup
       final currentTreasuryIds = treasuryTxs.map((tx) => tx['id']?.toString() ?? '').toSet();
@@ -310,8 +400,71 @@ class ExportCustomerStatementCubit
         ));
       }
 
-      // Add treasury transactions
+      final currentGlJeIds = glEntries
+          .map((gl) => (gl['journal_entry_id'] ?? gl['entry_id'])?.toString() ?? '')
+          .where((id) => id.isNotEmpty)
+          .toSet();
+
+      // Add general ledger journal entries (cash receipts, payments, sorting sales, settlements)
+      for (final gl in glEntries) {
+        final sType = gl['source_type']?.toString() ?? '';
+        if (sType == 'opening_balance' ||
+            sType == 'export_shipment' ||
+            sType == 'shipment' ||
+            sType == 'invoice' ||
+            sType == 'sales_invoice' ||
+            sType == 'invoice_return' ||
+            sType == 'cheque' ||
+            sType == 'cheque_clearance' ||
+            sType == 'treasury_tx' ||
+            sType == 'bank_tx') {
+          continue;
+        }
+
+        final debit = (gl['debit'] as num?)?.toDouble() ?? 0.0;
+        final credit = (gl['credit'] as num?)?.toDouble() ?? 0.0;
+        final isCredit = credit > 0;
+        final amount = isCredit ? credit : debit;
+        if (amount == 0) continue;
+
+        final entryNumber = gl['entry_number']?.toString() ?? gl['id']?.toString() ?? '—';
+        final txDate = gl['transaction_date'] != null
+            ? gl['transaction_date'].toString()
+            : _toLocalDate(gl['created_at']);
+        final desc = gl['description']?.toString() ?? '';
+
+        String accountName;
+        if (sType == 'cash_receipt' || sType == 'receipt') {
+          accountName = 'سند قبض';
+        } else if (sType == 'cash_payment' || sType == 'payment') {
+          accountName = 'سند صرف';
+        } else if (sType == 'sale_sorting' || sType == 'sorting_sale') {
+          accountName = isCredit ? 'سداد بيع فرز' : 'مديونية بيع فرز';
+        } else {
+          accountName = isCredit ? 'سند قبض / قيد تسوية' : 'سند صرف / قيد تسوية';
+        }
+
+        rows.add(StatementRow(
+          transactionNumber: entryNumber,
+          date: txDate,
+          accountName: accountName,
+          description: desc.isNotEmpty ? desc : accountName,
+          piecesCount: 0,
+          quantity: 0,
+          unitPrice: 0,
+          debit: isCredit ? 0 : amount,
+          credit: isCredit ? amount : 0,
+          balance: 0,
+          type: isCredit ? 'cash_receipt' : 'cash_payment',
+          createdAt: (gl['created_at'] ?? '').toString(),
+        ));
+      }
+
+      // Add treasury transactions (skipping any that were already represented in GL entries)
       for (final tx in treasuryTxs) {
+        final jeId = tx['journal_entry_id']?.toString() ?? '';
+        if (jeId.isNotEmpty && currentGlJeIds.contains(jeId)) continue;
+
         final amount = (tx['amount'] as num?)?.toDouble() ?? 0;
         final txDate = _toLocalDate(tx['created_at']);
         final typeStr = tx['type']?.toString() ?? 'deposit';
@@ -592,6 +745,42 @@ class ExportCustomerStatementCubit
     }
   }
 
+  Future<List<Map<String, dynamic>>> _fetchGlEntries(
+    dynamic customerId,
+    int? customerAccountId,
+    String? fromDate,
+    String? toDate,
+  ) async {
+    try {
+      final client = Supabase.instance.client;
+      final orConditions = <String>[
+        'entity_id.eq.$customerId',
+        'source_id.eq.customers_$customerId',
+      ];
+      if (customerAccountId != null && customerAccountId > 0) {
+        orConditions.add('account_id.eq.$customerAccountId');
+      }
+
+      var query = client
+          .from('v_journal_entry_lines')
+          .select('*')
+          .or(orConditions.join(','));
+
+      if (fromDate != null) {
+        query = query.gte('transaction_date', fromDate);
+      }
+      if (toDate != null) {
+        query = query.lte('transaction_date', toDate);
+      }
+
+      final data = await query.order('transaction_date', ascending: true);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (e) {
+      debugPrint('⚠️ _fetchGlEntries error: $e');
+      return [];
+    }
+  }
+
   Future<List<String>> _getShipmentProducts(dynamic shipmentId) async {
     try {
       final client = Supabase.instance.client;
@@ -681,6 +870,19 @@ class ExportCustomerStatementCubit
           note: note,
         );
       }
+    }
+  }
+
+  Future<List<InvoiceModel>> _fetchInvoices(
+    String customerId,
+    String? fromDate,
+    String? toDate,
+  ) async {
+    try {
+      return await _invoiceDao.getByCustomer(customerId, fromDate: fromDate, toDate: toDate);
+    } catch (e) {
+      debugPrint('⚠️ Error fetching invoices in customer statement: $e');
+      return [];
     }
   }
 

@@ -28,10 +28,20 @@ class TreasuryAccountResolver {
 
       if (data == null || data['account_id'] == null) {
         debugPrint(
-          '⚠️ TreasuryAccountResolver: No GL account mapping for '
+          'ℹ️ TreasuryAccountResolver: Resolving dynamic Level-5 account via RPC for '
           'treasury=$treasuryId currency=$currency',
         );
-        return null;
+        try {
+          final resolvedId = await _client.rpc('resolve_treasury_account', params: {
+            'p_treasury_id': int.tryParse(treasuryId) ?? treasuryId,
+            'p_currency': currency,
+          });
+          if (resolvedId is int) return resolvedId;
+          return int.tryParse('$resolvedId');
+        } catch (rpcErr) {
+          debugPrint('⚠️ TreasuryAccountResolver: RPC fallback error: $rpcErr');
+          return null;
+        }
       }
 
       final raw = data['account_id'];

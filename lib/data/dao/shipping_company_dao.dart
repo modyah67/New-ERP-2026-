@@ -8,16 +8,36 @@ class ShippingCompanyDao {
 
   Future<String> generateNextCode() async {
     try {
+      const minRange = 90000;
+      const maxRange = 100000; // 90000 to 99999
       final response = await _client.from(_table).select('code');
-      int maxCode = 0;
+      int maxCode = minRange - 1;
       for (var row in response) {
         final codeStr = row['code']?.toString() ?? '';
         final num = int.tryParse(codeStr.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-        if (num > maxCode) maxCode = num;
+        if (num >= minRange && num < maxRange && num > maxCode) maxCode = num;
       }
-      return (maxCode + 1).toString().padLeft(5, '0');
+      if (maxCode < minRange) {
+        return minRange.toString();
+      }
+      return (maxCode + 1).toString();
     } catch (e) {
-      return '00001';
+      return '90000';
+    }
+  }
+
+  /// Check if a shipping company code already exists in the database to prevent collisions
+  Future<bool> checkCodeExists(String code, {int? excludeId}) async {
+    try {
+      final clean = code.trim();
+      var query = _client.from(_table).select('id').eq('code', clean);
+      if (excludeId != null) {
+        query = query.neq('id', excludeId);
+      }
+      final res = await query.limit(1);
+      return res.isNotEmpty;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -30,7 +50,7 @@ class ShippingCompanyDao {
       name: str(row['name']) ?? '',
       phone: str(row['phone']) ?? '',
       email: str(row['email']) ?? '',
-      balance: dbl(row['computed_balance'] ?? row['balance']),
+      balance: dbl(row['computed_balance'] ?? row['current_balance'] ?? row['balance']),
       initialBalance: dbl(row['initial_balance']),
       initialBalanceDirection: str(row['initial_balance_direction']) ?? 'CREDIT',
       currency: str(row['currency']) ?? 'EGP',
@@ -110,14 +130,45 @@ class ShippingCompanyDao {
     }).toList();
   }
 
+  /// Resolves the master Level-5 summary account ID directly (21115: شركات الشحن)
+  Future<int?> resolveMasterAccountId() async {
+    try {
+      final res = await _client
+          .from('accounts')
+          .select('id')
+          .eq('account_code', '21115')
+          .limit(1)
+          .maybeSingle();
+      if (res != null && res['id'] != null) {
+        return (res['id'] as num).toInt();
+      }
+      final fallback = await _client
+          .from('accounts')
+          .select('id')
+          .eq('account_code', '2111')
+          .limit(1)
+          .maybeSingle();
+      return (fallback?['id'] as num?)?.toInt();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<int> insert(ShippingCompanyModel company) async {
     try {
+      final insertMap = company.toInsertMap();
+      if (!insertMap.containsKey('account_id') || insertMap['account_id'] == null) {
+        final masterId = await resolveMasterAccountId();
+        if (masterId != null) {
+          insertMap['account_id'] = masterId;
+        }
+      }
       debugPrint('🟡 SHIPPING INSERT START');
-      debugPrint('📦 DATA: ${company.toInsertMap()}');
+      debugPrint('📦 DATA: $insertMap');
 
       final data = await _client
           .from(_table)
-          .insert(company.toInsertMap())
+          .insert(insertMap)
           .select()
           .single();
 
@@ -148,6 +199,7 @@ class ShippingCompanyDao {
       'phone': company.phone,
       'email': company.email,
       'balance': newBalance,
+      'current_balance': newBalance,
       'initial_balance': company.initialBalance,
       'initial_balance_direction': company.initialBalanceDirection,
       'currency': company.currency,

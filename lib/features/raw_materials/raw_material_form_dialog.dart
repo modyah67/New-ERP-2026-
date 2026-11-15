@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -387,26 +386,22 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Dialog(
       clipBehavior: Clip.antiAlias,
-      backgroundColor: const Color(0xCC05192D),
+      backgroundColor: AppTheme.getCardBg(context),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: AppTheme.glassBorder),
+        side: BorderSide(color: AppTheme.getBorderColor(context)),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: Container(
+        child: Container(
             width: screenWidth < 500 ? screenWidth * 0.95 : 520,
             constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.85),
-            decoration: const BoxDecoration(
-              color: Color(0xB305192D),
-              borderRadius: BorderRadius.all(Radius.circular(24)),
-            ),
+            color: AppTheme.getCardBg(context),
             child: Directionality(
               textDirection: TextDirection.rtl,
               child: Form(
@@ -470,7 +465,12 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
                             const SizedBox(height: 14),
                             Row(
                               children: [
-                                const Text('سعر الصرف', style: TextStyle(fontFamily: 'Cairo', color: AppTheme.textSecondary, fontSize: 13)),
+                                Text('سعر الصرف',
+                                    style: TextStyle(
+                                        fontFamily: 'Cairo',
+                                        color: isDark ? AppTheme.textSecondary : Colors.black,
+                                        fontWeight: isDark ? FontWeight.w600 : FontWeight.bold,
+                                        fontSize: 13)),
                                 const SizedBox(width: 4),
                                 const Text('*', style: TextStyle(color: AppTheme.danger, fontSize: 13)),
                               ],
@@ -482,7 +482,10 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
                               inputFormatters: [
                                 FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,4}$')),
                               ],
-                              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                              style: TextStyle(
+                                  color: isDark ? Colors.white : Colors.black,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cairo'),
                               validator: (v) {
                                 if (v == null || v.trim().isEmpty) return 'أدخل سعر الصرف';
                                 final val = double.tryParse(v.trim());
@@ -491,19 +494,33 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
                               },
                               decoration: InputDecoration(
                                 hintText: 'مثال: 50.00',
-                                hintStyle: const TextStyle(color: Colors.grey, fontFamily: 'Cairo', fontSize: 13),
+                                hintStyle: TextStyle(
+                                    color: isDark ? Colors.grey : const Color(0xFF64748B),
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                    fontSize: 13),
+                                filled: true,
+                                fillColor: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.white,
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(color: AppTheme.glassBorder),
+                                  borderSide: BorderSide(
+                                      color: isDark
+                                          ? Colors.white.withValues(alpha: 0.12)
+                                          : const Color(0xFFCBD5E1)),
                                 ),
                                 enabledBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(color: AppTheme.glassBorder),
+                                  borderSide: BorderSide(
+                                      color: isDark
+                                          ? Colors.white.withValues(alpha: 0.12)
+                                          : const Color(0xFFCBD5E1)),
                                 ),
                                 focusedBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
-                                  borderSide: const BorderSide(color: AppTheme.accent),
+                                  borderSide: BorderSide(
+                                      color: isDark ? AppTheme.accent : const Color(0xFF0284C7),
+                                      width: 1.5),
                                 ),
                                 errorBorder: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(12),
@@ -516,9 +533,13 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
                               ),
                             ),
                             const SizedBox(height: 4),
-                            const Text(
+                            Text(
                               'سعر صرف العملة مقابل الجنيه المصري',
-                              style: TextStyle(color: Colors.grey, fontFamily: 'Cairo', fontSize: 11),
+                              style: TextStyle(
+                                  color: isDark ? Colors.grey : const Color(0xFF475569),
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cairo',
+                                  fontSize: 11),
                             ),
                           ],
                           const SizedBox(height: 14),
@@ -540,9 +561,13 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
-                                    const Text(
+                                    Text(
                                       'الفئة *',
-                                      style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo'),
+                                      style: TextStyle(
+                                          color: isDark ? AppTheme.textSecondary : Colors.black,
+                                          fontWeight: isDark ? FontWeight.w600 : FontWeight.bold,
+                                          fontSize: 13,
+                                          fontFamily: 'Cairo'),
                                     ),
                                     const SizedBox(height: 8),
                                     if (_loadingCategories)
@@ -554,28 +579,49 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
                                       DropdownButtonFormField<String>(
                                         initialValue: _categoryId,
                                         isExpanded: true,
-                                        dropdownColor: const Color(0xFF0A2340),
-                                        style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                                        dropdownColor: isDark ? const Color(0xFF0A1E38) : Colors.white,
+                                        style: TextStyle(
+                                            color: isDark ? Colors.white : Colors.black,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo'),
                                         decoration: InputDecoration(
+                                          filled: true,
+                                          fillColor: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.white,
                                           contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                           border: OutlineInputBorder(
                                             borderRadius: BorderRadius.circular(12),
-                                            borderSide: const BorderSide(color: AppTheme.glassBorder),
+                                            borderSide: BorderSide(
+                                                color: isDark
+                                                    ? Colors.white.withValues(alpha: 0.12)
+                                                    : const Color(0xFFCBD5E1)),
                                           ),
                                           enabledBorder: OutlineInputBorder(
                                             borderRadius: BorderRadius.circular(12),
-                                            borderSide: const BorderSide(color: AppTheme.glassBorder),
+                                            borderSide: BorderSide(
+                                                color: isDark
+                                                    ? Colors.white.withValues(alpha: 0.12)
+                                                    : const Color(0xFFCBD5E1)),
                                           ),
                                           focusedBorder: OutlineInputBorder(
                                             borderRadius: BorderRadius.circular(12),
-                                            borderSide: const BorderSide(color: AppTheme.accent),
+                                            borderSide: BorderSide(
+                                                color: isDark ? AppTheme.accent : const Color(0xFF0284C7),
+                                                width: 1.5),
                                           ),
                                         ),
-                                        hint: const Text('اختر الفئة', style: TextStyle(color: AppTheme.textMuted, fontFamily: 'Cairo')),
+                                        hint: Text('اختر الفئة',
+                                            style: TextStyle(
+                                                color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Cairo')),
                                         items: _categories.map((c) {
                                           return DropdownMenuItem<String>(
                                             value: c['id'].toString(),
-                                            child: Text(c['name']?.toString() ?? '', style: const TextStyle(fontFamily: 'Cairo')),
+                                            child: Text(c['name']?.toString() ?? '',
+                                                style: TextStyle(
+                                                    color: isDark ? Colors.white : Colors.black,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontFamily: 'Cairo')),
                                           );
                                         }).toList(),
                                         onChanged: (v) => setState(() => _categoryId = v),
@@ -594,29 +640,42 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
                             Container(
                               padding: const EdgeInsets.all(16),
                               decoration: BoxDecoration(
-                                color: AppTheme.accent.withValues(alpha: 0.06),
+                                color: isDark ? AppTheme.accent.withValues(alpha: 0.06) : const Color(0xFFF0FDF4),
                                 borderRadius: BorderRadius.circular(14),
-                                border: Border.all(color: AppTheme.accent.withValues(alpha: 0.15)),
+                                border: Border.all(
+                                    color: isDark
+                                        ? AppTheme.accent.withValues(alpha: 0.15)
+                                        : const Color(0xFF86EFAC)),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
                                     children: [
-                                      Icon(Icons.inventory_2_outlined, size: 18, color: AppTheme.accent),
+                                      Icon(Icons.inventory_2_outlined,
+                                          size: 18,
+                                          color: isDark ? AppTheme.accent : const Color(0xFF16A34A)),
                                       const SizedBox(width: 8),
-                                      const Expanded(
+                                      Expanded(
                                         child: Text(
                                           'الرصيد المبدأي (اختياري)',
-                                          style: TextStyle(color: AppTheme.accent, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                                          style: TextStyle(
+                                              color: isDark ? AppTheme.accent : const Color(0xFF15803D),
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo'),
                                         ),
                                       ),
                                     ],
                                   ),
                                   const SizedBox(height: 4),
-                                  const Text(
+                                  Text(
                                     'أدخل الكمية والسعر الموجودين قبل تشغيل النظام',
-                                    style: TextStyle(color: AppTheme.textMuted, fontSize: 11, fontFamily: 'Cairo'),
+                                    style: TextStyle(
+                                        color: isDark ? AppTheme.textMuted : const Color(0xFF334155),
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'Cairo'),
                                   ),
                                    const SizedBox(height: 14),
                                   Row(
@@ -656,28 +715,49 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
                                     DropdownButtonFormField<int>(
                                       initialValue: _selectedStationId,
                                       isExpanded: true,
-                                      dropdownColor: const Color(0xFF0A2340),
-                                      style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                                      dropdownColor: isDark ? const Color(0xFF0A1E38) : Colors.white,
+                                      style: TextStyle(
+                                          color: isDark ? Colors.white : Colors.black,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo'),
                                       decoration: InputDecoration(
+                                        filled: true,
+                                        fillColor: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.white,
                                         contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                                         border: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(12),
-                                          borderSide: const BorderSide(color: AppTheme.glassBorder),
+                                          borderSide: BorderSide(
+                                              color: isDark
+                                                  ? Colors.white.withValues(alpha: 0.12)
+                                                  : const Color(0xFFCBD5E1)),
                                         ),
                                         enabledBorder: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(12),
-                                          borderSide: const BorderSide(color: AppTheme.glassBorder),
+                                          borderSide: BorderSide(
+                                              color: isDark
+                                                  ? Colors.white.withValues(alpha: 0.12)
+                                                  : const Color(0xFFCBD5E1)),
                                         ),
                                         focusedBorder: OutlineInputBorder(
                                           borderRadius: BorderRadius.circular(12),
-                                          borderSide: const BorderSide(color: AppTheme.accent),
+                                          borderSide: BorderSide(
+                                              color: isDark ? AppTheme.accent : const Color(0xFF0284C7),
+                                              width: 1.5),
                                         ),
                                       ),
-                                      hint: const Text('اختر المحطة *', style: TextStyle(color: AppTheme.textMuted, fontFamily: 'Cairo')),
+                                      hint: Text('اختر المحطة *',
+                                          style: TextStyle(
+                                              color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo')),
                                       items: _stations.where((s) => s.isActive).map((s) {
                                         return DropdownMenuItem<int>(
                                           value: int.tryParse(s.id ?? ''),
-                                          child: Text(s.name, style: const TextStyle(fontFamily: 'Cairo')),
+                                          child: Text(s.name,
+                                              style: TextStyle(
+                                                  color: isDark ? Colors.white : Colors.black,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFamily: 'Cairo')),
                                         );
                                       }).toList(),
                                       onChanged: (v) => setState(() => _selectedStationId = v),
@@ -701,15 +781,15 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
             ),
           ),
         ),
-      ),
-    );
+      );
   }
 
   Widget _buildHeader() {
+    final isDark = AppTheme.isDark(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
+        border: Border(bottom: BorderSide(color: AppTheme.getBorderColor(context))),
       ),
       child: Row(
         children: [
@@ -728,11 +808,13 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
           Expanded(
             child: Text(
               _isEditing ? 'تعديل مادة خام' : 'إضافة مادة خام جديدة',
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.white, fontFamily: 'Cairo'),
+              style: TextStyle(
+                fontSize: 20, fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo'),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white70, size: 22),
+            icon: Icon(Icons.close, color: isDark ? Colors.white70 : Colors.black, size: 22),
             onPressed: () => Navigator.pop(context),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -743,10 +825,11 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
   }
 
   Widget _buildButtons() {
+    final isDark = AppTheme.isDark(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
       decoration: BoxDecoration(
-        border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
+        border: Border(top: BorderSide(color: AppTheme.getBorderColor(context))),
       ),
       child: OverflowBar(
         alignment: MainAxisAlignment.end,
@@ -755,13 +838,13 @@ class _RawMaterialFormDialogState extends State<RawMaterialFormDialog> {
         children: [
           OutlinedButton(
             style: OutlinedButton.styleFrom(
-              foregroundColor: AppTheme.textSecondary,
-              side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+              foregroundColor: isDark ? AppTheme.textSecondary : Colors.black,
+              side: BorderSide(color: isDark ? AppTheme.getBorderColor(context) : const Color(0xFFCBD5E1)),
               padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 14),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
             onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
+            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
           ),
           ElevatedButton.icon(
             style: ElevatedButton.styleFrom(

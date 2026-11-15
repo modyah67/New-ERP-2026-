@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/read_only_guard.dart';
+import '../../data/dao/clearing_agent_dao.dart';
 import '../../data/models/clearing_agent_model.dart';
 import 'clearing_agent_cubit.dart';
 import 'clearing_agent_state.dart';
@@ -69,6 +70,65 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
 
   Future<void> _save() async {
     if (!ReadOnlyGuard.check(context)) return;
+
+    // ── Form Validation Guard: Strict Numerical Boundary Check ──
+    final codeText = _cubit.codeController.text.trim();
+    final codeValidationError =
+        ClearingAgentModel.validateClearingAgentCode(codeText, _cubit.brokerType);
+    if (codeValidationError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded,
+                  color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  codeValidationError,
+                  style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppTheme.danger,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    // ── Collision Check Guard ──
+    if (widget.agent == null || widget.agent!.code != codeText) {
+      final exists = await ClearingAgentDao().checkCodeExists(codeText, excludeId: widget.agent?.id);
+      if (exists) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'كود المخلص ($codeText) مستخدم بالفعل، يرجى اختيار كود آخر',
+                    style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: AppTheme.danger,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+    }
+
     final addrText = _addressCtrl.text.trim();
     if (addrText.isNotEmpty || _cubit.addresses.isEmpty) {
       _cubit.setSingleAddress(addrText);
@@ -119,14 +179,15 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.agent != null;
+    final isDark = ThemeCubit.isCurrentDark;
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Dialog(
       clipBehavior: Clip.antiAlias,
-      backgroundColor: const Color(0xCC05192D),
+      backgroundColor: isDark ? const Color(0xCC05192D) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: AppTheme.glassBorder),
+        side: BorderSide(color: isDark ? AppTheme.glassBorder : AppTheme.lightBorder),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
@@ -135,9 +196,9 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
           child: Container(
             width: screenWidth < 500 ? screenWidth * 0.95 : 640,
             constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.92),
-            decoration: const BoxDecoration(
-              color: Color(0xB305192D),
-              borderRadius: BorderRadius.all(Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xB305192D) : Colors.white,
+              borderRadius: const BorderRadius.all(Radius.circular(24)),
             ),
             child: Form(
               key: _cubit.formKey,
@@ -172,7 +233,9 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
                             FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*')),
                           ],
                           validator: (v) {
-                            if (v == null || v.trim().isEmpty) return 'الرصيد المبدئي مطلوب';
+                            if (v != null && v.trim().isNotEmpty && double.tryParse(v.trim()) == null) {
+                              return 'يرجى إدخال رقم صحيح';
+                            }
                             return null;
                           },
                         ),
@@ -260,23 +323,30 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
   // ── HEADER ──
 
   Widget _buildHeader(bool isEditing) {
+    final isDark = ThemeCubit.isCurrentDark;
     final isMobile = MediaQuery.of(context).size.width < 400;
+    final primaryColor = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+
     return Container(
       padding: EdgeInsets.symmetric(horizontal: isMobile ? 16 : 28, vertical: isMobile ? 12 : 18),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? Colors.white.withValues(alpha: 0.08) : AppTheme.lightBorder,
+          ),
+        ),
       ),
       child: Row(
         children: [
           Container(
             width: 40, height: 40,
             decoration: BoxDecoration(
-              color: AppTheme.primary.withValues(alpha: 0.1),
+              color: primaryColor.withValues(alpha: isDark ? 0.1 : 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               isEditing ? Icons.edit_outlined : Icons.person_add_outlined,
-              color: AppTheme.primary, size: 20,
+              color: primaryColor, size: 20,
             ),
           ),
           const SizedBox(width: 12),
@@ -286,12 +356,17 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
               alignment: AlignmentDirectional.centerStart,
               child: Text(
                 isEditing ? 'تعديل مخلص' : 'إضافة مخلص جديد',
-                style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600, color: Colors.white, fontFamily: 'Cairo'),
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  fontFamily: 'Cairo',
+                ),
               ),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white70, size: 22),
+            icon: Icon(Icons.close, color: isDark ? Colors.white70 : const Color(0xFF475569), size: 22),
             onPressed: () => Navigator.pop(context),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -325,27 +400,45 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
   }
 
   Widget _buildBrokerTypeOption(String type, IconData icon) {
+    final isDark = ThemeCubit.isCurrentDark;
+    final primaryColor = isDark ? AppTheme.primary : AppTheme.lightPrimary;
     final isSelected = _cubit.brokerType == type;
+
     return GestureDetector(
-      onTap: () => setState(() => _cubit.brokerType = type),
+      onTap: () async {
+        await _cubit.onBrokerTypeChanged(type);
+        if (mounted) setState(() {});
+      },
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 16),
         decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primary.withValues(alpha: 0.15) : Colors.white.withValues(alpha: 0.03),
+          color: isSelected
+              ? primaryColor.withValues(alpha: isDark ? 0.15 : 0.12)
+              : (isDark ? Colors.white.withValues(alpha: 0.03) : const Color(0xFFF8FAFC)),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? AppTheme.primary : Colors.white.withValues(alpha: 0.08),
+            color: isSelected
+                ? primaryColor
+                : (isDark ? Colors.white.withValues(alpha: 0.08) : AppTheme.lightBorder),
             width: isSelected ? 1.5 : 1,
           ),
         ),
         child: Column(
           children: [
-            Icon(icon, size: 28, color: isSelected ? AppTheme.primary : AppTheme.textSecondary),
+            Icon(
+              icon,
+              size: 28,
+              color: isSelected
+                  ? primaryColor
+                  : (isDark ? AppTheme.textSecondary : const Color(0xFF475569)),
+            ),
             const SizedBox(height: 8),
             Text(type,
               style: TextStyle(
-                fontSize: 14, fontWeight: FontWeight.w600, fontFamily: 'Cairo',
-                color: isSelected ? AppTheme.primary : AppTheme.textSecondary,
+                fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo',
+                color: isSelected
+                    ? primaryColor
+                    : (isDark ? AppTheme.textSecondary : const Color(0xFF0F172A)),
               ),
             ),
           ],
@@ -367,13 +460,12 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
             Expanded(child: AppTextField(
               label: 'كود المخلص', 
               controller: _cubit.codeController, 
-              hint: '0001', 
+              hint: ClearingAgentModel.getHint(_cubit.brokerType), 
               readOnly: widget.agent != null,
               isRequired: true,
-              validator: (v) {
-                if (v == null || v.trim().isEmpty) return 'كود المخلص مطلوب';
-                return null;
-              },
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              validator: (v) => ClearingAgentModel.validateClearingAgentCode(v, _cubit.brokerType),
             )),
             const SizedBox(width: 12),
             Expanded(
@@ -475,15 +567,15 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
             decoration: BoxDecoration(
-              color: const Color(0x80141A24),
+              color: ThemeCubit.isCurrentDark ? const Color(0x80141A24) : const Color(0xFFF8FAFC),
               borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+              border: Border.all(color: ThemeCubit.isCurrentDark ? Colors.white.withValues(alpha: 0.06) : AppTheme.lightBorder),
             ),
             child: Row(
               children: [
                 const Icon(Icons.location_on_outlined, size: 16, color: AppTheme.accent),
                 const SizedBox(width: 10),
-                Expanded(child: Text(addressText, style: const TextStyle(color: Colors.white70, fontSize: 14, fontFamily: 'Cairo'), overflow: TextOverflow.ellipsis)),
+                Expanded(child: Text(addressText, style: TextStyle(color: ThemeCubit.isCurrentDark ? Colors.white70 : const Color(0xFF0F172A), fontSize: 14, fontFamily: 'Cairo'), overflow: TextOverflow.ellipsis)),
                 if (isCreating) ...[
                   const SizedBox(width: 8),
                   SizedBox(width: 32, height: 32, child: IconButton(
@@ -545,21 +637,32 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
   // ── BUTTONS ──
 
   Widget _buildButtons(bool isEditing) {
+    final isDark = ThemeCubit.isCurrentDark;
+    final primaryColor = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+
     return BlocBuilder<ClearingAgentCubit, ClearingAgentState>(
       builder: (context, state) {
         final isSaving = _cubit.formState.isSaving;
         final isMobile = MediaQuery.of(context).size.width < 400;
         return Container(
           padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 28, vertical: 16),
-          decoration: BoxDecoration(border: Border(top: BorderSide(color: Colors.white.withValues(alpha: 0.08)))),
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(
+                color: isDark ? Colors.white.withValues(alpha: 0.08) : AppTheme.lightBorder,
+              ),
+            ),
+          ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
               Expanded(
                 child: OutlinedButton(
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.textSecondary,
-                    side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                    foregroundColor: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                    side: BorderSide(
+                      color: isDark ? Colors.white.withValues(alpha: 0.15) : AppTheme.lightBorder,
+                    ),
                     padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 24, vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -571,11 +674,11 @@ class _ClearingAgentFormDialogState extends State<ClearingAgentFormDialog> {
               Expanded(
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primary, foregroundColor: Colors.white,
+                    backgroundColor: primaryColor, foregroundColor: Colors.white,
                     padding: EdgeInsets.symmetric(horizontal: isMobile ? 12 : 28, vertical: 14),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     elevation: 4,
-                    shadowColor: AppTheme.primary.withValues(alpha: 0.3),
+                    shadowColor: primaryColor.withValues(alpha: 0.3),
                   ),
                   icon: isSaving
                       ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))

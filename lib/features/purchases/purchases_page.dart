@@ -5,7 +5,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
-import '../../core/router.dart';
 import '../../data/models/purchase_model.dart';
 import '../../data/models/item_model.dart';
 import '../auth/auth_cubit.dart';
@@ -23,6 +22,7 @@ class PurchasesPage extends StatelessWidget {
   Widget build(BuildContext context) {
     final c = context.read<PurchaseCubit>();
     final isMobile = MediaQuery.of(context).size.width < 600;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Scaffold(
       body: Padding(
@@ -46,21 +46,21 @@ class PurchasesPage extends StatelessWidget {
                   fit: BoxFit.scaleDown,
                   alignment: AlignmentDirectional.centerStart,
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('المشتريات', style: TextStyle(fontSize: isMobile ? 22 : 32, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo')),
+                    Text('المشتريات', style: TextStyle(fontSize: isMobile ? 22 : 32, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo')),
                     BlocBuilder<PurchaseCubit, PurchaseState>(
                       builder: (context, state) {
                         final count = state is PurchaseLoaded ? state.purchases.length : 0;
-                        return Text('$count عملية شراء', style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13));
+                        return Text('$count عملية شراء', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold));
                       },
                     ),
                   ]),
                 ),
               ),
-              IconButton(icon: const Icon(Icons.refresh_outlined), tooltip: 'تحديث', onPressed: c.loadAll),
+              IconButton(icon: Icon(Icons.refresh_outlined, color: isDark ? Colors.white : Colors.black), tooltip: 'تحديث', onPressed: c.loadAll),
               const SizedBox(width: 4),
               ElevatedButton.icon(
                 icon: const Icon(Icons.add, size: 18),
-                label: Text(isMobile ? 'جديد' : 'مشتريات جديدة'),
+                label: Text(isMobile ? 'جديد' : 'مشتريات جديدة', style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                 onPressed: () { c.prepareNewForm(); if (context.mounted) context.push('/purchases/new', extra: c); },
               ),
             ]),
@@ -86,15 +86,27 @@ class PurchasesPage extends StatelessWidget {
                     children: [
                       SizedBox(
                         width: isMobile ? 200 : 300,
-                        child: ClipRRect(borderRadius: BorderRadius.circular(24), child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: Container(decoration: AppTheme.glassCard(), child: Padding(
+                        child: ClipRRect(borderRadius: BorderRadius.circular(24), child: BackdropFilter(filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18), child: Container(
+                          decoration: isDark ? AppTheme.glassCard() : BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(24),
+                            border: Border.all(color: const Color(0xFFCBD5E1)),
+                          ),
+                          child: Padding(
                           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
                           child: TextField(
-                            decoration: const InputDecoration(
+                            decoration: InputDecoration(
                               hintText: 'بحث بالرقم أو اسم المورد...',
-                              prefixIcon: Icon(Icons.search, size: 20),
+                              hintStyle: TextStyle(
+                                color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                                fontFamily: 'Cairo',
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              prefixIcon: Icon(Icons.search, size: 20, color: isDark ? AppTheme.accent : const Color(0xFF0284C7)),
                               border: InputBorder.none,
                             ),
-                            style: const TextStyle(fontFamily: 'Cairo', fontSize: 14),
+                            style: TextStyle(fontFamily: 'Cairo', fontSize: 14, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black),
                             onChanged: (v) => c.onSearchChanged(v),
                           ),
                         )))),
@@ -110,16 +122,16 @@ class PurchasesPage extends StatelessWidget {
                             decoration: BoxDecoration(
                               color: selectedProductId != null
                                   ? AppTheme.primary.withValues(alpha: 0.12)
-                                  : Colors.white.withValues(alpha: 0.06),
+                                  : (isDark ? Colors.white.withValues(alpha: 0.06) : Colors.white),
                               borderRadius: BorderRadius.circular(8),
                               border: Border.all(
                                 color: selectedProductId != null
                                     ? AppTheme.primary.withValues(alpha: 0.4)
-                                    : AppTheme.glassBorder,
+                                    : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                               ),
                             ),
                             child: Row(children: [
-                              const Icon(Icons.inventory_2_outlined, size: 16, color: AppTheme.accent),
+                              Icon(Icons.inventory_2_outlined, size: 16, color: isDark ? AppTheme.accent : const Color(0xFF0284C7)),
                               const SizedBox(width: 8),
                               Flexible(
                                 child: Text(
@@ -129,13 +141,16 @@ class PurchasesPage extends StatelessWidget {
                                   style: TextStyle(
                                     fontFamily: 'Cairo',
                                     fontSize: 12,
-                                    color: selectedProductId != null ? AppTheme.primary : Colors.white,
+                                    fontWeight: FontWeight.bold,
+                                    color: selectedProductId != null
+                                        ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                                        : (isDark ? Colors.white : Colors.black),
                                   ),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
                               const SizedBox(width: 4),
-                              const Icon(Icons.arrow_drop_down, size: 18, color: AppTheme.textSecondary),
+                              Icon(Icons.arrow_drop_down, size: 18, color: isDark ? AppTheme.textSecondary : Colors.black),
                             ]),
                           ),
                         ),
@@ -144,9 +159,9 @@ class PurchasesPage extends StatelessWidget {
                       Container(
                         height: 48,
                         decoration: BoxDecoration(
-                          color: Colors.white.withValues(alpha: 0.06),
+                          color: isDark ? Colors.white.withValues(alpha: 0.06) : Colors.white,
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppTheme.glassBorder),
+                          border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                         ),
                         child: Row(
                           children: [
@@ -155,36 +170,46 @@ class PurchasesPage extends StatelessWidget {
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 12),
                                 child: Row(children: [
-                                  const Icon(Icons.calendar_today, size: 16, color: AppTheme.accent),
+                                  Icon(Icons.calendar_today, size: 16, color: isDark ? AppTheme.accent : const Color(0xFF0284C7)),
                                   const SizedBox(width: 8),
                                   Text(
                                     fromDate == null
                                         ? 'من تاريخ'
                                         : AppUtils.formatDate(fromDate),
-                                    style: const TextStyle(fontFamily: 'Cairo', fontSize: 12),
+                                    style: TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark ? Colors.white : Colors.black,
+                                    ),
                                   ),
                                 ]),
                               ),
                             ),
-                            const VerticalDivider(width: 1, indent: 8, endIndent: 8),
+                            VerticalDivider(width: 1, indent: 8, endIndent: 8, color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                             InkWell(
                               onTap: () => c.pickToDate(context),
                               child: Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: 12),
                                 child: Row(children: [
-                                  const Icon(Icons.calendar_today, size: 16, color: AppTheme.accent),
+                                  Icon(Icons.calendar_today, size: 16, color: isDark ? AppTheme.accent : const Color(0xFF0284C7)),
                                   const SizedBox(width: 8),
                                   Text(
                                     toDate == null
                                         ? 'إلى تاريخ'
                                         : AppUtils.formatDate(toDate),
-                                    style: const TextStyle(fontFamily: 'Cairo', fontSize: 12),
+                                    style: TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark ? Colors.white : Colors.black,
+                                    ),
                                   ),
                                 ]),
                               ),
                             ),
                             if (hasAnyFilter) ...[
-                              const VerticalDivider(width: 1, indent: 8, endIndent: 8),
+                              VerticalDivider(width: 1, indent: 8, endIndent: 8, color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                               IconButton(
                                 icon: const Icon(Icons.clear, size: 16, color: AppTheme.danger),
                                 onPressed: c.clearFilters,
@@ -231,9 +256,9 @@ class PurchasesPage extends StatelessWidget {
                   return Center(child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.local_shipping_outlined, size: 72, color: AppTheme.textSecondary.withValues(alpha: 0.3)),
+                      Icon(Icons.local_shipping_outlined, size: 72, color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.3) : const Color(0xFF94A3B8)),
                       const SizedBox(height: 16),
-                      const Text('لا توجد مشتريات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                      Text('لا توجد مشتريات', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo')),
                     ],
                   ));
                 }
@@ -242,21 +267,37 @@ class PurchasesPage extends StatelessWidget {
                   child: BackdropFilter(
                     filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                     child: Container(
-                      decoration: AppTheme.glassCard(),
+                      decoration: isDark
+                          ? AppTheme.glassCard()
+                          : BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(24),
+                              border: Border.all(color: const Color(0xFFCBD5E1)),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.04),
+                                  blurRadius: 12,
+                                  offset: const Offset(0, 4),
+                                ),
+                              ],
+                            ),
                       child: Column(children: [
                         if (!isMobile)
                           Container(
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                            color: const Color(0x1A00E5FF),
-                            child: const Row(children: [
-                              Expanded(flex: 2, child: Text('الرقم', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontFamily: 'Cairo', fontSize: 14))),
-                              Expanded(flex: 2, child: Text('التاريخ', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontFamily: 'Cairo', fontSize: 14))),
-                              Expanded(flex: 3, child: Text('المورد', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontFamily: 'Cairo', fontSize: 14))),
-                              Expanded(flex: 2, child: Text('الإجمالي', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontFamily: 'Cairo', fontSize: 14), textAlign: TextAlign.center)),
-                              SizedBox(width: 120, child: Text('إجراءات', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontFamily: 'Cairo', fontSize: 14), textAlign: TextAlign.center)),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0x1A00E5FF) : const Color(0xFFE2E8F0),
+                              borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+                            ),
+                            child: Row(children: [
+                              Expanded(flex: 2, child: Text('الرقم', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 14))),
+                              Expanded(flex: 2, child: Text('التاريخ', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 14))),
+                              Expanded(flex: 3, child: Text('المورد', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 14))),
+                              Expanded(flex: 2, child: Text('الإجمالي', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 14), textAlign: TextAlign.center)),
+                              SizedBox(width: 120, child: Text('إجراءات', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 14), textAlign: TextAlign.center)),
                             ]),
                           ),
-                        if (!isMobile) const Divider(height: 1),
+                        if (!isMobile) Divider(height: 1, color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                         Expanded(
                           child: NotificationListener<ScrollNotification>(
                             onNotification: (ScrollNotification scrollInfo) {
@@ -271,7 +312,7 @@ class PurchasesPage extends StatelessWidget {
                             },
                             child: ListView.separated(
                               itemCount: state.purchases.length + (state.hasMore ? 1 : 0),
-                              separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
+                              separatorBuilder: (_, __) => Divider(height: 1, indent: 16, endIndent: 16, color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
                               itemBuilder: (_, i) {
                                 if (i == state.purchases.length) {
                                   return const Padding(
@@ -300,15 +341,16 @@ class PurchasesPage extends StatelessWidget {
 
   void _showProductPicker(
       BuildContext context, PurchaseCubit cubit, List<ItemModel> items, String? selectedId) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (dialogContext) => Directionality(
         textDirection: TextDirection.rtl,
         child: Dialog(
-          backgroundColor: const Color(0xCC05192D),
+          backgroundColor: isDark ? const Color(0xCC05192D) : Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(24),
-            side: const BorderSide(color: AppTheme.glassBorder),
+            side: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
           ),
           child: Container(
             width: 360,
@@ -318,9 +360,9 @@ class PurchasesPage extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('اختر المنتج', style: TextStyle(fontFamily: 'Cairo', color: Colors.white, fontSize: 18)),
+                Text('اختر المنتج', style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 12),
-                const Divider(color: AppTheme.glassBorder),
+                Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                 Flexible(
                   child: ListView(
                     shrinkWrap: true,
@@ -330,23 +372,23 @@ class PurchasesPage extends StatelessWidget {
                         borderRadius: BorderRadius.circular(8),
                         child: ListTile(
                           dense: true,
-                          title: const Text('الكل', style: TextStyle(fontFamily: 'Cairo', color: Colors.white)),
-                          leading: Icon(Icons.clear_all, color: selectedId == null ? AppTheme.primary : AppTheme.textSecondary, size: 20),
+                          title: Text('الكل', style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
+                          leading: Icon(Icons.clear_all, color: selectedId == null ? AppTheme.primary : (isDark ? AppTheme.textSecondary : Colors.black54), size: 20),
                           onTap: () {
                             Navigator.pop(dialogContext);
                             cubit.onProductFilterChanged(null);
                           },
                         ),
                       ),
-                      const Divider(color: AppTheme.glassBorder),
+                      Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
                       ...items.map((item) => Material(
                         color: item.id == selectedId ? AppTheme.primary.withValues(alpha: 0.15) : Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
                         child: ListTile(
                           dense: true,
                           title: Text('${item.name} (${item.code})',
-                              style: const TextStyle(fontFamily: 'Cairo', color: Colors.white, fontSize: 13)),
-                          leading: Icon(Icons.inventory_2_outlined, color: item.id == selectedId ? AppTheme.primary : AppTheme.textSecondary, size: 20),
+                              style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontSize: 13, fontWeight: FontWeight.bold)),
+                          leading: Icon(Icons.inventory_2_outlined, color: item.id == selectedId ? AppTheme.primary : (isDark ? AppTheme.textSecondary : Colors.black54), size: 20),
                           onTap: () {
                             Navigator.pop(dialogContext);
                             cubit.onProductFilterChanged(item.id);
@@ -365,12 +407,15 @@ class PurchasesPage extends StatelessWidget {
   }
 
   Widget _desktopRow(BuildContext context, PurchaseModel p, int i) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final even = i % 2 == 0;
     final isDraft = p.status != 'confirmed';
     final authState = context.read<AuthCubit>().state;
     final isAdmin = authState is AuthAuthenticated && authState.isAdmin;
     return Container(
-      color: even ? Colors.white.withValues(alpha: 0.03) : Colors.white.withValues(alpha: 0.05),
+      color: isDark
+          ? (even ? Colors.white.withValues(alpha: 0.03) : Colors.white.withValues(alpha: 0.05))
+          : (even ? Colors.white : const Color(0xFFF8FAFC)),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(children: [
         Expanded(flex: 2, child: Wrap(
@@ -378,51 +423,104 @@ class PurchasesPage extends StatelessWidget {
           spacing: 8,
           runSpacing: 4,
           children: [
-          Text(p.purchaseNumber.toString().padLeft(6, '0'),
-              style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', color: Colors.white)),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-            decoration: BoxDecoration(
-              color: isDraft ? Colors.orange.withValues(alpha: 0.2) : AppTheme.success.withValues(alpha: 0.2),
-              borderRadius: BorderRadius.circular(8),
+            Text(p.purchaseNumber.toString().padLeft(6, '0'),
+                style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontSize: 14)),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: isDraft
+                    ? Colors.orange.withValues(alpha: isDark ? 0.2 : 0.15)
+                    : (isDark ? AppTheme.success.withValues(alpha: 0.2) : const Color(0xFFDCFCE7)),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isDraft
+                      ? (isDark ? Colors.orange : Colors.orange.shade700)
+                      : (isDark ? AppTheme.success : const Color(0xFF16A34A)),
+                ),
+              ),
+              child: Text(isDraft ? 'مسودة' : 'مؤكد',
+                  style: TextStyle(
+                    color: isDraft
+                        ? (isDark ? Colors.orange : Colors.orange.shade900)
+                        : (isDark ? AppTheme.success : const Color(0xFF15803D)),
+                    fontFamily: 'Cairo',
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  )),
             ),
-            child: Text(isDraft ? 'مسودة' : 'مؤكد',
-                style: TextStyle(color: isDraft ? Colors.orange : AppTheme.success, fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.w600)),
+          ],
+        )),
+        Expanded(
+          flex: 2,
+          child: Text(
+            AppUtils.formatDate(AppUtils.parseDate(p.purchaseDate)),
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontFamily: 'Cairo',
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ])),
-        Expanded(flex: 2, child: Text(AppUtils.formatDate(AppUtils.parseDate(p.purchaseDate)), style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 15))),
-        Expanded(flex: 3, child: Text(p.supplierName ?? '—', style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 15), overflow: TextOverflow.ellipsis)),
-        Expanded(flex: 2, child: Text('${AppUtils.formatNumber(p.netAmount)} ${p.currency}',
-            style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 13, color: Colors.white), textAlign: TextAlign.center)),
+        ),
+        Expanded(
+          flex: 3,
+          child: Text(
+            p.supplierName ?? '—',
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontFamily: 'Cairo',
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+        Expanded(
+          flex: 2,
+          child: Text(
+            '${AppUtils.formatNumber(p.netAmount)} ${p.currency}',
+            style: TextStyle(
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo',
+              fontSize: 14,
+              color: isDark ? Colors.white : Colors.black,
+            ),
+            textAlign: TextAlign.center,
+          ),
+        ),
         Row(mainAxisSize: MainAxisSize.min, children: [
           if (isDraft) ...[
-            InkWell(onTap: () => _confirmPurchase(context, p),
-                child: const Icon(Icons.check_circle_outline, size: 18, color: AppTheme.success)),
+            InkWell(
+              onTap: () => _confirmPurchase(context, p),
+              child: const Icon(Icons.check_circle_outline, size: 18, color: AppTheme.success),
+            ),
             const SizedBox(width: 12),
-            InkWell(onTap: () => _editPurchase(context, p),
-                child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary)),
+            InkWell(
+              onTap: () => _editPurchase(context, p),
+              child: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
+            ),
             const SizedBox(width: 12),
           ],
-          // if (isAdmin) ...[
-          //   InkWell(onTap: () => _showEditPriceDialog(context, p),
-          //       child: const Icon(Icons.price_change_outlined, size: 18, color: AppTheme.accent)),
-          //   const SizedBox(width: 12),
-          // ],
           if (!isDraft) ...[
             _buildJournalEntriesDropdown(context, p),
             const SizedBox(width: 12),
           ],
-            InkWell(onTap: () => _viewPurchase(context, p),
-                child: const Icon(Icons.article_outlined, size: 18, color:  Colors.white)),
-            const SizedBox(width: 12),
-            InkWell(onTap: () => _showDetails(context, p),
-                child: const Icon(Icons.picture_as_pdf_outlined, size: 18, color: Colors.red)),
+          InkWell(
+            onTap: () => _viewPurchase(context, p),
+            child: Icon(Icons.article_outlined, size: 18, color: isDark ? Colors.white : Colors.black87),
+          ),
+          const SizedBox(width: 12),
+          InkWell(
+            onTap: () => _showDetails(context, p),
+            child: const Icon(Icons.picture_as_pdf_outlined, size: 18, color: Colors.red),
+          ),
         ]),
       ]),
     );
   }
 
   Widget _mobileCard(BuildContext context, PurchaseModel p) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isDraft = p.status != 'confirmed';
     final authState = context.read<AuthCubit>().state;
     final isAdmin = authState is AuthAuthenticated && authState.isAdmin;
@@ -432,34 +530,48 @@ class PurchasesPage extends StatelessWidget {
         margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.05),
+          color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: AppTheme.glassBorder),
+          border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
             Text(p.purchaseNumber.toString().padLeft(6, '0'),
-                style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', color: Colors.white, fontSize: 14)),
+                style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontSize: 14)),
             const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: isDraft ? Colors.orange.withValues(alpha: 0.2) : AppTheme.success.withValues(alpha: 0.2),
+                color: isDraft
+                    ? Colors.orange.withValues(alpha: isDark ? 0.2 : 0.15)
+                    : (isDark ? AppTheme.success.withValues(alpha: 0.2) : const Color(0xFFDCFCE7)),
                 borderRadius: BorderRadius.circular(8),
+                border: Border.all(
+                  color: isDraft
+                      ? (isDark ? Colors.orange : Colors.orange.shade700)
+                      : (isDark ? AppTheme.success : const Color(0xFF16A34A)),
+                ),
               ),
               child: Text(isDraft ? 'مسودة' : 'مؤكد',
-                  style: TextStyle(color: isDraft ? Colors.orange : AppTheme.success, fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.w600)),
+                  style: TextStyle(
+                    color: isDraft
+                        ? (isDark ? Colors.orange : Colors.orange.shade900)
+                        : (isDark ? AppTheme.success : const Color(0xFF15803D)),
+                    fontFamily: 'Cairo',
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  )),
             ),
             const Spacer(),
             Text(AppUtils.formatDate(AppUtils.parseDate(p.purchaseDate)),
-                style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 12)),
+                style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.bold)),
           ]),
           const SizedBox(height: 8),
           Row(children: [
-            const Icon(Icons.person_outline, size: 14, color: AppTheme.textSecondary),
+            Icon(Icons.person_outline, size: 14, color: isDark ? AppTheme.textSecondary : Colors.black87),
             const SizedBox(width: 6),
             Expanded(child: Text(p.supplierName ?? '—',
-                style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+                style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold),
                 overflow: TextOverflow.ellipsis)),
           ]),
           const SizedBox(height: 8),
@@ -467,7 +579,7 @@ class PurchasesPage extends StatelessWidget {
             Expanded(
               child: Text(
                 '${AppUtils.formatNumber(p.netAmount)} ${p.currency}',
-                style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 15, color: AppTheme.accent),
+                style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 15, color: isDark ? AppTheme.accent : Colors.black),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -484,10 +596,10 @@ class PurchasesPage extends StatelessWidget {
               const SizedBox(width: 12),
             ],
             InkWell(onTap: () => _viewPurchase(context, p),
-                child: const Icon(Icons.list_alt_outlined, size: 18, color: AppTheme.accent)),
+                child: Icon(Icons.list_alt_outlined, size: 18, color: isDark ? AppTheme.accent : Colors.black87)),
             const SizedBox(width: 12),
             InkWell(onTap: () => _showDetails(context, p),
-                child: const Icon(Icons.receipt_long_outlined, size: 18, color: AppTheme.textSecondary)),
+                child: const Icon(Icons.receipt_long_outlined, size: 18, color: Colors.red)),
           ]),
         ]),
       ),
@@ -496,21 +608,26 @@ class PurchasesPage extends StatelessWidget {
 
   void _confirmPurchase(BuildContext context, PurchaseModel p) {
     bool isLoading = false;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           return AlertDialog(
-            backgroundColor: AppTheme.surface,
-            title: const Text('تأكيد المشتريات', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 16)),
+            backgroundColor: isDark ? AppTheme.surface : Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+            ),
+            title: Text('تأكيد المشتريات', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 16)),
             content: Text(
               'هل أنت متأكد من تأكيد فاتورة ${p.purchaseNumber}؟\nسيتم إضافة الأصناف للمخازن وتحديث رصيد المورد${(p.paidAmount > 0) ? ' وخصم المبلغ المدفوع من الخزينة/البنك' : ''}.',
-              style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+              style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
             ),
             actions: [
               TextButton(
                 onPressed: isLoading ? null : () => Navigator.of(ctx).pop(),
-                child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                child: Text('إلغاء', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
               ),
               ElevatedButton(
                 onPressed: isLoading ? null : () async {
@@ -536,7 +653,7 @@ class PurchasesPage extends StatelessWidget {
                 style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
                 child: isLoading
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('تأكيد', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+                    : const Text('تأكيد', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
               ),
             ],
           );
@@ -547,22 +664,27 @@ class PurchasesPage extends StatelessWidget {
 
   void _cancelPurchase(BuildContext context, PurchaseModel p) {
     bool isLoading = false;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
           return AlertDialog(
-            backgroundColor: AppTheme.surface,
-            title: const Text('إلغاء المشتريات', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 16)),
+            backgroundColor: isDark ? AppTheme.surface : Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+            ),
+            title: Text('إلغاء المشتريات', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 16)),
             content: Text(
               'هل أنت متأكد من إلغاء فاتورة ${p.purchaseNumber}؟\n'
               'سيتم عكس جميع التغييرات: الخزينة، رصيد المورد، المخزون، والقيود المحاسبية.',
-              style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+              style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
             ),
             actions: [
               TextButton(
                 onPressed: isLoading ? null : () => Navigator.of(ctx).pop(),
-                child: const Text('رجوع', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                child: Text('رجوع', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
               ),
               ElevatedButton(
                 onPressed: isLoading ? null : () async {
@@ -589,7 +711,7 @@ class PurchasesPage extends StatelessWidget {
                 style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
                 child: isLoading
                     ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                    : const Text('إلغاء الفاتورة', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+                    : const Text('إلغاء الفاتورة', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
               ),
             ],
           );
@@ -642,6 +764,7 @@ class PurchasesPage extends StatelessWidget {
 
     bool isSaving = false;
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     await showDialog(
       context: context,
       barrierDismissible: false,
@@ -649,10 +772,14 @@ class PurchasesPage extends StatelessWidget {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              backgroundColor: AppTheme.surface,
+              backgroundColor: isDark ? AppTheme.surface : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              ),
               title: Text(
                 'تعديل السعر - ${fullPurchase.purchaseNumber}',
-                style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 16),
+                style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontSize: 16, fontWeight: FontWeight.bold),
               ),
               content: SingleChildScrollView(
                 child: Column(
@@ -661,7 +788,7 @@ class PurchasesPage extends StatelessWidget {
                   children: [
                     Text(
                       'العملة: ${fullPurchase.currency}',
-                      style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+                      style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                     ),
                     const SizedBox(height: 16),
                     ...fullPurchase.items.map((item) {
@@ -674,43 +801,46 @@ class PurchasesPage extends StatelessWidget {
                           children: [
                             Text(
                               '${item.itemName} (${item.itemCode})',
-                              style: const TextStyle(
-                                color: Colors.white,
+                              style: TextStyle(
+                                color: isDark ? Colors.white : Colors.black,
                                 fontFamily: 'Cairo',
                                 fontSize: 13,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               'الكمية: ${AppUtils.formatNumber(item.quantity)}',
-                              style: const TextStyle(
-                                color: AppTheme.textSecondary,
+                              style: TextStyle(
+                                color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                                 fontFamily: 'Cairo',
                                 fontSize: 12,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
                             const SizedBox(height: 6),
                             TextField(
                               controller: ctrl,
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                              style: const TextStyle(color: Colors.white),
+                              style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
                               decoration: InputDecoration(
                                 labelText: 'سعر الشراء للوحدة',
-                                labelStyle: const TextStyle(
-                                  color: AppTheme.textSecondary,
+                                labelStyle: TextStyle(
+                                  color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                                   fontFamily: 'Cairo',
+                                  fontWeight: FontWeight.bold,
                                 ),
                                 filled: true,
-                                fillColor: const Color(0x1AFFFFFF),
+                                fillColor: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF1F5F9),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(10),
-                                  borderSide: BorderSide.none,
+                                  borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
                                 ),
                                 suffixText: fullPurchase.currency,
-                                suffixStyle: const TextStyle(
-                                  color: AppTheme.textSecondary,
+                                suffixStyle: TextStyle(
+                                  color: isDark ? AppTheme.textSecondary : Colors.black87,
                                   fontFamily: 'Cairo',
+                                  fontWeight: FontWeight.bold,
                                 ),
                               ),
                             ),
@@ -724,7 +854,7 @@ class PurchasesPage extends StatelessWidget {
               actions: [
                 TextButton(
                   onPressed: isSaving ? null : () => Navigator.of(ctx).pop(),
-                  child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                  child: Text('إلغاء', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                 ),
                 ElevatedButton(
                   onPressed: isSaving
@@ -802,13 +932,14 @@ class PurchasesPage extends StatelessWidget {
     final screenW = MediaQuery.of(context).size.width;
     final isMobile = screenW < 600;
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (dialogContext) => Dialog(
-        backgroundColor: const Color(0xCC05192D),
+        backgroundColor: isDark ? const Color(0xCC05192D) : Colors.white,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(24),
-          side: const BorderSide(color: AppTheme.glassBorder),
+          side: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         ),
         child: ClipRRect(
           borderRadius: BorderRadius.circular(24),
@@ -818,30 +949,30 @@ class PurchasesPage extends StatelessWidget {
               width: isMobile ? screenW * 0.95 : 700, padding: const EdgeInsets.all(24),
               child: SingleChildScrollView(
                 child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Row(children: [Text('تفاصيل المشتريات', style: TextStyle(fontSize: isMobile ? 18 : 22, fontWeight: FontWeight.w600, color: Colors.white, fontFamily: 'Cairo')), const Spacer(),
-                  IconButton(icon: const Icon(Icons.close), onPressed: () => Navigator.pop(dialogContext))]),
-                const Divider(height: 24),
+                Row(children: [Text('تفاصيل المشتريات', style: TextStyle(fontSize: isMobile ? 18 : 22, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo')), const Spacer(),
+                  IconButton(icon: Icon(Icons.close, color: isDark ? Colors.white : Colors.black), onPressed: () => Navigator.pop(dialogContext))]),
+                Divider(height: 24, color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                 Row(
                   children: [
-                    Expanded(child: _dr('رقم المشتريات', fullPurchase.purchaseNumber.toString().padLeft(6, '0'))),
-                    Expanded(child: _dr('التاريخ', AppUtils.formatDate(AppUtils.parseDate(fullPurchase.purchaseDate)))),
+                    Expanded(child: _dr(context, 'رقم المشتريات', fullPurchase.purchaseNumber.toString().padLeft(6, '0'))),
+                    Expanded(child: _dr(context, 'التاريخ', AppUtils.formatDate(AppUtils.parseDate(fullPurchase.purchaseDate)))),
                   ],
                 ),
                 Row(
                   children: [
-                    Expanded(child: _dr('المورد', fullPurchase.supplierName ?? '—')),
-                    Expanded(child: _dr('كود المورد', fullPurchase.supplierCode ?? '—')),
+                    Expanded(child: _dr(context, 'المورد', fullPurchase.supplierName ?? '—')),
+                    Expanded(child: _dr(context, 'كود المورد', fullPurchase.supplierCode ?? '—')),
                   ],
                 ),
-                const Divider(height: 24),
+                Divider(height: 24, color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                 Row(
                   children: [
-                    Expanded(child: _dr('الإجمالي', '${AppUtils.formatNumber(fullPurchase.totalAmount)} ${fullPurchase.currency}')),
+                    Expanded(child: _dr(context, 'الإجمالي', '${AppUtils.formatNumber(fullPurchase.totalAmount)} ${fullPurchase.currency}')),
                   ],
                 ),
-                if (fullPurchase.notes != null && fullPurchase.notes!.isNotEmpty) _dr('ملاحظات', fullPurchase.notes!),
+                if (fullPurchase.notes != null && fullPurchase.notes!.isNotEmpty) _dr(context, 'ملاحظات', fullPurchase.notes!),
                 const SizedBox(height: 12),
-                const Text('الأصناف:', style: TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontFamily: 'Cairo', fontSize: 14)),
+                Text('الأصناف:', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 14)),
                 const SizedBox(height: 8),
                 Container(
                   constraints: const BoxConstraints(maxHeight: 300),
@@ -858,40 +989,40 @@ class PurchasesPage extends StatelessWidget {
                           ).name;
                           return Container(
                           padding: const EdgeInsets.symmetric(vertical: 8),
-                          decoration: const BoxDecoration(
-                            border: Border(bottom: BorderSide(color: AppTheme.border)),
+                          decoration: BoxDecoration(
+                            border: Border(bottom: BorderSide(color: isDark ? AppTheme.border : const Color(0xFFE2E8F0))),
                           ),
                           child: Row(children: [
                             Expanded(flex: 3, child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(item.itemName, style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 13, color: Colors.white)),
-                                Text('كود: ${item.itemCode}', style:const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13).copyWith(fontSize: 11)),
+                                Text(item.itemName, style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 13, color: isDark ? Colors.white : Colors.black)),
+                                Text('كود: ${item.itemCode}', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF475569), fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold)),
                               ],
                             )),
                             Expanded(flex: 2, child: Column(
                               children: [
-                                Text('الكمية', style: const TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontFamily: 'Cairo', fontSize: 14).copyWith(fontSize: 10)),
-                                Text(AppUtils.formatNumber(item.quantity), style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13)),
+                                Text('الكمية', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 10)),
+                                Text(AppUtils.formatNumber(item.quantity), style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold)),
                               ],
                             )),
                             Expanded(flex: 2, child: Column(
                               children: [
-                                Text('سعر الشراء', style: const TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontFamily: 'Cairo', fontSize: 14).copyWith(fontSize: 10)),
-                                Text('${AppUtils.formatNumber(item.purchasePrice)} ${fullPurchase.currency}', style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13)),
+                                Text('سعر الشراء', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 10)),
+                                Text('${AppUtils.formatNumber(item.purchasePrice)} ${fullPurchase.currency}', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold)),
                               ],
                             )),
                             Expanded(flex: 2, child: Column(
                               children: [
-                                Text('المخزن', style: const TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontFamily: 'Cairo', fontSize: 14).copyWith(fontSize: 10)),
-                                Text(stationName, style: const TextStyle(color: AppTheme.accent, fontFamily: 'Cairo', fontSize: 13)),
+                                Text('المخزن', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 10)),
+                                Text(stationName, style: TextStyle(color: isDark ? AppTheme.accent : const Color(0xFF0284C7), fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold)),
                               ],
                             )),
                             Expanded(flex: 2, child: Column(
                               crossAxisAlignment: CrossAxisAlignment.end,
                               children: [
-                                Text('الإجمالي', style: const TextStyle(color: AppTheme.textSecondary, fontWeight: FontWeight.w600, fontFamily: 'Cairo', fontSize: 14).copyWith(fontSize: 10)),
-                                Text('${AppUtils.formatNumber(item.totalPrice)} ${fullPurchase.currency}', style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Cairo', color: Colors.white)),
+                                Text('الإجمالي', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 10)),
+                                Text('${AppUtils.formatNumber(item.totalPrice)} ${fullPurchase.currency}', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black)),
                               ],
                             )),
                           ]),
@@ -964,15 +1095,16 @@ class PurchasesPage extends StatelessWidget {
   }
 
   Widget _buildJournalEntriesDropdown(BuildContext context, PurchaseModel p) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return PopupMenuButton<String>(
       onSelected: (entryNumber) {
         JournalEntryNavigationService.openById(context, journalEntryId: entryNumber);
       },
       offset: const Offset(0, 30),
-      color: AppTheme.surface,
+      color: isDark ? AppTheme.surface : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: AppTheme.glassBorder.withAlpha(40)),
+        side: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1)),
       ),
       itemBuilder: (ctx) => [
         PopupMenuItem<String>(
@@ -988,15 +1120,15 @@ class PurchasesPage extends StatelessWidget {
               }
               final entries = snapshot.data ?? [];
               if (entries.isEmpty) {
-                return const Text('لا توجد قيود محاسبية',
-                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo'));
+                return Text('لا توجد قيود محاسبية',
+                    style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black54, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold));
               }
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text('القيود المحاسبية (${entries.length})',
-                      style: const TextStyle(color: AppTheme.accent, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                      style: TextStyle(color: isDark ? AppTheme.accent : const Color(0xFF0369A1), fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                   const SizedBox(height: 8),
                   ...entries.map((je) {
                     final entryNum = je['entry_number']?.toString() ?? '';
@@ -1019,13 +1151,13 @@ class PurchasesPage extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 6),
                         decoration: BoxDecoration(
-                          border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(30))),
+                          border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(30) : const Color(0xFFE2E8F0))),
                         ),
                         child: Row(children: [
                           Icon(
                             srcType == 'purchase_price_adjustment' ? Icons.price_change_outlined : Icons.book_outlined,
                             size: 14,
-                            color: srcType == 'purchase_price_adjustment' ? AppTheme.warning : AppTheme.accent,
+                            color: srcType == 'purchase_price_adjustment' ? AppTheme.warning : (isDark ? AppTheme.accent : const Color(0xFF0284C7)),
                           ),
                           const SizedBox(width: 8),
                           Expanded(
@@ -1033,14 +1165,14 @@ class PurchasesPage extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text('قيد #$entryNum — $typeLabel',
-                                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 11, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
+                                    style: TextStyle(color: isDark ? AppTheme.textPrimary : Colors.black, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                                 const SizedBox(height: 2),
                                 Text('$date — ${debit.toStringAsFixed(2)} $cur',
-                                    style: const TextStyle(color: AppTheme.textMuted, fontSize: 10, fontFamily: 'Cairo')),
+                                    style: TextStyle(color: isDark ? AppTheme.textMuted : const Color(0xFF475569), fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                               ],
                             ),
                           ),
-                          const Icon(Icons.open_in_new, size: 12, color: AppTheme.textMuted),
+                          Icon(Icons.open_in_new, size: 12, color: isDark ? AppTheme.textMuted : const Color(0xFF64748B)),
                         ]),
                       ),
                     );
@@ -1054,35 +1186,38 @@ class PurchasesPage extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
         decoration: BoxDecoration(
-          color: AppTheme.accent.withAlpha(15),
+          color: isDark ? AppTheme.accent.withAlpha(15) : const Color(0xFFE0F2FE),
           borderRadius: BorderRadius.circular(6),
-          border: Border.all(color: AppTheme.accent.withAlpha(40)),
+          border: Border.all(color: isDark ? AppTheme.accent.withAlpha(40) : const Color(0xFFBAE6FD)),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.account_tree_outlined, color: AppTheme.accent, size: 14),
+            Icon(Icons.account_tree_outlined, color: isDark ? AppTheme.accent : const Color(0xFF0369A1), size: 14),
             const SizedBox(width: 4),
-            const Text('عرض القيود',
-                style: TextStyle(color: AppTheme.accent, fontSize: 10, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
+            Text('عرض القيود',
+                style: TextStyle(color: isDark ? AppTheme.accent : const Color(0xFF0369A1), fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
             const SizedBox(width: 2),
-            const Icon(Icons.arrow_drop_down, color: AppTheme.accent, size: 14),
+            Icon(Icons.arrow_drop_down, color: isDark ? AppTheme.accent : const Color(0xFF0369A1), size: 14),
           ],
         ),
       ),
     );
   }
 
-  Widget _dr(String label, String value) => Padding(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(label, style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 11)),
-        const SizedBox(height: 2),
-        Text(value, style: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', color: Colors.white, fontSize: 13), overflow: TextOverflow.ellipsis),
-      ],
-    ),
-  );
+  Widget _dr(BuildContext context, String label, String value) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(label, style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF475569), fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 2),
+          Text(value, style: TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontSize: 13), overflow: TextOverflow.ellipsis),
+        ],
+      ),
+    );
+  }
 }

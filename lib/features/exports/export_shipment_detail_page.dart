@@ -18,6 +18,7 @@ import 'packing_list_pdf_service.dart';
 import 'shipment_cost_breakdown_page.dart';
 import 'preparation_center_invoice_screen.dart';
 import 'shipment_invoice_preview_page.dart';
+import 'export_shipment_return_page.dart';
 
 class ExportShipmentDetailPage extends StatefulWidget {
   const ExportShipmentDetailPage({super.key});
@@ -41,6 +42,7 @@ class _ExportShipmentDetailPageState extends State<ExportShipmentDetailPage> {
       case 'sailed': return 'أبحرت';
       case 'arrived': return 'وصلت';
       case 'completed': return 'مكتملة';
+      case 'returned_from_airport': return 'عائدة من المطار';
       case 'cancelled': return 'ملغاة';
       default: return status;
     }
@@ -54,6 +56,7 @@ class _ExportShipmentDetailPageState extends State<ExportShipmentDetailPage> {
       case 'sailed': return const Color(0xFF22D3EE);
       case 'arrived': return const Color(0xFF8B5CF6);
       case 'completed': return AppTheme.success;
+      case 'returned_from_airport': return const Color(0xFFEA580C);
       case 'cancelled': return AppTheme.danger;
       default: return AppTheme.primary;
     }
@@ -132,6 +135,30 @@ class _ExportShipmentDetailPageState extends State<ExportShipmentDetailPage> {
               children: [
                 _buildStatusTimeline(s.status),
                 const SizedBox(height: 20),
+                if (s.status == 'returned_from_airport') ...[
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(14),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEA580C).withAlpha(20),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: const Color(0xFFEA580C).withAlpha(70)),
+                    ),
+                    child: Row(
+                      children: const [
+                        Icon(Icons.keyboard_return_rounded, color: Color(0xFFEA580C), size: 24),
+                        SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            'تم تسجيل رجوع هذه الشحنة بالكامل من المطار وفك ارتباطها بأمر التعبئة وتسوية الهالك ورد السليم للمخزون.',
+                            style: TextStyle(fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold, color: Color(0xFFEA580C)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 _buildInfoCard('معلومات أساسية', [
                   _row('رقم الشحنة', s.shipmentNo),
                   _row('العميل', s.customerName ?? '—'),
@@ -388,8 +415,23 @@ class _ExportShipmentDetailPageState extends State<ExportShipmentDetailPage> {
                     context.push('/exports/edit', extra: {'shipment': s});
                   }),
                   const SizedBox(width: 8),
+                  if (s.isConfirmed && s.status != 'returned_from_airport' && s.status != 'cancelled') ...[
+                    _actionBtn('تسجيل رجوع من المطار', const Color(0xFFEA580C), () {
+                      Navigator.pop(context);
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ExportShipmentReturnPage(
+                            shipmentId: s.id,
+                            initialShipment: s,
+                          ),
+                        ),
+                      );
+                    }),
+                    const SizedBox(width: 8),
+                  ],
                   _actionBtn('حذف', AppTheme.danger, () => _confirmDelete(s)),
-                  if (s.isConfirmed) ...[
+                  if (s.isConfirmed || s.status == 'returned_from_airport' || s.status == 'returned') ...[
                     const SizedBox(width: 8),
                     _buildJournalEntriesDropdown(s),
                   ],
@@ -419,6 +461,7 @@ class _ExportShipmentDetailPageState extends State<ExportShipmentDetailPage> {
         JournalEntryNavigationService.openById(context, journalEntryId: entryNumber);
       },
       offset: const Offset(0, 30),
+      constraints: const BoxConstraints(minWidth: 290, maxWidth: 360),
       color: AppTheme.surface,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
@@ -454,38 +497,72 @@ class _ExportShipmentDetailPageState extends State<ExportShipmentDetailPage> {
                     final debit = (je['total_debit'] as num?)?.toDouble() ?? 0;
                     final cur = je['currency']?.toString() ?? 'EGP';
                     final srcType = je['source_type']?.toString() ?? '';
+                    final cat = je['category']?.toString() ?? '';
+                    final isReturn = je['is_return_entry'] == true ||
+                        srcType == 'export_return' ||
+                        srcType == 'export_shipment_return' ||
+                        cat == 'return';
+
                     String typeLabel;
                     IconData iconData;
                     Color iconColor;
-                    switch (srcType) {
-                      case 'export_shipment':
-                        typeLabel = 'قيد البيع';
-                        iconData = Icons.receipt_long_outlined;
-                        iconColor = AppTheme.cyan;
-                        break;
-                      case 'export_discount':
-                        typeLabel = 'قيد الخصم';
-                        iconData = Icons.discount_outlined;
-                        iconColor = AppTheme.warning;
-                        break;
-                      case 'customer_treasury_deposit':
-                      case 'bank_deposit':
-                      case 'customer_bank_deposit':
-                      case 'export_payment':
-                        typeLabel = 'قيد السداد';
-                        iconData = Icons.payment_outlined;
-                        iconColor = AppTheme.success;
-                        break;
-                      case 'customer_treasury_withdrawal':
-                        typeLabel = 'قيـد اسـترداد السـداد';
-                        iconData = Icons.replay_outlined;
-                        iconColor = AppTheme.danger;
-                        break;
-                      default:
-                        typeLabel = srcType;
-                        iconData = Icons.article_outlined;
-                        iconColor = AppTheme.textSecondary;
+
+                    if (isReturn) {
+                      typeLabel = 'قيد إلغاء / مرتجع الشحنة';
+                      iconData = Icons.assignment_return_outlined;
+                      iconColor = const Color(0xFFEA580C);
+                    } else {
+                      switch (srcType) {
+                        case 'export_shipment':
+                          typeLabel = 'قيد البيع';
+                          iconData = Icons.receipt_long_outlined;
+                          iconColor = AppTheme.cyan;
+                          break;
+                        case 'export_discount':
+                          typeLabel = 'قيد الخصم';
+                          iconData = Icons.discount_outlined;
+                          iconColor = AppTheme.warning;
+                          break;
+                        case 'customer_treasury_deposit':
+                        case 'bank_deposit':
+                        case 'customer_bank_deposit':
+                        case 'export_payment':
+                          typeLabel = 'قيد السداد';
+                          iconData = Icons.payment_outlined;
+                          iconColor = AppTheme.success;
+                          break;
+                        case 'customer_treasury_withdrawal':
+                          typeLabel = 'قيـد اسـترداد السـداد';
+                          iconData = Icons.replay_outlined;
+                          iconColor = AppTheme.danger;
+                          break;
+                        case 'packing_order':
+                          typeLabel = 'قيد أمر التعبئة';
+                          iconData = Icons.inventory_2_outlined;
+                          iconColor = AppTheme.primary;
+                          break;
+                        case 'packing_debit_note':
+                          typeLabel = 'خصم مورد تعبئة';
+                          iconData = Icons.money_off_outlined;
+                          iconColor = AppTheme.warning;
+                          break;
+                        case 'shipment_cost_accrual':
+                          typeLabel = 'استحقاق تكلفة شحنة';
+                          iconData = Icons.pending_actions_outlined;
+                          iconColor = const Color(0xFF8B5CF6);
+                          break;
+                        case 'shipment_cost_paid':
+                          typeLabel = 'سداد تكلفة شحنة';
+                          iconData = Icons.paid_outlined;
+                          iconColor = AppTheme.success;
+                          break;
+                        default:
+                          typeLabel = je['category_label']?.toString() ?? srcType;
+                          iconData = Icons.article_outlined;
+                          iconColor = AppTheme.textSecondary;
+                      }
                     }
+
                     return GestureDetector(
                       onTap: () {
                         Navigator.of(ctx).pop();
@@ -494,6 +571,8 @@ class _ExportShipmentDetailPageState extends State<ExportShipmentDetailPage> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 6),
                         decoration: BoxDecoration(
+                          color: isReturn ? const Color(0xFFEA580C).withAlpha(15) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(6),
                           border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(30))),
                         ),
                         child: Row(children: [
@@ -503,8 +582,28 @@ class _ExportShipmentDetailPageState extends State<ExportShipmentDetailPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('قيد #$entryNum — $typeLabel',
-                                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 11, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text('قيد #$entryNum — $typeLabel',
+                                          style: TextStyle(
+                                            color: isReturn ? const Color(0xFFEA580C) : AppTheme.textPrimary,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w600,
+                                            fontFamily: 'Cairo',
+                                          )),
+                                    ),
+                                    if (isReturn)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEA580C).withAlpha(30),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: const Text('مرتجع', style: TextStyle(color: Color(0xFFEA580C), fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                                      ),
+                                  ],
+                                ),
                                 const SizedBox(height: 2),
                                 Text('$date — ${debit.toStringAsFixed(2)} $cur',
                                     style: const TextStyle(color: AppTheme.textMuted, fontSize: 10, fontFamily: 'Cairo')),

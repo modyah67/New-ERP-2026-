@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/theme.dart';
 import '../../data/services/backup_service.dart';
 import '../../data/services/restore_service.dart';
+import 'data_migration_template_service.dart';
 
 class BackupHistoryPage extends StatefulWidget {
   const BackupHistoryPage({super.key});
@@ -69,6 +70,27 @@ class _BackupHistoryPageState extends State<BackupHistoryPage> {
         backgroundColor: valid ? AppTheme.primary : AppTheme.danger,
       ),
     );
+  }
+
+  Future<void> _exportTemplates() async {
+    try {
+      final path = await DataMigrationTemplateService.exportUnifiedWorkbook();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('تم تصدير قوالب Excel الموحدة بنجاح:\n$path', style: const TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: AppTheme.primary,
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('خطأ أثناء تصدير القوالب: $e', style: const TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: AppTheme.danger,
+        ),
+      );
+    }
   }
 
   @override
@@ -195,6 +217,20 @@ class _BackupHistoryPageState extends State<BackupHistoryPage> {
               style: OutlinedButton.styleFrom(
                 foregroundColor: AppTheme.warning,
                 side: const BorderSide(color: AppTheme.warning),
+                padding: const EdgeInsets.symmetric(vertical: 14),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: OutlinedButton.icon(
+              onPressed: _exportTemplates,
+              icon: const Icon(Icons.table_chart_outlined, size: 18),
+              label: const Text('قوالب Excel فارغة', style: TextStyle(fontFamily: 'Cairo')),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: AppTheme.primary,
+                side: const BorderSide(color: AppTheme.primary),
                 padding: const EdgeInsets.symmetric(vertical: 14),
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),

@@ -10,11 +10,13 @@ import '../../data/models/export_shipment_model.dart';
 import '../../data/models/shipment_cost_allocation_model.dart';
 import '../../data/models/shipment_recipe_snapshot_model.dart';
 import '../../data/dao/packing_recipe_dao.dart';
+import '../../data/dao/packing_order_dao.dart';
 import '../../data/dao/export_shipment_dao.dart';
 import '../../data/dao/shipment_cost_allocation_dao.dart';
 import '../../data/dao/shipment_recipe_snapshot_dao.dart';
 import '../../data/services/currency_conversion_service.dart';
 import '../../data/services/journal_entry_navigation_service.dart';
+import 'widgets/packing_cost_variance_settlement_modal.dart';
 
 class PackingOrderDetailsDialog extends StatefulWidget {
   final PackingOrderModel order;
@@ -27,11 +29,13 @@ class PackingOrderDetailsDialog extends StatefulWidget {
 
 class _PackingOrderDetailsDialogState
     extends State<PackingOrderDetailsDialog> {
+  final _dao = PackingOrderDao();
   final _recipeDao = PackingRecipeDao();
   final _exportDao = ExportShipmentDao();
   final _allocationDao = ShipmentCostAllocationDao();
   final _snapshotDao = ShipmentRecipeSnapshotDao();
 
+  late PackingOrderModel _order;
   bool _loading = true;
   List<PackingRecipeModel> _recipes = [];
   ExportShipmentModel? _shipment;
@@ -51,11 +55,32 @@ class _PackingOrderDetailsDialogState
   @override
   void initState() {
     super.initState();
+    _order = widget.order;
     _loadData();
   }
 
+  void _openVarianceSettlementModal() {
+    final ordId = int.tryParse(_order.id ?? '');
+    if (ordId == null) return;
+    PackingCostVarianceSettlementModal.show(
+      context,
+      packingOrderId: ordId,
+      orderNumber: _order.orderNumber,
+      order: _order,
+      onSettled: () async {
+        final reloaded = await _dao.getById(ordId);
+        if (reloaded != null && mounted) {
+          setState(() {
+            _order = reloaded;
+          });
+        }
+        await _loadData();
+      },
+    );
+  }
+
   Future<void> _loadData() async {
-    final order = widget.order;
+    final order = _order;
     debugPrint('=== PackingOrderDetailsDialog ===');
     debugPrint('recipeId: ${order.recipeId}');
     debugPrint('notes: ${order.notes}');
@@ -86,8 +111,9 @@ class _PackingOrderDetailsDialogState
           final parsed = jsonDecode(order.notes!);
           if (parsed is Map) {
             final map = parsed as Map<String, dynamic>;
-            if (map.containsKey('materials') && map['materials'] is List) {
-              _noteMaterials = (map['materials'] as List)
+            final rawMats = map['materials'] ?? map['material_items'];
+            if (rawMats is List) {
+              _noteMaterials = rawMats
                   .whereType<Map<String, dynamic>>()
                   .toList();
             }
@@ -96,6 +122,16 @@ class _PackingOrderDetailsDialogState
                   .whereType<Map<String, dynamic>>()
                   .toList();
             }
+          }
+        } catch (_) {}
+      }
+
+      final ordId = int.tryParse(order.id ?? '');
+      if (ordId != null) {
+        try {
+          final dbCostItems = await _dao.getCostItemsRaw(ordId);
+          if (dbCostItems.isNotEmpty) {
+            _noteCostItems = dbCostItems;
           }
         } catch (_) {}
       }
@@ -124,6 +160,8 @@ class _PackingOrderDetailsDialogState
         return AppTheme.success;
       case 'cancelled':
         return AppTheme.danger;
+      case 'returned':
+        return const Color(0xFFEA580C);
       default:
         return AppTheme.primary;
     }
@@ -140,6 +178,8 @@ class _PackingOrderDetailsDialogState
         return 'مؤكد';
       case 'cancelled':
         return 'ملغي';
+      case 'returned':
+        return 'مرتجع';
       default:
         return status;
     }
@@ -160,7 +200,8 @@ class _PackingOrderDetailsDialogState
 
   @override
   Widget build(BuildContext context) {
-    final order = widget.order;
+    final order = _order;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Dialog(
       insetPadding: const EdgeInsets.all(12),
       backgroundColor: Colors.transparent,
@@ -173,9 +214,9 @@ class _PackingOrderDetailsDialogState
               maxHeight: MediaQuery.of(context).size.height * 0.88,
             ),
             decoration: BoxDecoration(
-              color: const Color(0xCC05192D),
+              color: isDark ? const Color(0xCC05192D) : Colors.white,
               borderRadius: BorderRadius.circular(24),
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
             ),
             child: Column(children: [
               _buildHeader(order),
@@ -232,6 +273,7 @@ class _PackingOrderDetailsDialogState
   }
 
   Widget _buildHeader(PackingOrderModel order) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final statusColor = _statusColor(order.status);
     return Container(
       padding: EdgeInsets.only(
@@ -242,7 +284,7 @@ class _PackingOrderDetailsDialogState
       ),
       decoration: BoxDecoration(
         border: Border(
-          bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(60)),
+          bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(60) : const Color(0xFFCBD5E1)),
         ),
       ),
       child: Column(children: [
@@ -277,11 +319,11 @@ class _PackingOrderDetailsDialogState
               padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppTheme.glassBorder),
+                border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.close,
-                color: AppTheme.textSecondary,
+                color: isDark ? AppTheme.textSecondary : Colors.black,
                 size: 18,
               ),
             ),
@@ -289,14 +331,17 @@ class _PackingOrderDetailsDialogState
         ]),
         const SizedBox(height: 10),
         Row(children: [
+          _buildBadge(_statusLabel(order.status), statusColor),
+          const SizedBox(width: 8),
           _buildBadge(order.grade, _gradeColor(order.grade)),
           const Spacer(),
           if (order.createdAt != null)
             Text(
               '${order.createdAt!.year}/${order.createdAt!.month.toString().padLeft(2, '0')}/${order.createdAt!.day.toString().padLeft(2, '0')}',
-              style: const TextStyle(
-                color: AppTheme.textMuted,
+              style: TextStyle(
+                color: isDark ? AppTheme.textMuted : Colors.black54,
                 fontSize: 11,
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
               ),
             ),
@@ -326,16 +371,17 @@ class _PackingOrderDetailsDialogState
   }
 
   Widget _buildSectionTitle(String title) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Align(
       alignment: Alignment.centerRight,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Text(
           title,
-          style: const TextStyle(
-            color: AppTheme.textSecondary,
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
+          style: TextStyle(
+            color: isDark ? AppTheme.textSecondary : const Color(0xFF0284C7),
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
             fontFamily: 'Cairo',
           ),
         ),
@@ -344,6 +390,7 @@ class _PackingOrderDetailsDialogState
   }
 
   Widget _glassCard(Widget child) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
@@ -352,9 +399,9 @@ class _PackingOrderDetailsDialogState
           width: double.infinity,
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0x2805192D),
+            color: isDark ? const Color(0x2805192D) : const Color(0xFFF8FAFC),
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.glassBorder.withAlpha(60)),
+            border: Border.all(color: isDark ? AppTheme.glassBorder.withAlpha(60) : const Color(0xFFCBD5E1)),
           ),
           child: child,
         ),
@@ -403,6 +450,7 @@ class _PackingOrderDetailsDialogState
   }
 
   Widget _buildProductsLines(PackingOrderModel order) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final snapshot = order.costSnapshot;
     return Column(
       children: [
@@ -433,8 +481,8 @@ class _PackingOrderDetailsDialogState
                     order.lines[i].productName.isNotEmpty
                         ? order.lines[i].productName
                         : 'منتج #${i + 1}',
-                    style: const TextStyle(
-                      color: AppTheme.textPrimary,
+                    style: TextStyle(
+                      color: isDark ? AppTheme.textPrimary : Colors.black,
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',
@@ -899,27 +947,192 @@ class _PackingOrderDetailsDialogState
 
   Widget _buildNoteCostItemsSection() {
     final totalCost = _noteCostItems.fold<double>(
-        0.0, (sum, c) => sum + ((c['total'] as num?)?.toDouble() ?? 0.0));
+        0.0, (sum, c) => sum + ((c['total_egp'] ?? c['total'] ?? 0.0) as num).toDouble());
     return Column(children: [
-      const Row(children: [
-        Expanded(flex: 3, child: Text('البند',
-            style: const TextStyle(color: AppTheme.textMuted, fontSize: 10, fontFamily: 'Cairo'))),
-        Expanded(flex: 2, child: Text('التكلفة',
-            textAlign: TextAlign.end,
-            style: const TextStyle(color: AppTheme.textMuted, fontSize: 10, fontFamily: 'Cairo'))),
+      Row(children: [
+        const Expanded(
+          child: Text(
+            'بنود التكاليف الإضافية (نقل، إداري، موردين)',
+            style: TextStyle(
+              color: AppTheme.textPrimary,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo',
+            ),
+          ),
+        ),
+        TextButton.icon(
+          onPressed: _openVarianceSettlementModal,
+          icon: const Icon(Icons.compare_arrows, size: 14),
+          label: const Text(
+            'تسوية الفروق الفعلية',
+            style: TextStyle(fontFamily: 'Cairo', fontSize: 11),
+          ),
+          style: TextButton.styleFrom(
+            foregroundColor: AppTheme.primary,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+          ),
+        ),
       ]),
-      const SizedBox(height: 4),
-      ..._noteCostItems.map((c) => Padding(
-            padding: const EdgeInsets.only(bottom: 4),
-            child: Row(children: [
-              Expanded(flex: 3, child: Text(c['name'] ?? '—',
-                  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12, fontFamily: 'Cairo'))),
-              Expanded(flex: 2, child: Text(
-                  '${(c['total'] as num?)?.toStringAsFixed(2) ?? '0'} ج.م',
-                  textAlign: TextAlign.end,
-                  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12, fontFamily: 'Cairo'))),
-            ]),
-          )),
+      const SizedBox(height: 6),
+      const Row(children: [
+        Expanded(flex: 3, child: Text('البند والمورد',
+            style: TextStyle(color: AppTheme.textMuted, fontSize: 10, fontFamily: 'Cairo'))),
+        Expanded(flex: 2, child: Text('الحالة / التكلفة',
+            textAlign: TextAlign.end,
+            style: TextStyle(color: AppTheme.textMuted, fontSize: 10, fontFamily: 'Cairo'))),
+      ]),
+      const SizedBox(height: 6),
+      ..._noteCostItems.map((c) {
+        final actualAmt = (c['actual_amount'] as num?)?.toDouble();
+        final isActual = c['cost_status'] == 'actual' && actualAmt != null;
+
+        final rName = (c['name']?.toString() ?? '').toLowerCase();
+        final sName = (c['supplier_name']?.toString() ?? '').toLowerCase();
+        final suppType = (c['supplier_type']?.toString() ?? '').toLowerCase();
+        final cat = (c['category']?.toString() ?? '').toLowerCase();
+        final isEngineer = suppType == 'engineer' ||
+            cat == 'engineer_expenses' ||
+            cat == 'engineer' ||
+            rName.contains('مهندس') ||
+            c['custody_id'] != null;
+        final engSettled = isEngineer || c['is_engineer_cost_settled'] == true || (isEngineer && isActual);
+
+        final isStationOrDeduction = suppType == 'station' ||
+            suppType == 'deduction' ||
+            suppType == 'deductions' ||
+            rName.contains('محطة') ||
+            rName.contains('تخصيم') ||
+            sName.contains('محطة') ||
+            sName.contains('تخصيم');
+
+        final showBadge = isActual || isEngineer || isStationOrDeduction || c['cost_status'] != null;
+        final suppName = c['supplier_name']?.toString() ?? '';
+        final costAmt = ((c['total_egp'] ?? c['total'] ?? c['base_amount'] ?? 0) as num).toDouble();
+        final expectedAmt = (c['expected_amount'] as num?)?.toDouble() ?? 0.0;
+        final estAmt = (isStationOrDeduction && expectedAmt > 0)
+            ? expectedAmt
+            : (expectedAmt > 0 ? expectedAmt : costAmt);
+
+        final variance = (c['variance_amount'] as num?)?.toDouble() ??
+            (actualAmt != null && estAmt > 0 ? (actualAmt - estAmt) : 0.0);
+
+        final displayAmt = (isStationOrDeduction && !isActual)
+            ? estAmt
+            : (isStationOrDeduction && isActual)
+                ? actualAmt
+                : (isEngineer && engSettled && actualAmt != null ? actualAmt : costAmt);
+
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(c['name'] ?? '—',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                        ),
+                        if (isEngineer) ...[
+                          const SizedBox(width: 4),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF59E0B).withAlpha(25),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: const Text('مهندس 👷', style: TextStyle(color: Color(0xFFF59E0B), fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (isEngineer && (c['engineer_name'] != null || suppName.isNotEmpty))
+                      Text('عهدة: ${c['engineer_name'] ?? suppName}${c['expense_account_name'] != null ? " | التوجيه: ${c['expense_account_name']}" : ""}',
+                          style: const TextStyle(color: Color(0xFFF59E0B), fontSize: 10, fontFamily: 'Cairo'))
+                    else if (suppName.isNotEmpty)
+                      Text(suppName,
+                          style: const TextStyle(color: AppTheme.textMuted, fontSize: 10, fontFamily: 'Cairo')),
+                  ],
+                ),
+              ),
+              Expanded(
+                flex: 2,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (showBadge) ...[
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: (isEngineer ? engSettled : isActual)
+                                  ? AppTheme.success.withAlpha(25)
+                                  : (isEngineer ? const Color(0xFFF59E0B).withAlpha(25) : AppTheme.warning.withAlpha(25)),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              (isEngineer ? engSettled : isActual) ? 'فعلي مسوى ✓' : (isEngineer ? 'عهدة معلقة ⏳' : 'تقديري ⏳'),
+                              style: TextStyle(
+                                color: (isEngineer ? engSettled : isActual)
+                                    ? AppTheme.success
+                                    : (isEngineer ? const Color(0xFFF59E0B) : AppTheme.warning),
+                                fontSize: 9,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Cairo',
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          '${displayAmt.toStringAsFixed(2)} ج.م',
+                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                        ),
+                      ],
+                    ),
+                    // Show estimated vs actual breakdown for settled station/deduction items
+                    if (isStationOrDeduction && isActual && estAmt > 0) ...[
+                      Text(
+                        'التقديري: ${estAmt.toStringAsFixed(2)} ج.م',
+                        style: const TextStyle(color: AppTheme.textMuted, fontSize: 10, fontFamily: 'Cairo'),
+                      ),
+                      if ((actualAmt - estAmt).abs() > 0.01)
+                        Text(
+                          'فرق: ${(actualAmt - estAmt) > 0 ? "+" : ""}${(actualAmt - estAmt).toStringAsFixed(2)} ج.م',
+                          style: TextStyle(
+                            color: (actualAmt - estAmt) > 0 ? AppTheme.danger : AppTheme.success,
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                    ] else if (isActual && variance != 0)
+                      Text(
+                        'فرق: ${variance > 0 ? "+" : ""}${variance.toStringAsFixed(2)} ج.م',
+                        style: TextStyle(
+                          color: variance > 0 ? AppTheme.danger : AppTheme.success,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      }),
       if (_noteCostItems.length > 1) ...[
         const Divider(height: 12, color: AppTheme.divider),
         _infoRow('إجمالي بنود التكلفة', '${totalCost.toStringAsFixed(2)} ج.م'),
@@ -1039,6 +1252,24 @@ class _PackingOrderDetailsDialogState
         _infoRow('تكلفة الخامات الفعلية', '${toDisplay(order.materialCostBase > 0 ? order.materialCostBase : order.actualMaterialCost)}$suffix'),
         const Divider(height: 16, color: AppTheme.divider),
         _infoRow('الإجمالي بالعملة الأصلية', '${order.totalPackingCost.toStringAsFixed(2)} $cur'),
+        const Divider(height: 16, color: AppTheme.divider),
+        SizedBox(
+          width: double.infinity,
+          child: ElevatedButton.icon(
+            onPressed: _openVarianceSettlementModal,
+            icon: const Icon(Icons.compare_arrows, size: 16),
+            label: const Text(
+              'تسوية الفروق الفعلية وإعادة احتساب الربحية',
+              style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.primary,
+              foregroundColor: const Color(0xFF041E42),
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+          ),
+        ),
       ]),
     );
   }
@@ -1177,8 +1408,9 @@ class _PackingOrderDetailsDialogState
           children.add(_infoRow(
               'درجة C', '${(map['grade_c_kg'] as num).toStringAsFixed(1)} كجم'));
         }
-        if (map.containsKey('materials') && map['materials'] is List) {
-          final mats = map['materials'] as List;
+        final matsRaw = map['materials'] ?? map['material_items'];
+        if (matsRaw is List) {
+          final mats = matsRaw;
           if (mats.isNotEmpty) {
             final matsText = mats.map((m) {
               final name = m is Map ? m['raw_material_name'] ?? m['name'] ?? '—' : '$m';
@@ -1276,14 +1508,24 @@ class _PackingOrderDetailsDialogState
   }
 
   Widget _infoRow(String label, String value, {String? sub, Color? valueColor}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    Color finalValColor = valueColor ?? (isDark ? AppTheme.textPrimary : Colors.black);
+    if (!isDark) {
+      if (valueColor == AppTheme.textSecondary) {
+        finalValColor = Colors.black87;
+      } else if (valueColor == AppTheme.textPrimary) {
+        finalValColor = Colors.black;
+      }
+    }
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
           label,
-          style: const TextStyle(
-            color: AppTheme.textSecondary,
+          style: TextStyle(
+            color: isDark ? AppTheme.textSecondary : Colors.black87,
             fontSize: 13,
+            fontWeight: FontWeight.bold,
             fontFamily: 'Cairo',
           ),
         ),
@@ -1294,18 +1536,19 @@ class _PackingOrderDetailsDialogState
             Text(
               value,
               style: TextStyle(
-                color: valueColor ?? AppTheme.textPrimary,
+                color: finalValColor,
                 fontSize: 13,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
               ),
             ),
             if (sub != null)
               Text(
                 sub,
-                style: const TextStyle(
-                  color: AppTheme.textMuted,
+                style: TextStyle(
+                  color: isDark ? AppTheme.textMuted : Colors.black54,
                   fontSize: 11,
+                  fontWeight: FontWeight.w600,
                   fontFamily: 'Cairo',
                 ),
               ),

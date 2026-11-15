@@ -260,4 +260,87 @@ class FruitTypeDao {
     final response = await _client.from(_table).select().count(CountOption.exact);
     return response.count;
   }
+
+  /// Safely generates a unique code after [currentCode], avoiding collisions with existing codes.
+  Future<String> generateNextCodeAfter(String currentCode) async {
+    try {
+      final response = await _client.from(_table).select('code');
+      final existingCodes = <String>{};
+      for (var row in response) {
+        final c = row['code']?.toString();
+        if (c != null && c.isNotEmpty) existingCodes.add(c);
+      }
+      existingCodes.add(currentCode);
+
+      final currentNum = int.tryParse(currentCode.replaceAll(RegExp(r'[^0-9]'), ''));
+      if (currentNum != null) {
+        int candidate = currentNum + 1;
+        while (existingCodes.contains(candidate.toString())) {
+          candidate++;
+        }
+        return candidate.toString();
+      }
+
+      if (!existingCodes.contains('$currentCode-C')) {
+        return '$currentCode-C';
+      }
+      int i = 2;
+      while (existingCodes.contains('$currentCode-C$i')) {
+        i++;
+      }
+      return '$currentCode-C$i';
+    } catch (_) {
+      return '$currentCode-C';
+    }
+  }
+
+  /// Inserts a dual-mode / shared fruit item by provisioning two independent underlying records
+  /// in the `fruit_types` table:
+  /// 1. [cleanBaseName] - وزن (purchaseMode: 'weight', currency: [weightCurrency])
+  /// 2. [cleanBaseName] - كراتين (purchaseMode: 'carton', currency: [cartonCurrency])
+  Future<List<String>> insertSharedFruitType({
+    required String baseName,
+    required String baseCode,
+    String? currency,
+    String? weightCurrency,
+    String? cartonCurrency,
+    String? color,
+    int sortOrder = 0,
+    String? costCenterId,
+  }) async {
+    final cleanBaseName = baseName
+        .replaceAll(RegExp(r'\s*[-–(]\s*(وزن|كراتين|كرتونة)\)?$'), '')
+        .trim();
+
+    final code1 = baseCode;
+    final code2 = await generateNextCodeAfter(code1);
+
+    final resolvedWeightCurrency = weightCurrency ?? currency ?? 'EGP';
+    final resolvedCartonCurrency = cartonCurrency ?? currency ?? 'EGP';
+
+    final weightItem = FruitTypeModel(
+      code: code1,
+      name: '$cleanBaseName - وزن',
+      currency: resolvedWeightCurrency,
+      purchaseMode: 'weight',
+      color: color,
+      costCenterId: costCenterId,
+      sortOrder: sortOrder,
+    );
+
+    final cartonItem = FruitTypeModel(
+      code: code2,
+      name: '$cleanBaseName - كراتين',
+      currency: resolvedCartonCurrency,
+      purchaseMode: 'carton',
+      color: color,
+      costCenterId: costCenterId,
+      sortOrder: sortOrder + 1,
+    );
+
+    final id1 = await insert(weightItem);
+    final id2 = await insert(cartonItem);
+
+    return [id1, id2];
+  }
 }

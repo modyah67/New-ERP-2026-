@@ -1,4 +1,6 @@
+import 'dart:convert';
 import 'packing_order_line_model.dart';
+import '../services/packing_calculation_service.dart';
 
 class PackingOrderModel {
   final String? id;
@@ -17,6 +19,8 @@ class PackingOrderModel {
   final DateTime? packedAt;
   final String? stationId;
   final String? exportShipmentId;
+  final String? exportShipmentNo;
+  final String? customerName;
   final String? batchId;
   final double packingCostPerCarton;
   final double totalPackingCost;
@@ -42,8 +46,50 @@ class PackingOrderModel {
   final List<PackingOrderLineModel> lines;
   final int? lineId;
 
+  // Multi-stage workflow tracking
+  final DateTime? cropsConfirmedAt;
+  final String? cropsJournalEntryId;
+  final DateTime? packagingConfirmedAt;
+  final String? packagingJournalEntryId;
+  final DateTime? costsConfirmedAt;
+  final String? costsJournalEntryId;
+  final DateTime? finalApprovedAt;
+
   int get remainingCartons => cartonCount - soldCartons;
   bool get hasStock => remainingCartons > 0;
+
+  bool get isDraft => status == 'draft' || status == 'pending';
+  bool get isCropsConfirmed =>
+      status == 'crops_confirmed' ||
+      status == 'packaging_confirmed' ||
+      status == 'costs_confirmed' ||
+      status == 'final_approved' ||
+      status == 'completed' ||
+      cropsConfirmedAt != null;
+  bool get isPackagingConfirmed =>
+      status == 'packaging_confirmed' ||
+      status == 'costs_confirmed' ||
+      status == 'final_approved' ||
+      status == 'completed' ||
+      packagingConfirmedAt != null;
+  bool get isCostsConfirmed =>
+      status == 'costs_confirmed' ||
+      status == 'final_approved' ||
+      status == 'completed' ||
+      costsConfirmedAt != null;
+  bool get isFinalApproved =>
+      status == 'final_approved' ||
+      status == 'completed' ||
+      status == 'confirmed' ||
+      finalApprovedAt != null;
+
+  int get currentStageIndex {
+    if (isFinalApproved) return 4;
+    if (isCostsConfirmed) return 3;
+    if (isPackagingConfirmed) return 2;
+    if (isCropsConfirmed) return 1;
+    return 0;
+  }
 
   const PackingOrderModel({
     this.id,
@@ -65,6 +111,8 @@ class PackingOrderModel {
     this.packedAt,
     this.stationId,
     this.exportShipmentId,
+    this.exportShipmentNo,
+    this.customerName,
     this.batchId,
     this.packingCostPerCarton = 0.0,
     this.totalPackingCost = 0.0,
@@ -86,21 +134,84 @@ class PackingOrderModel {
     this.costSnapshot,
     this.lines = const [],
     this.lineId,
+    this.cropsConfirmedAt,
+    this.cropsJournalEntryId,
+    this.packagingConfirmedAt,
+    this.packagingJournalEntryId,
+    this.costsConfirmedAt,
+    this.costsJournalEntryId,
+    this.finalApprovedAt,
   });
 
   factory PackingOrderModel.fromMap(Map<String, dynamic> map) {
+    final computedCost = PackingCalculationService.computeEffectiveCostPerCarton(map);
+    final cartonCountVal = (map['carton_count'] as num?)?.toInt() ?? 0;
+
+    Map<String, dynamic>? workflowStages;
+    if (map['notes'] != null) {
+      try {
+        final parsed = map['notes'] is Map ? map['notes'] : jsonDecode(map['notes'].toString());
+        if (parsed is Map && parsed['workflow_stages'] is Map) {
+          workflowStages = Map<String, dynamic>.from(parsed['workflow_stages'] as Map);
+        }
+      } catch (_) {}
+    }
+
+    final cropsConfirmedAtVal = map['crops_confirmed_at'] != null
+        ? DateTime.tryParse(map['crops_confirmed_at'].toString())
+        : (workflowStages?['crops_confirmed_at'] != null
+            ? DateTime.tryParse(workflowStages!['crops_confirmed_at'].toString())
+            : (workflowStages?['crops']?['confirmed_at'] != null
+                ? DateTime.tryParse(workflowStages!['crops']['confirmed_at'].toString())
+                : null));
+
+    final cropsJournalEntryIdVal = map['crops_journal_entry_id']?.toString() ??
+        workflowStages?['crops_journal_entry_id']?.toString() ??
+        workflowStages?['crops']?['journal_entry_id']?.toString();
+
+    final packagingConfirmedAtVal = map['packaging_confirmed_at'] != null
+        ? DateTime.tryParse(map['packaging_confirmed_at'].toString())
+        : (workflowStages?['packaging_confirmed_at'] != null
+            ? DateTime.tryParse(workflowStages!['packaging_confirmed_at'].toString())
+            : (workflowStages?['packaging']?['confirmed_at'] != null
+                ? DateTime.tryParse(workflowStages!['packaging']['confirmed_at'].toString())
+                : null));
+
+    final packagingJournalEntryIdVal = map['packaging_journal_entry_id']?.toString() ??
+        workflowStages?['packaging_journal_entry_id']?.toString() ??
+        workflowStages?['packaging']?['journal_entry_id']?.toString();
+
+    final costsConfirmedAtVal = map['costs_confirmed_at'] != null
+        ? DateTime.tryParse(map['costs_confirmed_at'].toString())
+        : (workflowStages?['costs_confirmed_at'] != null
+            ? DateTime.tryParse(workflowStages!['costs_confirmed_at'].toString())
+            : (workflowStages?['costs']?['confirmed_at'] != null
+                ? DateTime.tryParse(workflowStages!['costs']['confirmed_at'].toString())
+                : null));
+
+    final costsJournalEntryIdVal = map['costs_journal_entry_id']?.toString() ??
+        workflowStages?['costs_journal_entry_id']?.toString() ??
+        workflowStages?['costs']?['journal_entry_id']?.toString();
+
+    final finalApprovedAtVal = map['final_approved_at'] != null
+        ? DateTime.tryParse(map['final_approved_at'].toString())
+        : (workflowStages?['final_approved_at'] != null
+            ? DateTime.tryParse(workflowStages!['final_approved_at'].toString())
+            : (workflowStages?['final_approved']?['approved_at'] != null
+                ? DateTime.tryParse(workflowStages!['final_approved']['approved_at'].toString())
+                : null));
     return PackingOrderModel(
       id: map['id']?.toString(),
       orderNumber: (map['order_number'] as String?) ?? '',
       lotId: map['lot_id']?.toString() ?? '',
       lotNumber: map['lot_number'] as String?,
-      grade: map['grade'] as String,
+      grade: map['grade']?.toString() ?? '',
       fruitTypeId: map['fruit_type_id']?.toString(),
       productName: map['product_name'] as String?,
       recipeId: map['recipe_id']?.toString(),
       recipeName: map['recipe_name'] as String?,
       recipeVersion: map['recipe_version'] as int?,
-      cartonCount: (map['carton_count'] as num?)?.toInt() ?? 0,
+      cartonCount: cartonCountVal,
       netWeightPerCarton:
           (map['net_weight_per_carton'] as num?)?.toDouble() ?? 0.0,
       grossWeightPerCarton:
@@ -116,10 +227,12 @@ class PackingOrderModel {
       stationId: map['station_id']?.toString(),
       exportShipmentId: map['export_shipment_id']?.toString(),
       batchId: map['batch_id']?.toString(),
-      packingCostPerCarton:
-          (map['packing_cost_per_carton'] as num?)?.toDouble() ?? 0.0,
-      totalPackingCost:
-          (map['total_packing_cost'] as num?)?.toDouble() ?? 0.0,
+      packingCostPerCarton: computedCost > 0
+          ? computedCost
+          : ((map['packing_cost_per_carton'] as num?)?.toDouble() ?? 0.0),
+      totalPackingCost: computedCost > 0 && cartonCountVal > 0
+          ? (computedCost * cartonCountVal)
+          : ((map['total_packing_cost'] as num?)?.toDouble() ?? 0.0),
       fruitCostAllocated:
           (map['fruit_cost_allocated'] as num?)?.toDouble() ?? 0.0,
       actualMaterialCost:
@@ -127,6 +240,8 @@ class PackingOrderModel {
       estimatedMaterialCost:
           (map['estimated_material_cost'] as num?)?.toDouble() ?? 0.0,
       supplierName: map['supplier_name'] as String?,
+      exportShipmentNo: map['export_shipment_no'] as String?,
+      customerName: map['customer_name'] as String?,
       notes: map['notes'] as String?,
       createdAt: map['created_at'] != null
           ? DateTime.tryParse(map['created_at'] as String)
@@ -148,6 +263,13 @@ class PackingOrderModel {
             ..sort((a, b) => (int.tryParse(a.id ?? '') ?? 0).compareTo(int.tryParse(b.id ?? '') ?? 0)))
           : const [],
       lineId: (map['line_id'] as num?)?.toInt(),
+      cropsConfirmedAt: cropsConfirmedAtVal,
+      cropsJournalEntryId: cropsJournalEntryIdVal,
+      packagingConfirmedAt: packagingConfirmedAtVal,
+      packagingJournalEntryId: packagingJournalEntryIdVal,
+      costsConfirmedAt: costsConfirmedAtVal,
+      costsJournalEntryId: costsJournalEntryIdVal,
+      finalApprovedAt: finalApprovedAtVal,
     );
   }
 
@@ -162,12 +284,20 @@ class PackingOrderModel {
       'carton_count': cartonCount,
       'net_weight_per_carton': netWeightPerCarton,
       'gross_weight_per_carton': grossWeightPerCarton,
-      'status': status,
+      'status': (isCropsConfirmed && (status == 'draft' || status == 'pending'))
+          ? (isCostsConfirmed
+              ? 'costs_confirmed'
+              : (isPackagingConfirmed ? 'packaging_confirmed' : 'crops_confirmed'))
+          : status,
       if (packedAt != null)
         'packed_at': packedAt!.toIso8601String(),
       if (stationId != null) 'station_id': stationId,
       if (exportShipmentId != null)
         'export_shipment_id': exportShipmentId,
+      if (exportShipmentNo != null)
+        'export_shipment_no': exportShipmentNo,
+      if (customerName != null)
+        'customer_name': customerName,
       if (recipeId != null) 'recipe_id': recipeId,
       if (recipeName != null) 'recipe_name': recipeName,
       if (recipeVersion != null) 'recipe_version': recipeVersion,
@@ -185,6 +315,20 @@ class PackingOrderModel {
       'needs_price_refresh': needsPriceRefresh,
       'notes': notes ?? '',
       if (lineId != null) 'line_id': lineId,
+      if (cropsConfirmedAt != null)
+        'crops_confirmed_at': cropsConfirmedAt!.toIso8601String(),
+      if (cropsJournalEntryId != null)
+        'crops_journal_entry_id': cropsJournalEntryId,
+      if (packagingConfirmedAt != null)
+        'packaging_confirmed_at': packagingConfirmedAt!.toIso8601String(),
+      if (packagingJournalEntryId != null)
+        'packaging_journal_entry_id': packagingJournalEntryId,
+      if (costsConfirmedAt != null)
+        'costs_confirmed_at': costsConfirmedAt!.toIso8601String(),
+      if (costsJournalEntryId != null)
+        'costs_journal_entry_id': costsJournalEntryId,
+      if (finalApprovedAt != null)
+        'final_approved_at': finalApprovedAt!.toIso8601String(),
     };
   }
 
@@ -205,6 +349,8 @@ class PackingOrderModel {
     DateTime? packedAt,
     String? stationId,
     String? exportShipmentId,
+    String? exportShipmentNo,
+    String? customerName,
     String? recipeId,
     String? recipeName,
     int? recipeVersion,
@@ -229,6 +375,13 @@ class PackingOrderModel {
     dynamic costSnapshot,
     List<PackingOrderLineModel>? lines,
     int? lineId,
+    DateTime? cropsConfirmedAt,
+    String? cropsJournalEntryId,
+    DateTime? packagingConfirmedAt,
+    String? packagingJournalEntryId,
+    DateTime? costsConfirmedAt,
+    String? costsJournalEntryId,
+    DateTime? finalApprovedAt,
   }) {
     return PackingOrderModel(
       id: id ?? this.id,
@@ -250,6 +403,8 @@ class PackingOrderModel {
       packedAt: packedAt ?? this.packedAt,
       stationId: stationId ?? this.stationId,
       exportShipmentId: exportShipmentId ?? this.exportShipmentId,
+      exportShipmentNo: exportShipmentNo ?? this.exportShipmentNo,
+      customerName: customerName ?? this.customerName,
       recipeId: recipeId ?? this.recipeId,
       recipeName: recipeName ?? this.recipeName,
       recipeVersion: recipeVersion ?? this.recipeVersion,
@@ -275,6 +430,13 @@ class PackingOrderModel {
       costSnapshot: costSnapshot ?? this.costSnapshot,
       lines: lines ?? this.lines,
       lineId: lineId ?? this.lineId,
+      cropsConfirmedAt: cropsConfirmedAt ?? this.cropsConfirmedAt,
+      cropsJournalEntryId: cropsJournalEntryId ?? this.cropsJournalEntryId,
+      packagingConfirmedAt: packagingConfirmedAt ?? this.packagingConfirmedAt,
+      packagingJournalEntryId: packagingJournalEntryId ?? this.packagingJournalEntryId,
+      costsConfirmedAt: costsConfirmedAt ?? this.costsConfirmedAt,
+      costsJournalEntryId: costsJournalEntryId ?? this.costsJournalEntryId,
+      finalApprovedAt: finalApprovedAt ?? this.finalApprovedAt,
     );
   }
 }

@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/auth_state_notifier.dart';
 import '../../core/services/admin_service.dart';
 import '../../core/services/tenant_service.dart';
+import '../../core/services/account_status_service.dart';
 import '../../data/repositories/auth_repository.dart';
 
 abstract class AuthState extends Equatable {
@@ -127,23 +128,47 @@ class AuthCubit extends Cubit<AuthState> {
     _isEmittingAuth = true;
 
     try {
-      final data = await Supabase.instance.client
+      var data = await Supabase.instance.client
           .from('users')
           .select('is_admin')
           .eq('id', user.id)
           .maybeSingle();
 
       if (data == null) {
-        _log('User ${user.id} not found in public.users — signing out');
-        emit(const AuthError(message: 'المستخدم غير موجود في قاعدة البيانات'));
-        await _repository.signOut();
-        return;
+        _log('User ${user.id} not found in public.users — auto-repairing admin record');
+        try {
+          final fullName = user.userMetadata?['full_name'] as String? ?? user.email?.split('@').first ?? 'Admin';
+          final phone = user.userMetadata?['phone'] as String? ?? '01105263199';
+          final email = user.email ?? '';
+
+          await Supabase.instance.client.from('users').upsert({
+            'id': user.id,
+            'full_name': fullName,
+            'email': email,
+            'phone': phone,
+            'is_admin': true,
+          });
+
+          await Supabase.instance.client.rpc(
+            'sign_up_new_tenant',
+            params: {
+              'p_user_id': user.id,
+              'p_full_name': fullName,
+              'p_phone': phone,
+              'p_email': email,
+            },
+          );
+        } catch (repairErr) {
+          _log('Auto-repair note: $repairErr');
+        }
+        data = {'is_admin': true};
       }
 
       final isAdmin = data['is_admin'] == true;
       final allowedPages = await _queryAllowedPages(user.id);
 
       await TenantService().loadTenant();
+      await AccountStatusService().checkStatus(forceRefresh: true);
 
       // Non-admin users inherit the admin's block/read-only/subscription status
       if (!isAdmin) {
@@ -174,9 +199,12 @@ class AuthCubit extends Cubit<AuthState> {
 
       final adminId = adminData.first['id'].toString();
 
-      // Use the ADMIN's user ID to validate subscription from the admin Supabase
+      // Use the ADMIN's user ID and email to validate subscription from the admin Supabase
       // This way non-admin users inherit the admin's subscription status
-      final adminTenantData = await AdminService().validateSubscription(adminId);
+      final adminTenantData = await AdminService().validateSubscription(
+        adminId,
+        email: adminData.first['email']?.toString(),
+      );
       if (adminTenantData != null) {
         // Apply the admin's subscription status to TenantService
         // so ReadOnlyGuard picks it up

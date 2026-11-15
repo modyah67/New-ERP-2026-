@@ -45,10 +45,11 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
         body: Column(
           children: [
             _buildHeader(),
@@ -94,13 +95,17 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
           backgroundColor: AppTheme.primary,
           icon: const Icon(Icons.add, color: Colors.white),
           label: const Text('فاتورة مبدئية جديدة',
-              style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+              style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo')),
         ),
       ),
     );
   }
 
   Widget _buildHeader() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
@@ -111,25 +116,28 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
               left: 20,
               right: 20),
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
+            color: isDark ? const Color(0x3805192D) : Colors.white,
             border: Border(
-                bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+                bottom: BorderSide(
+                    color: isDark
+                        ? AppTheme.glassBorder.withAlpha(50)
+                        : const Color(0xFFE2E8F0))),
           ),
           child: Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                    color: AppTheme.primary.withAlpha(30),
+                    color: AppTheme.primary.withAlpha(isDark ? 30 : 20),
                     borderRadius: BorderRadius.circular(12)),
                 child: const Icon(Icons.receipt_long_outlined,
                     color: AppTheme.primary, size: 24),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Text('الفواتير المبدئية',
                     style: TextStyle(
-                        color: AppTheme.textPrimary,
+                        color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
                         fontFamily: 'Cairo')),
@@ -139,11 +147,15 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
                 child: Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                      color: AppTheme.primary.withAlpha(20),
+                      color: isDark
+                          ? AppTheme.primary.withAlpha(20)
+                          : const Color(0xFFE0F2FE),
                       borderRadius: BorderRadius.circular(12),
-                      border:
-                          Border.all(color: AppTheme.primary.withAlpha(60))),
-                  child: Icon(Icons.filter_list,
+                      border: Border.all(
+                          color: isDark
+                              ? AppTheme.primary.withAlpha(60)
+                              : const Color(0xFFBAE6FD))),
+                  child: const Icon(Icons.filter_list,
                       color: AppTheme.primary, size: 20),
                 ),
               ),
@@ -163,26 +175,34 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
   }
 
   Widget _buildIconButton(IconData icon, VoidCallback onTap) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
-            color: AppTheme.cardBg,
+            color: isDark ? AppTheme.cardBg : Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.glassBorder)),
-        child: Icon(icon, color: AppTheme.textSecondary, size: 20),
+            border: Border.all(
+                color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+        child: Icon(icon,
+            color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+            size: 20),
       ),
     );
   }
 
   Widget _buildFilters() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.cardBg.withAlpha(100),
+        color: isDark ? AppTheme.cardBg.withAlpha(100) : Colors.white,
         border: Border(
-            bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(30))),
+            bottom: BorderSide(
+                color: isDark
+                    ? AppTheme.glassBorder.withAlpha(30)
+                    : const Color(0xFFE2E8F0))),
       ),
       child: Column(
         children: [
@@ -192,21 +212,29 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
                 flex: 4,
                 child: TextField(
                   controller: _searchController,
-                  style: const TextStyle(
-                      color: AppTheme.textPrimary, fontFamily: 'Cairo'),
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo'),
                   decoration: InputDecoration(
                     hintText: 'بحث برقم الفاتورة أو اسم العميل...',
                     hintStyle: TextStyle(
-                        color: AppTheme.textMuted, fontFamily: 'Cairo'),
-                    prefixIcon:
-                        Icon(Icons.search, color: AppTheme.textMuted, size: 20),
+                        color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                        fontFamily: 'Cairo'),
+                    prefixIcon: Icon(Icons.search,
+                        color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                        size: 20),
                     isDense: true,
+                    filled: true,
+                    fillColor: isDark ? Colors.transparent : const Color(0xFFF8FAFC),
                     border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppTheme.glassBorder)),
+                        borderSide: BorderSide(
+                            color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                     enabledBorder: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(12),
-                        borderSide: BorderSide(color: AppTheme.glassBorder)),
+                        borderSide: BorderSide(
+                            color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                   ),
                   onSubmitted: (_) => _applyFilters(),
                 ),
@@ -256,14 +284,34 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
   }
 
   Widget _buildDataTable(List<ProformaInvoiceModel> invoices) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return LayoutBuilder(
       builder: (context, constraints) {
-        Widget content = Column(
-          children: [
-            _buildTableHeader(),
-            ...invoices.asMap().entries.map((entry) =>
-                _buildTableRow(entry.key, entry.value, invoices.length)),
-          ],
+        Widget content = Container(
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.cyberSurface : Colors.white,
+            borderRadius: BorderRadius.circular(16),
+            border: Border.all(
+                color: isDark
+                    ? AppTheme.glassBorder.withAlpha(40)
+                    : const Color(0xFFCBD5E1)),
+            boxShadow: isDark
+                ? null
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    )
+                  ],
+          ),
+          child: Column(
+            children: [
+              _buildTableHeader(),
+              ...invoices.asMap().entries.map((entry) =>
+                  _buildTableRow(entry.key, entry.value, invoices.length)),
+            ],
+          ),
         );
 
         if (constraints.maxWidth < 900) {
@@ -287,31 +335,99 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
   }
 
   Widget _buildTableHeader() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.primary.withAlpha(15),
-        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        color: isDark ? AppTheme.primary.withAlpha(15) : const Color(0xFFF1F5F9),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        border: Border(
+            bottom: BorderSide(
+                color: isDark
+                    ? AppTheme.glassBorder.withAlpha(30)
+                    : const Color(0xFFE2E8F0))),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Expanded(flex: 3, child: Text('رقم الفاتورة', maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
-          SizedBox(width: 8),
-          Expanded(flex: 2, child: Text('التاريخ', maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
-          SizedBox(width: 8),
-          Expanded(flex: 3, child: Text('العميل', maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-          SizedBox(width: 8),
-          Expanded(flex: 2, child: Text('الوجهة', maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-          SizedBox(width: 8),
-          Expanded(flex: 2, child: Text('الإجمالي', maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
-          SizedBox(width: 8),
-          Expanded(flex: 2, child: Text('', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
+          Expanded(
+              flex: 3,
+              child: Text('رقم الفاتورة',
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo'),
+                  textAlign: TextAlign.center)),
+          const SizedBox(width: 8),
+          Expanded(
+              flex: 2,
+              child: Text('التاريخ',
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo'),
+                  textAlign: TextAlign.center)),
+          const SizedBox(width: 8),
+          Expanded(
+              flex: 3,
+              child: Text('العميل',
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo'))),
+          const SizedBox(width: 8),
+          Expanded(
+              flex: 2,
+              child: Text('الوجهة',
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo'))),
+          const SizedBox(width: 8),
+          Expanded(
+              flex: 2,
+              child: Text('الإجمالي',
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo'),
+                  textAlign: TextAlign.center)),
+          const SizedBox(width: 8),
+          Expanded(
+              flex: 2,
+              child: Text('إجراءات',
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo'),
+                  textAlign: TextAlign.center)),
         ],
       ),
     );
   }
 
   Widget _buildTableRow(int index, ProformaInvoiceModel invoice, int total) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final symbol = _currencySymbol(invoice.currency);
     final isLast = index == total - 1;
     final dateStr = invoice.invoiceDate != null
@@ -320,10 +436,14 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
+        color: !isDark && index % 2 == 1 ? const Color(0xFFF8FAFC) : Colors.transparent,
         border: isLast
             ? null
             : Border(
-                bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(30))),
+                bottom: BorderSide(
+                    color: isDark
+                        ? AppTheme.glassBorder.withAlpha(30)
+                        : const Color(0xFFE2E8F0))),
       ),
       child: Row(
         children: [
@@ -335,10 +455,10 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
                   maxLines: 1,
                   softWrap: false,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                      color: AppTheme.primary,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
                       fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo'),
                   textAlign: TextAlign.center),
             ),
@@ -347,9 +467,10 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
           Expanded(
             flex: 2,
             child: Text(dateStr,
-                style: const TextStyle(
-                    color: AppTheme.textPrimary,
+                style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                     fontSize: 12,
+                    fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo'),
                 textAlign: TextAlign.center),
           ),
@@ -360,9 +481,10 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
                 maxLines: 1,
                 softWrap: false,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: AppTheme.textPrimary,
+                style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                     fontSize: 13,
+                    fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo')),
           ),
           const SizedBox(width: 8),
@@ -372,9 +494,10 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
                 maxLines: 1,
                 softWrap: false,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: AppTheme.textPrimary,
+                style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                     fontSize: 13,
+                    fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo')),
           ),
           const SizedBox(width: 8),
@@ -385,10 +508,10 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
                 maxLines: 1,
                 softWrap: false,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: AppTheme.textPrimary,
+                style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                     fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo'),
                 textAlign: TextAlign.center),
           ),
@@ -417,34 +540,40 @@ class _ProformaInvoicesPageState extends State<ProformaInvoicesPage> {
 
   Widget _buildRowAction(IconData icon, VoidCallback onTap,
       {Color color = AppTheme.primary}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-            color: color.withAlpha(15), borderRadius: BorderRadius.circular(8)),
+            color: color.withAlpha(isDark ? 15 : 25),
+            borderRadius: BorderRadius.circular(8),
+            border: isDark ? null : Border.all(color: color.withAlpha(50))),
         child: Icon(icon, color: color, size: 16),
       ),
     );
   }
 
   Widget _buildEmptyState() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.receipt_long_outlined,
-              color: AppTheme.textMuted, size: 64),
+              color: isDark ? AppTheme.textMuted : const Color(0xFF94A3B8),
+              size: 64),
           const SizedBox(height: 16),
           Text('لا توجد فواتير مبدئية',
               style: TextStyle(
-                  color: AppTheme.textSecondary,
+                  color: isDark ? AppTheme.textSecondary : const Color(0xFF0F172A),
                   fontSize: 16,
+                  fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo')),
           const SizedBox(height: 8),
           Text('اضغط على + لإنشاء فاتورة مبدئية جديدة',
               style: TextStyle(
-                  color: AppTheme.textMuted,
+                  color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
                   fontSize: 13,
                   fontFamily: 'Cairo')),
         ],
@@ -791,6 +920,7 @@ class _DateFilterField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: () async {
         final picked = await showDatePicker(
@@ -800,8 +930,9 @@ class _DateFilterField extends StatelessWidget {
           lastDate: DateTime(2100),
           builder: (ctx, child) => Theme(
             data: Theme.of(ctx).copyWith(
-              colorScheme:
-                  const ColorScheme.dark(primary: AppTheme.primary),
+              colorScheme: isDark
+                  ? const ColorScheme.dark(primary: AppTheme.primary)
+                  : const ColorScheme.light(primary: AppTheme.primary),
             ),
             child: child!,
           ),
@@ -812,28 +943,44 @@ class _DateFilterField extends StatelessWidget {
       child: InputDecorator(
         decoration: InputDecoration(
           labelText: label,
-          labelStyle:
-              const TextStyle(fontFamily: 'Cairo', fontSize: 12),
+          labelStyle: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: isDark ? AppTheme.textSecondary : const Color(0xFF475569)),
           isDense: true,
+          filled: true,
+          fillColor: isDark ? Colors.transparent : const Color(0xFFF8FAFC),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          border: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                  color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+          enabledBorder: OutlineInputBorder(
+              borderRadius: BorderRadius.circular(12),
+              borderSide: BorderSide(
+                  color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
           suffixIcon: date != null
               ? GestureDetector(
                   onTap: () => onChanged(null),
-                  child: const Icon(Icons.close,
-                      size: 16, color: AppTheme.textSecondary),
+                  child: Icon(Icons.close,
+                      size: 16,
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF475569)),
                 )
-              : const Icon(Icons.calendar_today,
-                  size: 14, color: AppTheme.textSecondary),
+              : Icon(Icons.calendar_today,
+                  size: 14,
+                  color: isDark ? AppTheme.textSecondary : const Color(0xFF475569)),
         ),
         child: Text(
           date != null
               ? '${date!.year}-${date!.month.toString().padLeft(2, '0')}-${date!.day.toString().padLeft(2, '0')}'
               : '',
-          style: const TextStyle(
+          style: TextStyle(
               fontFamily: 'Cairo',
               fontSize: 12,
-              color: AppTheme.textPrimary),
+              fontWeight: FontWeight.bold,
+              color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A)),
         ),
       ),
     );

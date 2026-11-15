@@ -45,7 +45,7 @@ class StationCubit extends Cubit<StationState> {
       final code = await _dao.generateNextCode();
       codeController.text = code;
     } catch (e) {
-      codeController.text = 'STA0001';
+      codeController.text = StationModel.minCode.toString();
     }
     
     _formState = const StationFormState(isEditing: false);

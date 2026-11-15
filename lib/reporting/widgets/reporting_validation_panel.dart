@@ -58,11 +58,11 @@ class ReportingValidationPanel extends StatelessWidget {
               size: 22,
             ),
             const SizedBox(width: 12),
-            _buildStat(debitLabel ?? 'إجمالي المدين', totalDebit),
+            _buildStat(context, debitLabel ?? 'إجمالي المدين', totalDebit),
             const SizedBox(width: 24),
-            _buildStat(creditLabel ?? 'إجمالي الدائن', totalCredit),
+            _buildStat(context, creditLabel ?? 'إجمالي الدائن', totalCredit),
             const SizedBox(width: 24),
-            _buildStat(differenceLabel ?? 'الفرق', difference, isDifference: true),
+            _buildStat(context, differenceLabel ?? 'الفرق', difference, isDifference: true),
             if (showStatusBadge) ...[
               const SizedBox(width: 24),
               Container(
@@ -93,16 +93,24 @@ class ReportingValidationPanel extends StatelessWidget {
     );
   }
 
-  Widget _buildStat(String label, double value, {bool isDifference = false}) {
+  Widget _buildStat(BuildContext context, String label, double value,
+      {bool isDifference = false}) {
+    final textPrimary = AppTheme.getTextPrimary(context);
+    final textSecondary = AppTheme.getTextSecondary(context);
     final color = isDifference && value.abs() > 0.01
         ? AppTheme.danger
-        : AppTheme.textPrimary;
+        : textPrimary;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(label,
-            style: const TextStyle(fontSize: 11, color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+            style: TextStyle(
+              fontSize: 11,
+              color: textSecondary,
+              fontFamily: 'Cairo',
+            )),
         const SizedBox(height: 2),
         Text(
           AppUtils.formatNumber(value),

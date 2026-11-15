@@ -65,23 +65,27 @@ class _ToolButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final textSecondary = AppTheme.getTextSecondary(context);
+    final bg = isDark ? Colors.white.withAlpha(8) : const Color(0xFFF1F5F9);
+
     return InkWell(
       onTap: onPressed,
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: Colors.white.withAlpha(8),
+          color: bg,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16, color: AppTheme.textSecondary),
+            Icon(icon, size: 16, color: textSecondary),
             const SizedBox(width: 4),
             Text(
               label,
-              style: TextStyle(fontSize: 12, color: AppTheme.textSecondary),
+              style: TextStyle(fontSize: 12, color: textSecondary),
             ),
           ],
         ),

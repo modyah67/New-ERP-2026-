@@ -124,7 +124,12 @@ class _ClearingAgentStatementPageState
                   const SizedBox(width: 12),
                   Expanded(
                     child: Text('كشف حساب المخلص',
-                        style: AppTheme.heading2.copyWith(fontSize: 20),
+                        style: TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.bold,
+                          color: ThemeCubit.isCurrentDark ? Colors.white : const Color(0xFF0F172A),
+                          fontFamily: 'Cairo',
+                        ),
                         overflow: TextOverflow.ellipsis,
                         maxLines: 1),
                   ),
@@ -181,7 +186,12 @@ class _ClearingAgentStatementPageState
             ),
             const SizedBox(width: 12),
             Text('كشف حساب المخلص',
-                style: AppTheme.heading2.copyWith(fontSize: 20)),
+                style: TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: ThemeCubit.isCurrentDark ? Colors.white : const Color(0xFF0F172A),
+                  fontFamily: 'Cairo',
+                )),
             const Spacer(),
             if (hasData) ...[
               OutlinedButton.icon(

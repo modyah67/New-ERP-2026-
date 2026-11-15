@@ -6,7 +6,8 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'auth_cubit.dart';
-import '../../core/router.dart';
+import '../../ui/widgets/safe_image.dart';
+import '../../ui/widgets/theme_switcher_button.dart';
 
 // ══════════════════════════════════════════════════════════
 // CONSTANTS
@@ -89,8 +90,9 @@ class _LoginPageState extends State<LoginPage>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
-      backgroundColor: _navy,
+      backgroundColor: isDark ? _navy : const Color(0xFFF8FAFC),
       body: BlocListener<AuthCubit, AuthState>(
         listener: (_, s) {
           if (s is AuthError) {
@@ -103,9 +105,14 @@ class _LoginPageState extends State<LoginPage>
           final w = c.maxWidth;
           final narrow = w < 600;
           return Stack(fit: StackFit.expand, children: [
-            _bg(),
-            _vignette(),
-            Positioned.fill(child: CustomPaint(painter: _ParticlesPainter(_ac.value))),
+            _bg(isDark),
+            if (isDark) _vignette(),
+            if (isDark) Positioned.fill(child: CustomPaint(painter: _ParticlesPainter(_ac.value))),
+            const Positioned(
+              top: 16,
+              left: 16,
+              child: SafeArea(child: ThemeSwitcherButton()),
+            ),
             SafeArea(
               child: Center(
                 child: SingleChildScrollView(
@@ -117,9 +124,9 @@ class _LoginPageState extends State<LoginPage>
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          _novaBranding(),
+                          _novaBranding(isDark),
                           const SizedBox(height: 28),
-                          _card(narrow, w),
+                          _card(narrow, w, isDark),
                         ],
                       ),
                     ),
@@ -134,14 +141,23 @@ class _LoginPageState extends State<LoginPage>
   }
 
   // ── BACKGROUND ────────────────────────────────────────────
-  Widget _bg() => Container(
-    decoration: const BoxDecoration(gradient: LinearGradient(
-      begin: Alignment.topLeft, end: Alignment.bottomRight,
-      colors: [_navy, _navyLight, Color(0xFF0D1F3C), _navy],
-    )),
-    child: Image.asset('assets/images/login_bg.png', fit: BoxFit.cover,
-        opacity: const AlwaysStoppedAnimation(.28)),
-  );
+  Widget _bg(bool isDark) => isDark
+      ? Container(
+          decoration: const BoxDecoration(gradient: LinearGradient(
+            begin: Alignment.topLeft, end: Alignment.bottomRight,
+            colors: [_navy, _navyLight, Color(0xFF0D1F3C), _navy],
+          )),
+          child: SafeImage('assets/images/login_bg.png', fit: BoxFit.cover,
+              opacity: const AlwaysStoppedAnimation(.28)),
+        )
+      : Container(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topLeft, end: Alignment.bottomRight,
+              colors: [Color(0xFFF8FAFC), Color(0xFFEDF2F7), Color(0xFFF1F5F9), Color(0xFFE2E8F0)],
+            ),
+          ),
+        );
 
   Widget _vignette() => Container(
     decoration: BoxDecoration(gradient: RadialGradient(
@@ -152,17 +168,20 @@ class _LoginPageState extends State<LoginPage>
   );
 
   // ── GLASS CARD ────────────────────────────────────────────
-  Widget _card(bool narrow, double screenW) {
+  Widget _card(bool narrow, double screenW, bool isDark) {
     final cardW = narrow ? double.infinity : min(screenW * 0.42, 480.0);
     return AnimatedBuilder(animation: _pulse, builder: (_, __) {
       return Container(
         width: cardW,
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(40),
-          boxShadow: [
+          boxShadow: isDark ? [
             BoxShadow(color: _cyan.withValues(alpha: _pulse.value * .18), blurRadius: 70, spreadRadius: -10),
             BoxShadow(color: _teal.withValues(alpha: _pulse.value * .1), blurRadius: 100, spreadRadius: -15),
             BoxShadow(color: Colors.black.withValues(alpha: .4), blurRadius: 40, offset: const Offset(0, 20)),
+          ] : [
+            BoxShadow(color: const Color(0x140F172A), blurRadius: 30, offset: const Offset(0, 10)),
+            BoxShadow(color: const Color(0x0A0F172A), blurRadius: 10, offset: const Offset(0, 2)),
           ],
         ),
         child: ClipRRect(
@@ -172,18 +191,19 @@ class _LoginPageState extends State<LoginPage>
             child: Container(
               padding: EdgeInsets.symmetric(horizontal: narrow ? 24 : 40, vertical: narrow ? 28 : 40),
               decoration: BoxDecoration(
-                color: const Color(0x1E1A2A4A),
+                color: isDark ? const Color(0x1E1A2A4A) : Colors.white,
                 borderRadius: BorderRadius.circular(40),
-                border: Border.all(color: _glassBorder, width: 1),
+                border: Border.all(color: isDark ? _glassBorder : const Color(0xFFCBD5E1), width: 1.5),
               ),
               child: Stack(children: [
-                // ── Inner corner decorations ──
-                Positioned(top: -30, right: -30,
-                    child: _glassOrb(80, const Color(0x0D00C2FF))),
-                Positioned(bottom: -40, left: -20,
-                    child: _glassOrb(100, const Color(0x0A00E0B8))),
-                Positioned(top: 60, left: -20,
-                    child: _glassOrb(50, const Color(0x08FFFFFF))),
+                if (isDark) ...[
+                  Positioned(top: -30, right: -30,
+                      child: _glassOrb(80, const Color(0x0D00C2FF))),
+                  Positioned(bottom: -40, left: -20,
+                      child: _glassOrb(100, const Color(0x0A00E0B8))),
+                  Positioned(top: 60, left: -20,
+                      child: _glassOrb(50, const Color(0x08FFFFFF))),
+                ],
 
                 // ── Content ──
                 BlocBuilder<AuthCubit, AuthState>(
@@ -193,33 +213,32 @@ class _LoginPageState extends State<LoginPage>
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        _logoRow(),
+                        _logoRow(isDark),
                         const SizedBox(height: 20),
-                        _titles(),
+                        _titles(isDark),
                         const SizedBox(height: 30),
-                        _fieldLabel('البريد الإلكتروني أو اسم المستخدم'),
+                        _fieldLabel('البريد الإلكتروني أو اسم المستخدم', isDark),
                         const SizedBox(height: 10),
                         _Input(controller: _identifier, 
                             hint: 'example@novasoft.com',
                             icon: Icons.person_outline_rounded,
                             keyboardType: TextInputType.emailAddress,
+                            isDark: isDark,
                             onSub: (_) => _login()),
                         const SizedBox(height: 20),
-                        _fieldLabel('كلمة المرور'),
+                        _fieldLabel('كلمة المرور', isDark),
                         const SizedBox(height: 10),
                         _Input(controller: _password, hint: '••••••••',
                             icon: Icons.lock_outline_rounded, obscure: !_showPass,
-                            suffix: _eyeToggle(), onSub: (_) => _login()),
-                        const SizedBox(height: 8),
-                        //_forgotLink(),
+                            suffix: _eyeToggle(isDark),
+                            isDark: isDark,
+                            onSub: (_) => _login()),
                         const SizedBox(height: 24),
                         _loginBtn(loading),
-                        const SizedBox(height: 16),
-                       // _signUpLink(),
-                        const SizedBox(height: 22),
-                        _orDivider(),
-                        const SizedBox(height: 22),
-                        _supportSection(),
+                        const SizedBox(height: 24),
+                        _divider(isDark),
+                        const SizedBox(height: 20),
+                        _supportSection(isDark),
                         const SizedBox(height: 4),
                       ],
                     );
@@ -241,11 +260,13 @@ class _LoginPageState extends State<LoginPage>
   );
 
   // ── NOVA SOFT BRANDING (above form) ─────────────────────
-  Widget _novaBranding() => Column(
+  Widget _novaBranding(bool isDark) => Column(
     children: [
       ShaderMask(
-        shaderCallback: (rect) => const LinearGradient(
-          colors: [Color(0xFF00C2FF), Color(0xFF00E0B8)],
+        shaderCallback: (rect) => LinearGradient(
+          colors: isDark
+              ? const [Color(0xFF00C2FF), Color(0xFF00E0B8)]
+              : const [Color(0xFF0284C7), Color(0xFF0D9488)],
         ).createShader(rect),
         child: const Text(
           'NOVA SOFT',
@@ -262,9 +283,9 @@ class _LoginPageState extends State<LoginPage>
       Text(
         'SOFTWARE DEVELOPMENT',
         style: TextStyle(
-          color: Colors.white.withValues(alpha: .45),
+          color: isDark ? Colors.white.withValues(alpha: .45) : Colors.black,
           fontSize: 10,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.bold,
           letterSpacing: 8,
           fontFamily: 'Cairo',
         ),
@@ -273,13 +294,13 @@ class _LoginPageState extends State<LoginPage>
   );
 
   // ── LOGO ROW (image + FRUITY FARMS side by side) ────────
-  Widget _logoRow() => Row(
+  Widget _logoRow(bool isDark) => Row(
     mainAxisAlignment: MainAxisAlignment.center,
     mainAxisSize: MainAxisSize.min,
     children: [
       ClipRRect(
         borderRadius: BorderRadius.circular(14),
-        child: Image.asset(
+        child: SafeImage(
           'assets/images/preview.png',
           width: 72,
           height: 72,
@@ -288,9 +309,9 @@ class _LoginPageState extends State<LoginPage>
             width: 72, height: 72,
             decoration: BoxDecoration(
               borderRadius: BorderRadius.circular(14),
-              color: Colors.white.withValues(alpha: .08),
+              color: isDark ? Colors.white.withValues(alpha: .08) : const Color(0x140F172A),
             ),
-            child: Icon(Icons.spa, color: _teal, size: 30),
+            child: const Icon(Icons.spa, color: _teal, size: 30),
           ),
         ),
       ),
@@ -303,21 +324,32 @@ class _LoginPageState extends State<LoginPage>
             FittedBox(
               fit: BoxFit.scaleDown,
               alignment: AlignmentDirectional.centerStart,
-              child: ShaderMask(
-                shaderCallback: (rect) => const LinearGradient(
-                  colors: [Color(0xFF00C2FF), Color(0xFF00E0B8)],
-                ).createShader(rect),
-                child: const Text(
-                  'FRUITY FARMS',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 26,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 3,
-                    fontFamily: 'Cairo',
-                  ),
-                ),
-              ),
+              child: isDark
+                  ? ShaderMask(
+                      shaderCallback: (rect) => const LinearGradient(
+                        colors: [Color(0xFF00C2FF), Color(0xFF00E0B8)],
+                      ).createShader(rect),
+                      child: const Text(
+                        'FRUITY FARMS',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 26,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 3,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                    )
+                  : const Text(
+                      'FRUITY FARMS',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontSize: 26,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 3,
+                        fontFamily: 'Cairo',
+                      ),
+                    ),
             ),
           ],
         ),
@@ -343,49 +375,51 @@ class _LoginPageState extends State<LoginPage>
   );
 
   // ── TITLES ────────────────────────────────────────────────
-  Widget _titles() => Column(children: [
-    ShaderMask(
-      shaderCallback: (rect) => const LinearGradient(
-        colors: [Color(0xFF00C2FF), Color(0xFF00E0B8)],
-      ).createShader(rect),
-      child: const Text('تسجيل الدخول', style: TextStyle(
-          color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold,
+  Widget _titles(bool isDark) => Column(children: [
+    if (isDark)
+      ShaderMask(
+        shaderCallback: (rect) => const LinearGradient(
+          colors: [Color(0xFF00C2FF), Color(0xFF00E0B8)],
+        ).createShader(rect),
+        child: const Text('تسجيل الدخول', style: TextStyle(
+            color: Colors.white, fontSize: 26, fontWeight: FontWeight.bold,
+            fontFamily: 'Cairo')),
+      )
+    else
+      const Text('تسجيل الدخول', style: TextStyle(
+          color: Colors.black, fontSize: 26, fontWeight: FontWeight.bold,
           fontFamily: 'Cairo')),
-    ),
     const SizedBox(height: 6),
-    ShaderMask(
-      shaderCallback: (rect) => const LinearGradient(
-        colors: [Color(0xFF00C2FF), Color(0xFF00E0B8)],
-      ).createShader(rect),
-      child: Text('أدخل بريدك الإلكتروني أو اسم المستخدم', style: TextStyle(
-          color: Colors.white.withValues(alpha: 0.7), fontSize: 14,
-          fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
-    ),
+    if (isDark)
+      ShaderMask(
+        shaderCallback: (rect) => const LinearGradient(
+          colors: [Color(0xFF00C2FF), Color(0xFF00E0B8)],
+        ).createShader(rect),
+        child: Text('أدخل بريدك الإلكتروني أو اسم المستخدم', style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.7), fontSize: 14,
+            fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
+      )
+    else
+      const Text('أدخل بريدك الإلكتروني أو اسم المستخدم', style: TextStyle(
+          color: Colors.black, fontSize: 14,
+          fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
   ]);
 
-  Widget _fieldLabel(String t) => Align(
+  Widget _fieldLabel(String t, bool isDark) => Align(
     alignment: Alignment.centerRight,
-    child: Text(t, style: const TextStyle(color: Colors.white, fontSize: 14,
-        fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+    child: Text(t, style: TextStyle(
+        color: isDark ? Colors.white : Colors.black,
+        fontSize: 14,
+        fontWeight: FontWeight.bold,
+        fontFamily: 'Cairo')),
   );
 
-  // Widget _forgotLink() => Align(
-  //   alignment: Alignment.centerRight,
-  //   child: TextButton(
-  //     onPressed: () {},
-  //     style: TextButton.styleFrom(padding: const EdgeInsets.symmetric(horizontal: 4),
-  //         minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-  //     child: Text('نسيت كلمة المرور؟', style: TextStyle(
-  //         color: _cyan.withValues(alpha: .9), fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
-  //   ),
-  // );
-
   // ── EYE TOGGLE ────────────────────────────────────────────
-  Widget _eyeToggle() => IconButton(
+  Widget _eyeToggle(bool isDark) => IconButton(
     icon: AnimatedSwitcher(duration: const Duration(milliseconds: 200),
       child: Icon(_showPass ? Icons.visibility_off_rounded : Icons.visibility_rounded,
           key: ValueKey(_showPass),
-          color: const Color(0xFF00E5FF).withValues(alpha: 0.7), size: 22)),
+          color: isDark ? const Color(0xFF00E5FF).withValues(alpha: 0.7) : Colors.black87, size: 22)),
     onPressed: () => setState(() => _showPass = !_showPass),
   );
 
@@ -422,42 +456,35 @@ class _LoginPageState extends State<LoginPage>
     ),
   );
 
-  // ── SIGN UP LINK ──────────────────────────────────────────
-  Widget _signUpLink() => Wrap(
-    alignment: WrapAlignment.center,
-    crossAxisAlignment: WrapCrossAlignment.center,
-    spacing: 8,
+  // ── DIVIDER ───────────────────────────────────────────────
+  Widget _divider(bool isDark) => Container(
+    height: 1,
+    margin: const EdgeInsets.symmetric(horizontal: 16),
+    color: isDark ? Colors.white.withValues(alpha: .08) : const Color(0xFFE2E8F0),
+  );
+
+  // ── SUPPORT ───────────────────────────────────────────────
+  Widget _supportSection(bool isDark) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    mainAxisSize: MainAxisSize.min,
     children: [
-      Text('ليس لديك حساب؟', style: TextStyle(color: Colors.white.withValues(alpha: 0.7), fontSize: 14, fontFamily: 'Cairo')),
-      TextButton(
-        onPressed: () => context.go(RoutePaths.signUp),
-        style: TextButton.styleFrom(padding: EdgeInsets.zero, minimumSize: Size.zero, tapTargetSize: MaterialTapTargetSize.shrinkWrap),
-        child: const Text('إنشاء حساب جديد', style: TextStyle(color: _teal, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+      Center(
+        child: Text('الدعم الفني', style: TextStyle(
+            color: isDark ? _textFaint : Colors.black,
+            fontSize: 12,
+            fontFamily: 'Cairo',
+            fontWeight: FontWeight.bold)),
+      ),
+      const SizedBox(height: 14),
+      _SupCard(
+        name: 'Mahmoud',
+        phone: '01105263199',
+        intl: '+201105263199',
+        isDark: isDark,
+        onOpen: _wa,
       ),
     ],
   );
-
-  // ── DIVIDER ───────────────────────────────────────────────
-  Widget _orDivider() => Row(children: [
-    Expanded(child: Container(height: 1, color: Colors.white.withValues(alpha: .08))),
-    Padding(padding: const EdgeInsets.symmetric(horizontal: 14),
-        child: Text('أو', style: TextStyle(color: _textFaint, fontSize: 13, fontFamily: 'Cairo'))),
-    Expanded(child: Container(height: 1, color: Colors.white.withValues(alpha: .08))),
-  ]);
-
-  // ── SUPPORT ───────────────────────────────────────────────
-  Widget _supportSection() => Column(children: [
-    Text('الدعم الفني', style: TextStyle(
-        color: _textFaint, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.w600)),
-    const SizedBox(height: 14),
-    Row(children: [
-      Expanded(child: _SupCard(name: 'Mahmoud', phone: '01105263199',
-          intl: '+201105263199', onOpen: _wa)),
-      const SizedBox(width: 12),
-      Expanded(child: _SupCard(name: 'Mazen', phone: '01022731089',
-          intl: '+201022731089', onOpen: _wa)),
-    ]),
-  ]);
 
 }
 
@@ -472,9 +499,10 @@ class _Input extends StatefulWidget {
   final Widget? suffix;
   final TextInputType? keyboardType;
   final ValueChanged<String>? onSub;
+  final bool isDark;
 
   const _Input({required this.controller, required this.hint, required this.icon,
-      this.obscure = false, this.suffix, this.keyboardType, this.onSub});
+      this.obscure = false, this.suffix, this.keyboardType, this.onSub, this.isDark = true});
 
   @override
   State<_Input> createState() => _InputState();
@@ -483,13 +511,14 @@ class _Input extends StatefulWidget {
 class _InputState extends State<_Input> {
   @override
   Widget build(BuildContext context) {
+    final isDark = widget.isDark;
     return Container(
         decoration: BoxDecoration(
           borderRadius: BorderRadius.circular(12),
-          color: const Color(0x1A00E5FF),
+          color: isDark ? const Color(0x1A00E5FF) : const Color(0xFFF8FAFC),
           boxShadow: [
             BoxShadow(
-              color: const Color(0x0000E5FF).withValues(alpha: 0.05),
+              color: isDark ? const Color(0x0000E5FF).withValues(alpha: 0.05) : const Color(0x0A0F172A),
               blurRadius: 10,
               spreadRadius: 1,
             ),
@@ -500,27 +529,36 @@ class _InputState extends State<_Input> {
           obscureText: widget.obscure,
           keyboardType: widget.keyboardType,
           textDirection: TextDirection.ltr,
-          style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 15),
+          style: TextStyle(
+            color: isDark ? Colors.white : Colors.black,
+            fontFamily: 'Cairo',
+            fontWeight: FontWeight.bold,
+            fontSize: 15,
+          ),
           decoration: InputDecoration(
             hintText: widget.hint,
-            hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35), fontSize: 13),
+            hintStyle: TextStyle(
+              color: isDark ? Colors.white.withValues(alpha: 0.35) : const Color(0xFF64748B),
+              fontWeight: FontWeight.bold,
+              fontSize: 13,
+            ),
             filled: true,
             fillColor: Colors.transparent,
-            prefixIcon: Icon(widget.icon, color: const Color(0xFF00E5FF), size: 22),
+            prefixIcon: Icon(widget.icon, color: isDark ? const Color(0xFF00E5FF) : const Color(0xFF0284C7), size: 22),
             prefixIconConstraints: const BoxConstraints(minWidth: 50, minHeight: 50),
             suffixIcon: widget.suffix,
             suffixIconConstraints: const BoxConstraints(minWidth: 48, minHeight: 48),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: 0.3), width: 1.5),
+              borderSide: BorderSide(color: isDark ? const Color(0xFF00E5FF).withValues(alpha: 0.3) : const Color(0xFFCBD5E1), width: 1.5),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: BorderSide(color: const Color(0xFF00E5FF).withValues(alpha: 0.3), width: 1.5),
+              borderSide: BorderSide(color: isDark ? const Color(0xFF00E5FF).withValues(alpha: 0.3) : const Color(0xFFCBD5E1), width: 1.5),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(12),
-              borderSide: const BorderSide(color: Color(0xFF00E5FF), width: 2.2),
+              borderSide: BorderSide(color: isDark ? const Color(0xFF00E5FF) : const Color(0xFF0284C7), width: 2.2),
             ),
             contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
           ),
@@ -536,8 +574,9 @@ class _InputState extends State<_Input> {
 class _SupCard extends StatefulWidget {
   final String name, phone, intl;
   final Future<void> Function(String) onOpen;
+  final bool isDark;
   const _SupCard({required this.name, required this.phone,
-      required this.intl, required this.onOpen});
+      required this.intl, required this.onOpen, this.isDark = true});
 
   @override
   State<_SupCard> createState() => _SupCardState();
@@ -547,6 +586,7 @@ class _SupCardState extends State<_SupCard> {
   bool _h = false;
   @override
   Widget build(BuildContext context) {
+    final isDark = widget.isDark;
     return MouseRegion(
       onEnter: (_) => setState(() => _h = true),
       onExit: (_) => setState(() => _h = false),
@@ -555,31 +595,45 @@ class _SupCardState extends State<_SupCard> {
         onTap: () => widget.onOpen(widget.intl),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 200),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          width: double.infinity,
+          height: 54,
+          padding: const EdgeInsets.symmetric(horizontal: 16),
           decoration: BoxDecoration(
-            color: _h ? const Color(0xFF25D366).withValues(alpha: .1) : Colors.white.withValues(alpha: .04),
-            borderRadius: BorderRadius.circular(18),
+            color: _h
+                ? const Color(0xFF25D366).withValues(alpha: .12)
+                : (isDark ? Colors.white.withValues(alpha: .04) : const Color(0xFFF8FAFC)),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: _h
-                ? const Color(0xFF25D366).withValues(alpha: .4)
-                : Colors.white.withValues(alpha: .08)),
+                ? const Color(0xFF25D366).withValues(alpha: .45)
+                : (isDark ? Colors.white.withValues(alpha: .08) : const Color(0xFFCBD5E1))),
             boxShadow: _h ? [BoxShadow(
-                color: const Color(0xFF25D366).withValues(alpha: .12), blurRadius: 14)] : null,
+                color: const Color(0xFF25D366).withValues(alpha: .14), blurRadius: 14)] : null,
           ),
-          child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            FaIcon(FontAwesomeIcons.whatsapp, size: 18,
-                color: _h ? const Color(0xFF25D366) : const Color(0xFF25D366).withValues(alpha: .6)),
-            const SizedBox(width: 8),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(widget.name, style: const TextStyle(color: Colors.white,
-                    fontSize: 13, fontFamily: 'Cairo', fontWeight: FontWeight.w600)),
-                Text(widget.phone, style: TextStyle(
-                    color: Colors.white.withValues(alpha: .45), fontSize: 11, fontFamily: 'Cairo')),
-              ],
-            )),
-          ]),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              FaIcon(FontAwesomeIcons.whatsapp, size: 24,
+                  color: _h ? const Color(0xFF25D366) : const Color(0xFF25D366).withValues(alpha: .9)),
+              const SizedBox(width: 14),
+              Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(widget.name, style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontSize: 13,
+                      fontFamily: 'Cairo',
+                      fontWeight: FontWeight.bold)),
+                  Text(widget.phone, style: TextStyle(
+                      color: isDark ? Colors.white.withValues(alpha: .5) : const Color(0xFF475569),
+                      fontSize: 12,
+                      fontFamily: 'Cairo',
+                      fontWeight: FontWeight.bold)),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

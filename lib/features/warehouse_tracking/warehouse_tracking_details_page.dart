@@ -1,9 +1,7 @@
 import 'dart:io';
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
@@ -47,6 +45,7 @@ class _WarehouseTrackingDetailsPageState
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
     final isMobile = MediaQuery.of(context).size.width < 600;
     return Scaffold(
       body: Padding(
@@ -54,33 +53,36 @@ class _WarehouseTrackingDetailsPageState
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            _buildHeader(isMobile),
+            _buildHeader(isMobile, isDark),
             const SizedBox(height: 16),
-            _buildFilters(isMobile),
+            _buildFilters(isMobile, isDark),
             const SizedBox(height: 16),
-            Expanded(child: _buildContent()),
+            Expanded(child: _buildContent(isDark)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildHeader(bool isMobile) {
+  Widget _buildHeader(bool isMobile, bool isDark) {
     return Row(
       children: [
         IconButton(
-          icon: const Icon(Icons.arrow_forward_ios, color: Colors.white),
+          icon: Icon(Icons.arrow_forward_ios,
+              color: isDark ? Colors.white : Colors.black),
           onPressed: () => Navigator.pop(context),
         ),
         Container(
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: AppTheme.accent.withValues(alpha: 0.1),
+            color: isDark
+                ? AppTheme.accent.withValues(alpha: 0.1)
+                : const Color(0xFFE0F2FE),
             borderRadius: BorderRadius.circular(12),
           ),
-          child: const Icon(Icons.warehouse_outlined,
-              color: AppTheme.accent, size: 22),
+          child: Icon(Icons.warehouse_outlined,
+              color: isDark ? AppTheme.accent : const Color(0xFF0284C7), size: 22),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -94,44 +96,23 @@ class _WarehouseTrackingDetailsPageState
                     style: TextStyle(
                         fontSize: isMobile ? 20 : 26,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: isDark ? Colors.white : Colors.black,
                         fontFamily: 'Cairo')),
                 Text('تتبع حركات المخزن',
-                    style: const TextStyle(
-                        color: AppTheme.textSecondary,
+                    style: TextStyle(
+                        color: isDark ? AppTheme.textSecondary : Colors.black,
+                        fontWeight: FontWeight.bold,
                         fontFamily: 'Cairo',
                         fontSize: 13)),
               ],
             ),
           ),
         ),
-        // PDF Button
-        // _buildActionBtn(
-        //   Icons.picture_as_pdf,
-        //   'PDF',
-        //   Colors.red,
-        //   () => _generatePdf(),
-        // ),
-        // const SizedBox(width: 8),
-        // // Save PDF Button
-        // _buildActionBtn(
-        //   Icons.save_alt,
-        //   'حفظ PDF',
-        //   AppTheme.warning,
-        //   () => _savePdf(),
-        // ),
-        // const SizedBox(width: 8),
-        // // Excel Button
-        // _buildActionBtn(
-        //   Icons.table_chart,
-        //   'Excel',
-        //   AppTheme.success,
-        //   () => _exportExcel(),
-        // ),
       ],
     );
   }
 
+  // ignore: unused_element
   Widget _buildActionBtn(
       IconData icon, String tooltip, Color color, VoidCallback onTap) {
     return Tooltip(
@@ -152,13 +133,25 @@ class _WarehouseTrackingDetailsPageState
     );
   }
 
-  Widget _buildFilters(bool isMobile) {
+  Widget _buildFilters(bool isMobile, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.surface.withValues(alpha: 0.5),
+        color: isDark ? AppTheme.surface.withValues(alpha: 0.5) : Colors.white,
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.glassBorder.withValues(alpha: 0.3)),
+        border: Border.all(
+            color: isDark
+                ? AppTheme.glassBorder.withValues(alpha: 0.3)
+                : const Color(0xFFCBD5E1),
+            width: 1.2),
+        boxShadow: [
+          if (!isDark)
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.05),
+              blurRadius: 10,
+              offset: const Offset(0, 2),
+            ),
+        ],
       ),
       child: isMobile
           ? Column(
@@ -169,24 +162,30 @@ class _WarehouseTrackingDetailsPageState
                     Expanded(child: _buildDateField('من', _fromDate, (d) {
                       setState(() => _fromDate = d);
                       _applyFilters();
-                    })),
+                    }, isDark)),
                     const SizedBox(width: 8),
                     Expanded(child: _buildDateField('إلى', _toDate, (d) {
                       setState(() => _toDate = d);
                       _applyFilters();
-                    })),
+                    }, isDark)),
                   ],
                 ),
                 const SizedBox(height: 8),
-                _buildTypeFilter(),
+                _buildTypeFilter(isDark),
                 if (_fromDate != null || _toDate != null || _selectedType != null) ...[
                   const SizedBox(height: 8),
                   Align(
                     alignment: AlignmentDirectional.centerEnd,
                     child: TextButton.icon(
-                      icon: const Icon(Icons.clear, size: 16),
-                      label: const Text('مسح الفلاتر',
-                          style: TextStyle(fontFamily: 'Cairo', fontSize: 12)),
+                      icon: Icon(Icons.clear,
+                          size: 16,
+                          color: isDark ? AppTheme.accent : Colors.black),
+                      label: Text('مسح الفلاتر',
+                          style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? AppTheme.accent : Colors.black)),
                       onPressed: () {
                         setState(() {
                           _fromDate = null;
@@ -207,7 +206,7 @@ class _WarehouseTrackingDetailsPageState
                   child: _buildDateField('من', _fromDate, (d) {
                     setState(() => _fromDate = d);
                     _applyFilters();
-                  }),
+                  }, isDark),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
@@ -215,16 +214,22 @@ class _WarehouseTrackingDetailsPageState
                   child: _buildDateField('إلى', _toDate, (d) {
                     setState(() => _toDate = d);
                     _applyFilters();
-                  }),
+                  }, isDark),
                 ),
                 const SizedBox(width: 12),
-                Expanded(child: _buildTypeFilter()),
+                Expanded(child: _buildTypeFilter(isDark)),
                 const SizedBox(width: 12),
                 if (_fromDate != null || _toDate != null || _selectedType != null)
                   TextButton.icon(
-                    icon: const Icon(Icons.clear, size: 16),
-                    label: const Text('مسح الفلاتر',
-                        style: TextStyle(fontFamily: 'Cairo', fontSize: 12)),
+                    icon: Icon(Icons.clear,
+                        size: 16,
+                        color: isDark ? AppTheme.accent : Colors.black),
+                    label: Text('مسح الفلاتر',
+                        style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: isDark ? AppTheme.accent : Colors.black)),
                     onPressed: () {
                       setState(() {
                         _fromDate = null;
@@ -240,7 +245,7 @@ class _WarehouseTrackingDetailsPageState
   }
 
   Widget _buildDateField(
-      String label, DateTime? date, Function(DateTime) onPicked) {
+      String label, DateTime? date, Function(DateTime) onPicked, bool isDark) {
     return InkWell(
       onTap: () async {
         final picked = await showDatePicker(
@@ -254,78 +259,151 @@ class _WarehouseTrackingDetailsPageState
       child: InputDecorator(
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: const TextStyle(
-              fontFamily: 'Cairo', fontSize: 12, color: AppTheme.textSecondary),
+          labelStyle: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: isDark ? AppTheme.textSecondary : Colors.black),
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
           isDense: true,
+          filled: true,
+          fillColor: isDark ? Colors.transparent : const Color(0xFFF8FAFC),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: AppTheme.glassBorder),
+            borderSide: BorderSide(
+                color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
-            borderSide: const BorderSide(color: AppTheme.glassBorder),
+            borderSide: BorderSide(
+                color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
           ),
           suffixIcon: date != null
               ? IconButton(
-                  icon: const Icon(Icons.clear, size: 14),
+                  icon: Icon(Icons.clear,
+                      size: 14,
+                      color: isDark ? Colors.white70 : Colors.black87),
                   onPressed: () {
                     onPicked(DateTime(2000));
                   },
                 )
-              : const Icon(Icons.calendar_today, size: 14),
+              : Icon(Icons.calendar_today,
+                  size: 14,
+                  color: isDark ? Colors.white70 : Colors.black87),
         ),
         child: Text(
           date != null ? AppUtils.formatDate(date) : 'اختر التاريخ',
-          style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white : Colors.black,
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildTypeFilter() {
+  Widget _buildTypeFilter(bool isDark) {
     return DropdownButtonFormField<MovementType>(
       initialValue: _selectedType,
+      dropdownColor: isDark ? const Color(0xFF082B57) : Colors.white,
+      iconEnabledColor: isDark ? Colors.white70 : Colors.black87,
+      style: TextStyle(
+        fontFamily: 'Cairo',
+        fontSize: 13,
+        fontWeight: FontWeight.bold,
+        color: isDark ? Colors.white : Colors.black,
+      ),
       decoration: InputDecoration(
         labelText: 'نوع الحركة',
-        labelStyle: const TextStyle(
-            fontFamily: 'Cairo', fontSize: 12, color: AppTheme.textSecondary),
+        labelStyle: TextStyle(
+            fontFamily: 'Cairo',
+            fontSize: 12,
+            fontWeight: FontWeight.bold,
+            color: isDark ? AppTheme.textSecondary : Colors.black),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         isDense: true,
+        filled: true,
+        fillColor: isDark ? Colors.transparent : const Color(0xFFF8FAFC),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppTheme.glassBorder),
+          borderSide: BorderSide(
+              color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: AppTheme.glassBorder),
+          borderSide: BorderSide(
+              color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         ),
       ),
-      items: const [
-        DropdownMenuItem(value: null, child: Text('الكل', style: TextStyle(fontFamily: 'Cairo'))),
+      items: [
         DropdownMenuItem(
-            value: MovementType.purchase,
-            child: Text('مشتريات', style: TextStyle(fontFamily: 'Cairo'))),
+          value: null,
+          child: Text('الكل',
+              style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black)),
+        ),
         DropdownMenuItem(
-            value: MovementType.lotReceipt,
-            child: Text('شراء محصول', style: TextStyle(fontFamily: 'Cairo'))),
+          value: MovementType.purchase,
+          child: Text('مشتريات',
+              style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black)),
+        ),
         DropdownMenuItem(
-            value: MovementType.packing,
-            child: Text('تعبئة', style: TextStyle(fontFamily: 'Cairo'))),
+          value: MovementType.lotReceipt,
+          child: Text('شراء محصول',
+              style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black)),
+        ),
         DropdownMenuItem(
-            value: MovementType.materialTransfer,
-            child: Text('مواد تعبئة', style: TextStyle(fontFamily: 'Cairo'))),
+          value: MovementType.packing,
+          child: Text('تعبئة',
+              style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black)),
+        ),
         DropdownMenuItem(
-            value: MovementType.transferIn,
-            child: Text('تحويل وارد', style: TextStyle(fontFamily: 'Cairo'))),
+          value: MovementType.materialTransfer,
+          child: Text('مواد تعبئة',
+              style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black)),
+        ),
         DropdownMenuItem(
-            value: MovementType.transferOut,
-            child: Text('تحويل صادر', style: TextStyle(fontFamily: 'Cairo'))),
+          value: MovementType.transferIn,
+          child: Text('تحويل وارد',
+              style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black)),
+        ),
         DropdownMenuItem(
-            value: MovementType.lotReturn,
-            child: Text('مرتجع محصول', style: TextStyle(fontFamily: 'Cairo'))),
+          value: MovementType.transferOut,
+          child: Text('تحويل صادر',
+              style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black)),
+        ),
+        DropdownMenuItem(
+          value: MovementType.lotReturn,
+          child: Text('مرتجع محصول',
+              style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? Colors.white : Colors.black)),
+        ),
       ],
       onChanged: (val) {
         setState(() => _selectedType = val);
@@ -338,7 +416,7 @@ class _WarehouseTrackingDetailsPageState
     _cubit.filterByDate(widget.station, _fromDate, _toDate);
   }
 
-  Widget _buildContent() {
+  Widget _buildContent(bool isDark) {
     return Column(
       children: [
         Expanded(
@@ -354,13 +432,16 @@ class _WarehouseTrackingDetailsPageState
                       movements.where((m) => m.type == _selectedType).toList();
                 }
                 if (movements.isEmpty) {
-                  return _buildEmptyState();
+                  return _buildEmptyState(isDark);
                 }
-                return _buildMovementsList(movements);
+                return _buildMovementsList(movements, isDark);
               }
               if (state is WarehouseTrackingError) {
-                return Center(child: Text(state.message,
-                    style: const TextStyle(color: AppTheme.textSecondary)));
+                return Center(
+                    child: Text(state.message,
+                        style: TextStyle(
+                            color: isDark ? AppTheme.textSecondary : Colors.black,
+                            fontWeight: FontWeight.bold)));
               }
               return const Center(child: CircularProgressIndicator());
             },
@@ -370,16 +451,16 @@ class _WarehouseTrackingDetailsPageState
     );
   }
 
-  Widget _buildMovementsList(List<WarehouseMovementModel> movements) {
+  Widget _buildMovementsList(List<WarehouseMovementModel> movements, bool isDark) {
     return ListView.builder(
       itemCount: movements.length,
       itemBuilder: (context, index) {
-        return _buildMovementCard(movements[index], index);
+        return _buildMovementCard(movements[index], index, isDark);
       },
     );
   }
 
-  Widget _buildMovementCard(WarehouseMovementModel movement, int index) {
+  Widget _buildMovementCard(WarehouseMovementModel movement, int index, bool isDark) {
     final (Color color, IconData icon) = _getTypeStyle(movement.type);
 
     return TweenAnimationBuilder<double>(
@@ -399,9 +480,21 @@ class _WarehouseTrackingDetailsPageState
         margin: const EdgeInsets.only(bottom: 10),
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: AppTheme.surface.withValues(alpha: 0.4),
+          color: isDark ? AppTheme.surface.withValues(alpha: 0.4) : Colors.white,
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.glassBorder.withValues(alpha: 0.3)),
+          border: Border.all(
+              color: isDark
+                  ? AppTheme.glassBorder.withValues(alpha: 0.3)
+                  : const Color(0xFFCBD5E1),
+              width: 1.2),
+          boxShadow: [
+            if (!isDark)
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 8,
+                offset: const Offset(0, 2),
+              ),
+          ],
         ),
         child: Row(
           children: [
@@ -410,11 +503,17 @@ class _WarehouseTrackingDetailsPageState
               width: 42,
               height: 42,
               decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
+                color: isDark
+                    ? color.withValues(alpha: 0.12)
+                    : const Color(0xFFF1F5F9),
                 borderRadius: BorderRadius.circular(10),
-                border: Border.all(color: color.withValues(alpha: 0.25)),
+                border: Border.all(
+                    color: isDark
+                        ? color.withValues(alpha: 0.25)
+                        : const Color(0xFFCBD5E1)),
               ),
-              child: Icon(icon, color: color, size: 20),
+              child: Icon(icon,
+                  color: isDark ? color : Colors.black87, size: 20),
             ),
             const SizedBox(width: 12),
             // Details
@@ -427,28 +526,33 @@ class _WarehouseTrackingDetailsPageState
                       // Type badge
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 6, vertical: 2),
+                            horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: color.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(4),
+                          color: isDark
+                              ? color.withValues(alpha: 0.15)
+                              : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(6),
+                          border: isDark
+                              ? null
+                              : Border.all(color: const Color(0xFFCBD5E1)),
                         ),
                         child: Text(
                           movement.type.label,
                           style: TextStyle(
                               fontFamily: 'Cairo',
-                              fontSize: 10,
+                              fontSize: 11,
                               fontWeight: FontWeight.bold,
-                              color: color),
+                              color: isDark ? color : Colors.black),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Text(
                         movement.referenceNumber,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontFamily: 'Cairo',
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white),
+                            color: isDark ? Colors.white : Colors.black),
                       ),
                     ],
                   ),
@@ -456,10 +560,11 @@ class _WarehouseTrackingDetailsPageState
                   if (movement.productName != null)
                     Text(
                       movement.productName!,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 12,
-                          color: AppTheme.textSecondary),
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : Colors.black),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -470,7 +575,10 @@ class _WarehouseTrackingDetailsPageState
                       style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 11,
-                          color: AppTheme.textSecondary.withValues(alpha: 0.7)),
+                          fontWeight: FontWeight.bold,
+                          color: isDark
+                              ? AppTheme.textSecondary.withValues(alpha: 0.7)
+                              : Colors.black87),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                     ),
@@ -485,10 +593,11 @@ class _WarehouseTrackingDetailsPageState
                 if (movement.date != null)
                   Text(
                     AppUtils.formatDate(movement.date!),
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontFamily: 'Cairo',
-                        fontSize: 11,
-                        color: AppTheme.textSecondary),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? AppTheme.textSecondary : Colors.black),
                   ),
                 if (movement.quantity != null) ...[
                   const SizedBox(height: 4),
@@ -496,16 +605,22 @@ class _WarehouseTrackingDetailsPageState
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppTheme.primary.withValues(alpha: 0.1),
+                      color: isDark
+                          ? AppTheme.primary.withValues(alpha: 0.1)
+                          : const Color(0xFFF1F5F9),
                       borderRadius: BorderRadius.circular(6),
+                      border: Border.all(
+                          color: isDark
+                              ? Colors.transparent
+                              : const Color(0xFFCBD5E1)),
                     ),
                     child: Text(
                       '${AppUtils.formatNumber(movement.quantity!)} ${movement.unit ?? "كجم"}',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: AppTheme.primary),
+                          color: isDark ? AppTheme.primary : Colors.black),
                     ),
                   ),
                 ],
@@ -536,28 +651,33 @@ class _WarehouseTrackingDetailsPageState
     }
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool isDark) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(Icons.inbox_outlined,
               size: 64,
-              color: AppTheme.textSecondary.withValues(alpha: 0.3)),
+              color: isDark
+                  ? AppTheme.textSecondary.withValues(alpha: 0.3)
+                  : Colors.black38),
           const SizedBox(height: 16),
-          const Text(
+          Text(
             'لا توجد حركات',
             style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: AppTheme.textSecondary,
+                color: isDark ? AppTheme.textSecondary : Colors.black,
                 fontFamily: 'Cairo'),
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'لم يتم تسجيل أي حركات في هذا المخزن',
             style: TextStyle(
-                color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13),
+                color: isDark ? AppTheme.textSecondary : Colors.black87,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Cairo',
+                fontSize: 13),
           ),
         ],
       ),
@@ -578,6 +698,7 @@ class _WarehouseTrackingDetailsPageState
     _arabicBoldFont = pw.Font.ttf(bold);
   }
 
+  // ignore: unused_element
   Future<void> _generatePdf() async {
     await _loadFonts();
     final movements = _getCurrentMovements();
@@ -588,6 +709,7 @@ class _WarehouseTrackingDetailsPageState
     );
   }
 
+  // ignore: unused_element
   Future<void> _savePdf() async {
     await _loadFonts();
     final movements = _getCurrentMovements();
@@ -599,8 +721,8 @@ class _WarehouseTrackingDetailsPageState
     await file.writeAsBytes(bytes);
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('تم حفظ الملف بنجاح', style: const TextStyle(fontFamily: 'Cairo')),
+        const SnackBar(
+          content: Text('تم حفظ الملف بنجاح', style: TextStyle(fontFamily: 'Cairo')),
           backgroundColor: AppTheme.success,
         ),
       );
@@ -646,9 +768,9 @@ class _WarehouseTrackingDetailsPageState
     if (_fromDate != null || _toDate != null) {
       content.add(pw.Container(
         padding: const pw.EdgeInsets.all(8),
-        decoration: pw.BoxDecoration(
+        decoration: const pw.BoxDecoration(
           color: PdfColor.fromInt(0xFFF5F5F5),
-          borderRadius: pw.BorderRadius.circular(6),
+          borderRadius: pw.BorderRadius.all(pw.Radius.circular(6)),
         ),
         child: pw.Text(
           'الفلتر: ${_fromDate != null ? "من ${AppUtils.formatDate(_fromDate!)}" : ""} ${_toDate != null ? "إلى ${AppUtils.formatDate(_toDate!)}" : ""}',
@@ -666,9 +788,9 @@ class _WarehouseTrackingDetailsPageState
 
       content.add(pw.Container(
         padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        decoration: pw.BoxDecoration(
+        decoration: const pw.BoxDecoration(
           color: PdfColor.fromInt(0xFF1A3A5C),
-          borderRadius: pw.BorderRadius.circular(6),
+          borderRadius: pw.BorderRadius.all(pw.Radius.circular(6)),
         ),
         child: pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
@@ -713,9 +835,9 @@ class _WarehouseTrackingDetailsPageState
       content.add(pw.SizedBox(height: 6));
       content.add(pw.Container(
         padding: const pw.EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: pw.BoxDecoration(
+        decoration: const pw.BoxDecoration(
           color: PdfColor.fromInt(0xFFF5F5F5),
-          borderRadius: pw.BorderRadius.circular(4),
+          borderRadius: pw.BorderRadius.all(pw.Radius.circular(4)),
         ),
         child: pw.Row(
           mainAxisAlignment: pw.MainAxisAlignment.end,
@@ -729,7 +851,7 @@ class _WarehouseTrackingDetailsPageState
                 style: pw.TextStyle(
                     font: _arabicBoldFont!,
                     fontSize: 10,
-                    color: PdfColor.fromInt(0xFF1A3A5C))),
+                    color: const PdfColor.fromInt(0xFF1A3A5C))),
           ],
         ),
       ));
@@ -768,6 +890,7 @@ class _WarehouseTrackingDetailsPageState
 
   // ── Excel ──
 
+  // ignore: unused_element
   Future<void> _exportExcel() async {
     final movements = _getCurrentMovements();
     final excel = xls.Excel.createExcel();
@@ -834,8 +957,8 @@ class _WarehouseTrackingDetailsPageState
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('تم حفظ ملف Excel بنجاح', style: const TextStyle(fontFamily: 'Cairo')),
+        const SnackBar(
+          content: Text('تم حفظ ملف Excel بنجاح', style: TextStyle(fontFamily: 'Cairo')),
           backgroundColor: AppTheme.success,
         ),
       );

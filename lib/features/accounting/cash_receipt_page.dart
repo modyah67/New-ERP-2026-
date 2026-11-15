@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
+import '../../core/widgets/read_only_guard.dart';
 import '../../data/models/account_model.dart';
 import '../../data/models/customer_model.dart';
 import '../../data/models/supplier_model.dart';
@@ -230,6 +231,13 @@ class _FormPanel extends StatelessWidget {
                       'المورد', Icons.local_shipping_outlined, AppTheme.accent),
                   const SizedBox(height: 8),
                   _SupplierSearchField(ctrl: ctrl),
+                  if (state.selectedSupplier != null) ...[
+                    const SizedBox(height: 8),
+                    _SupplierSelectionCard(
+                      supplier: state.selectedSupplier!,
+                      onClear: () => ctrl.clearSupplier(),
+                    ),
+                  ],
                   const SizedBox(height: 20),
                 ],
 
@@ -254,7 +262,9 @@ class _FormPanel extends StatelessWidget {
                       if (state.mode == CashReceiptMode.customer && state.selectedCustomer != null && state.selectedCustomer!.currency.isNotEmpty) {
                         currencySymbol = state.selectedCustomer!.currency;
                       } else if (state.mode == CashReceiptMode.supplier && state.selectedSupplier != null) {
-                        currencySymbol = state.selectedSupplier!.currency;
+                        currencySymbol = state.selectedSupplier!.isEgpOnlySupplier
+                            ? 'ج.م'
+                            : state.selectedSupplier!.currency;
                       }
                     }
                     return TextFormField(
@@ -309,12 +319,16 @@ class _FormPanel extends StatelessWidget {
                       if (saveState is! CashReceiptLoaded) return const SizedBox();
                       return ElevatedButton.icon(
                         onPressed:
-                            (saveState.isSaving ||
+                            (ReadOnlyGuard.isReadOnly ||
+                                    saveState.isSaving ||
                                     (saveState.mode == CashReceiptMode.customer && saveState.selectedCustomer == null) ||
                                     (saveState.mode == CashReceiptMode.supplier && saveState.selectedSupplier == null) ||
                                     (saveState.mode == CashReceiptMode.other && saveState.selectedAccount == null))
                                 ? null
-                                : () => ctrl.save(),
+                                : () async {
+                                    if (!await ReadOnlyGuard.checkAsync(context)) return;
+                                    ctrl.save();
+                                  },
                         icon: saveState.isSaving
                             ? const SizedBox(
                                 width: 20,
@@ -787,7 +801,7 @@ class _SupplierSearchFieldState extends State<_SupplierSearchField> {
                                 style: const TextStyle(
                                     fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.w600)),
                             subtitle: Text(
-                                'كود: ${s.supplierCode}  |  عملة: ${s.currency}',
+                                'كود: ${s.supplierCode}  |  الأرصدة: ${_formatSupplierBalances(s)}',
                                 style: const TextStyle(
                                     fontFamily: 'Cairo',
                                     fontSize: 11,
@@ -800,6 +814,198 @@ class _SupplierSearchFieldState extends State<_SupplierSearchField> {
           },
         ),
       ],
+    );
+  }
+
+  String _formatSupplierBalances(SupplierModel s) {
+    if (s.currentBalancesByCurrency.isNotEmpty) {
+      final active = s.currentBalancesByCurrency.entries
+          .where((e) => e.value.abs() > 0.001)
+          .toList();
+      if (active.isNotEmpty) {
+        return active.map((e) {
+          final sym = SupplierModel.getCurrencySymbol(e.key);
+          final dir = e.value > 0.001 ? '(له)' : '(عليه)';
+          return '${AppUtils.formatNumber(e.value.abs())} $sym $dir';
+        }).join('  •  ');
+      }
+    }
+    final sym = SupplierModel.getCurrencySymbol(s.currency.isNotEmpty && s.currency != 'MULTI' ? s.currency : 'EGP');
+    return '${AppUtils.formatCurrency(s.outstandingBalance.abs())} $sym';
+  }
+}
+
+class _SupplierSelectionCard extends StatelessWidget {
+  final SupplierModel supplier;
+  final VoidCallback onClear;
+
+  const _SupplierSelectionCard({
+    required this.supplier,
+    required this.onClear,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isEgpOnly = supplier.isEgpOnlySupplier;
+    final balances = supplier.currentBalancesByCurrency;
+    final allCurrencies = isEgpOnly
+        ? <String>['EGP']
+        : (<String>{'EGP', 'USD', 'EUR', 'GBP'}..addAll(balances.keys)).toList();
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F2744) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isDark ? AppTheme.primary.withValues(alpha: 0.4) : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: AppTheme.accent.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.local_shipping_outlined, color: AppTheme.accent, size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      supplier.name,
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    if (supplier.supplierCode.isNotEmpty)
+                      Text(
+                        'كود المورد: ${supplier.supplierCode}',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 11,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                tooltip: 'إلغاء التحديد',
+                icon: const Icon(Icons.close_rounded, size: 18),
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                onPressed: onClear,
+              ),
+            ],
+          ),
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 8),
+            child: Divider(height: 1),
+          ),
+          Row(
+            children: [
+              Icon(Icons.account_balance_wallet_outlined, size: 13, color: isDark ? AppTheme.accent : const Color(0xFF0F766E)),
+              const SizedBox(width: 5),
+              Text(
+                'أرصدة المورد الحالية بالعملات:',
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? AppTheme.accent : const Color(0xFF0F766E),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: allCurrencies.map((c) {
+              final bal = balances[c] ?? (supplier.currency == c ? supplier.outstandingBalance : 0.0);
+              final sym = SupplierModel.getCurrencySymbol(c);
+              final isCredit = bal > 0.001;
+              final isDebit = bal < -0.001;
+              final statusText = isCredit ? '(له)' : (isDebit ? '(عليه)' : '(0)');
+              final statusColor = isCredit
+                  ? (isDark ? const Color(0xFF34D399) : const Color(0xFF059669))
+                  : (isDebit
+                      ? (isDark ? const Color(0xFFF87171) : const Color(0xFFDC2626))
+                      : (isDark ? AppTheme.textSecondary : const Color(0xFF64748B)));
+
+              return Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.white,
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(
+                    color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      '$c: ',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                      ),
+                    ),
+                    Text(
+                      '${AppUtils.formatNumber(bal.abs())} $sym',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: statusColor,
+                      ),
+                    ),
+                    const SizedBox(width: 3),
+                    Text(
+                      statusText,
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w600,
+                        color: statusColor.withValues(alpha: 0.85),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }).toList(),
+          ),
+          if (!isEgpOnly && (supplier.supportsMultiCurrency || balances.length > 1)) ...[
+            const SizedBox(height: 6),
+            Text(
+              'المعادل الإجمالي بالجنيه: ≈ ${AppUtils.formatCurrency(supplier.outstandingBalance)} ج.م',
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 10.5,
+                fontWeight: FontWeight.w600,
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

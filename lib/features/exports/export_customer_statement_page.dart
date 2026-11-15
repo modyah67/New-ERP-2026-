@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
-import '../../core/language_dialog.dart';
 import '../../data/models/customer_model.dart';
 import '../../data/models/statement_row_model.dart';
 import '../../ui/widgets/app_search_field.dart';
@@ -104,6 +103,18 @@ class _ExportCustomerStatementPageState
       BuildContext context, ExportCustomerStatementLoaded state) {
     final hasData =
         state.selectedCustomer != null && state.statementRows.isNotEmpty;
+    final customer = state.selectedCustomer;
+    final titleText = customer != null
+        ? (customer.customerType == 'local' ? 'كشف حساب عميل محلي' : 'كشف حساب عميل تصدير')
+        : 'كشف حساب العميل';
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final titleStyle = TextStyle(
+      fontSize: 20,
+      fontWeight: FontWeight.bold,
+      color: isDark ? AppTheme.textPrimary : Colors.black,
+      fontFamily: 'Cairo',
+    );
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 700;
@@ -128,16 +139,29 @@ class _ExportCustomerStatementPageState
                   ),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Text('كشف حساب العميل (التصدير)',
-                        style: AppTheme.heading2.copyWith(fontSize: 20),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          titleText,
+                          style: titleStyle,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                        if (customer != null) ...[
+                          const SizedBox(height: 4),
+                          _buildCustomerBadge(context, customer),
+                        ],
+                      ],
+                    ),
                   ),
                   IconButton(
                     icon: const Icon(Icons.refresh_outlined),
                     tooltip: 'إعادة تعيين',
-                    onPressed: () =>
-                        context.read<ExportCustomerStatementCubit>().reset(),
+                    onPressed: () {
+                      _customerController.clear();
+                      context.read<ExportCustomerStatementCubit>().reset();
+                    },
                   ),
                 ],
               ),
@@ -188,8 +212,11 @@ class _ExportCustomerStatementPageState
               ),
             ),
             const SizedBox(width: 12),
-            Text('كشف حساب العميل (التصدير)',
-                style: AppTheme.heading2.copyWith(fontSize: 20)),
+            Text(titleText, style: titleStyle),
+            if (customer != null) ...[
+              const SizedBox(width: 12),
+              _buildCustomerBadge(context, customer),
+            ],
             const Spacer(),
             if (hasData) ...[
               OutlinedButton.icon(
@@ -214,8 +241,10 @@ class _ExportCustomerStatementPageState
             IconButton(
               icon: const Icon(Icons.refresh_outlined),
               tooltip: 'إعادة تعيين',
-              onPressed: () =>
-                  context.read<ExportCustomerStatementCubit>().reset(),
+              onPressed: () {
+                _customerController.clear();
+                context.read<ExportCustomerStatementCubit>().reset();
+              },
             ),
           ],
         );
@@ -223,8 +252,169 @@ class _ExportCustomerStatementPageState
     );
   }
 
+  Widget _buildCustomerBadge(BuildContext context, CustomerModel customer) {
+    final isLocal = customer.customerType == 'local';
+    final currency = customer.currency.isNotEmpty ? customer.currency : (isLocal ? 'EGP' : 'USD');
+    final color = isLocal ? const Color(0xFF10B981) : const Color(0xFF0EA5E9);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: 0.35)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isLocal ? Icons.storefront_outlined : Icons.public_outlined,
+            size: 14,
+            color: color,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isLocal ? 'عميل محلي' : 'عميل تصدير',
+            style: TextStyle(
+              color: color,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo',
+            ),
+          ),
+          const SizedBox(width: 6),
+          Container(
+            width: 4,
+            height: 4,
+            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            'العملة: $currency',
+            style: TextStyle(
+              color: isDark ? Colors.white70 : Colors.black,
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCustomerTypeSelector(
+      BuildContext context, ExportCustomerStatementLoaded state) {
+    final localCount = state.customers.where((c) => c.customerType == 'local').length;
+    final exportCount = state.customers.where((c) => c.customerType != 'local').length;
+    final allCount = state.customers.length;
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _typeChip(
+            context: context,
+            label: 'الكل ($allCount)',
+            icon: Icons.people_alt_outlined,
+            isSelected: state.customerTypeFilter == 'all',
+            activeColor: AppTheme.primary,
+            onTap: () {
+              context.read<ExportCustomerStatementCubit>().setCustomerTypeFilter('all');
+            },
+          ),
+          const SizedBox(width: 8),
+          _typeChip(
+            context: context,
+            label: 'عملاء محلي ($localCount)',
+            icon: Icons.storefront_outlined,
+            isSelected: state.customerTypeFilter == 'local',
+            activeColor: const Color(0xFF10B981),
+            onTap: () {
+              if (state.selectedCustomer != null && state.selectedCustomer!.customerType != 'local') {
+                _customerController.clear();
+              }
+              context.read<ExportCustomerStatementCubit>().setCustomerTypeFilter('local');
+            },
+          ),
+          const SizedBox(width: 8),
+          _typeChip(
+            context: context,
+            label: 'عملاء تصدير ($exportCount)',
+            icon: Icons.public_outlined,
+            isSelected: state.customerTypeFilter == 'export',
+            activeColor: const Color(0xFF0EA5E9),
+            onTap: () {
+              if (state.selectedCustomer != null && state.selectedCustomer!.customerType == 'local') {
+                _customerController.clear();
+              }
+              context.read<ExportCustomerStatementCubit>().setCustomerTypeFilter('export');
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _typeChip({
+    required BuildContext context,
+    required String label,
+    required IconData icon,
+    required bool isSelected,
+    required Color activeColor,
+    required VoidCallback onTap,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? activeColor.withValues(alpha: isDark ? 0.18 : 0.22)
+              : (isDark ? Colors.white.withValues(alpha: 0.04) : Colors.white),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: isSelected
+                ? activeColor
+                : (isDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1)),
+            width: isSelected ? 1.5 : 1.0,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              icon,
+              size: 16,
+              color: isSelected
+                  ? (isDark ? activeColor : const Color(0xFF0F172A))
+                  : (isDark ? AppTheme.textSecondary : Colors.black),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: TextStyle(
+                color: isSelected
+                    ? (isDark ? Colors.white : Colors.black)
+                    : (isDark ? AppTheme.textSecondary : Colors.black),
+                fontWeight: FontWeight.bold,
+                fontSize: 13,
+                fontFamily: 'Cairo',
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildFilterBar(
       BuildContext context, ExportCustomerStatementLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
@@ -233,262 +423,350 @@ class _ExportCustomerStatementPageState
           decoration: AppTheme.glassCard(),
           child: Padding(
             padding: const EdgeInsets.all(16),
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                final isMobile = constraints.maxWidth < 700;
-                if (isMobile) {
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      SizedBox(
-                        width: double.infinity,
-                        child: AppSearchField<CustomerModel>(
-                          label: 'العميل',
-                          hint: 'ابحث بالكود أو الاسم...',
-                          controller: _customerController,
-                          focusNode: _customerFocusNode,
-                          prefixIcon:
-                              const Icon(Icons.person_outline, size: 18),
-                          suggestionsCallback: (query) {
-                            if (query.isEmpty) return state.customers;
-                            return state.customers
-                                .where((c) =>
-                                    c.name
-                                        .toLowerCase()
-                                        .contains(query.toLowerCase()) ||
-                                    c.code
-                                        .toLowerCase()
-                                        .contains(query.toLowerCase()))
-                                .toList();
-                          },
-                          itemBuilder: (context, customer) {
-                            return ListTile(
-                              leading: CircleAvatar(
-                                radius: 16,
-                                backgroundColor:
-                                    AppTheme.primary.withValues(alpha: 0.1),
-                                child: const Icon(Icons.person_outline,
-                                    size: 16, color: AppTheme.primary),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildCustomerTypeSelector(context, state),
+                const SizedBox(height: 16),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    final isMobile = constraints.maxWidth < 700;
+                    if (isMobile) {
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          SizedBox(
+                            width: double.infinity,
+                            child: AppSearchField<CustomerModel>(
+                              label: 'العميل',
+                              hint: 'ابحث بالكود أو الاسم...',
+                              controller: _customerController,
+                              focusNode: _customerFocusNode,
+                              prefixIcon:
+                                  const Icon(Icons.person_outline, size: 18),
+                              suggestionsCallback: (query) {
+                                final list = state.filteredCustomers;
+                                if (query.isEmpty) return list;
+                                return list
+                                    .where((c) =>
+                                        c.name
+                                            .toLowerCase()
+                                            .contains(query.toLowerCase()) ||
+                                        c.code
+                                            .toLowerCase()
+                                            .contains(query.toLowerCase()))
+                                    .toList();
+                              },
+                              itemBuilder: (context, customer) {
+                                final isLocal = customer.customerType == 'local';
+                                final badgeColor = isLocal ? const Color(0xFF10B981) : const Color(0xFF0EA5E9);
+                                final typeLabel = isLocal ? 'محلي' : 'تصدير';
+                                final currency = customer.currency.isNotEmpty ? customer.currency : (isLocal ? 'EGP' : 'USD');
+
+                                return ListTile(
+                                  leading: CircleAvatar(
+                                    radius: 16,
+                                    backgroundColor: badgeColor.withValues(alpha: 0.15),
+                                    child: Icon(
+                                      isLocal ? Icons.storefront_outlined : Icons.public_outlined,
+                                      size: 16,
+                                      color: badgeColor,
+                                    ),
+                                  ),
+                                  title: Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          customer.name,
+                                          style: TextStyle(
+                                            color: isDark ? Colors.white : Colors.black,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                            fontSize: 15,
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: badgeColor.withValues(alpha: 0.15),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: badgeColor.withValues(alpha: 0.3)),
+                                        ),
+                                        child: Text(
+                                          '$typeLabel • $currency',
+                                          style: TextStyle(
+                                            color: badgeColor,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  subtitle: Text(
+                                    customer.code,
+                                    style: TextStyle(
+                                      color: isDark ? AppTheme.textSecondary : Colors.black87,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                );
+                              },
+                              onSelected: (customer) {
+                                _customerController.text =
+                                    '${customer.code} - ${customer.name}';
+                                context
+                                    .read<ExportCustomerStatementCubit>()
+                                    .selectCustomer(customer);
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('من تاريخ',
+                                    style: TextStyle(
+                                        color: isDark ? AppTheme.textSecondary : Colors.black,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'Cairo',
+                                        fontSize: 14)),
+                                const SizedBox(height: 6),
+                                _buildDateField(
+                                  context: context,
+                                  value: state.fromDate,
+                                  hint: 'من تاريخ',
+                                  onTap: () => context
+                                      .read<ExportCustomerStatementCubit>()
+                                      .pickFromDate(context),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text('إلى تاريخ',
+                                    style: TextStyle(
+                                        color: isDark ? AppTheme.textSecondary : Colors.black,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'Cairo',
+                                        fontSize: 14)),
+                                const SizedBox(height: 6),
+                                _buildDateField(
+                                  context: context,
+                                  value: state.toDate,
+                                  hint: 'إلى تاريخ',
+                                  onTap: () => context
+                                      .read<ExportCustomerStatementCubit>()
+                                      .pickToDate(context),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              icon: const Icon(Icons.search, size: 18),
+                              label: const Text('عرض الكشف',
+                                  style:
+                                      TextStyle(fontFamily: 'Cairo', fontSize: 14)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.primary,
+                                foregroundColor: Colors.white,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 20, vertical: 14),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(12),
+                                ),
                               ),
-                              title: Text(customer.name,
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontFamily: 'Cairo',
-                                      fontSize: 15)),
-                              subtitle: Text(customer.code,
+                              onPressed: () => context
+                                  .read<ExportCustomerStatementCubit>()
+                                  .loadStatement(),
+                            ),
+                          ),
+                        ],
+                      );
+                    }
+                    return Row(
+                      children: [
+                        Expanded(
+                          flex: 3,
+                          child: AppSearchField<CustomerModel>(
+                            label: 'العميل',
+                            hint: 'ابحث بالكود أو الاسم...',
+                            controller: _customerController,
+                            focusNode: _customerFocusNode,
+                            prefixIcon: const Icon(Icons.person_outline, size: 18),
+                            suggestionsCallback: (query) {
+                              final list = state.filteredCustomers;
+                              if (query.isEmpty) return list;
+                              return list
+                                  .where((c) =>
+                                      c.name
+                                          .toLowerCase()
+                                          .contains(query.toLowerCase()) ||
+                                      c.code
+                                          .toLowerCase()
+                                          .contains(query.toLowerCase()))
+                                  .toList();
+                            },
+                            itemBuilder: (context, customer) {
+                              final isLocal = customer.customerType == 'local';
+                              final badgeColor = isLocal ? const Color(0xFF10B981) : const Color(0xFF0EA5E9);
+                              final typeLabel = isLocal ? 'محلي' : 'تصدير';
+                              final currency = customer.currency.isNotEmpty ? customer.currency : (isLocal ? 'EGP' : 'USD');
+
+                              return ListTile(
+                                leading: CircleAvatar(
+                                  radius: 16,
+                                  backgroundColor:
+                                      badgeColor.withValues(alpha: 0.15),
+                                  child: Icon(
+                                    isLocal ? Icons.storefront_outlined : Icons.public_outlined,
+                                    size: 16,
+                                    color: badgeColor,
+                                  ),
+                                ),
+                                title: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        customer.name,
+                                        style: TextStyle(
+                                          color: isDark ? Colors.white : Colors.black,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                          fontSize: 15,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: badgeColor.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: badgeColor.withValues(alpha: 0.3)),
+                                      ),
+                                      child: Text(
+                                        '$typeLabel • $currency',
+                                        style: TextStyle(
+                                          color: badgeColor,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                subtitle: Text(
+                                  customer.code,
                                   style: TextStyle(
-                                      color: AppTheme.textSecondary,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black87,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                    fontSize: 13,
+                                  ),
+                                ),
+                              );
+                            },
+                            onSelected: (customer) {
+                              _customerController.text =
+                                  '${customer.code} - ${customer.name}';
+                              context
+                                  .read<ExportCustomerStatementCubit>()
+                                  .selectCustomer(customer);
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('من تاريخ',
+                                  style: TextStyle(
+                                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                                      fontWeight: FontWeight.bold,
                                       fontFamily: 'Cairo',
-                                      fontSize: 13)),
-                            );
-                          },
-                          onSelected: (customer) {
-                            _customerController.text =
-                                '${customer.code} - ${customer.name}';
-                            context
+                                      fontSize: 14)),
+                              const SizedBox(height: 6),
+                              _buildDateField(
+                                context: context,
+                                value: state.fromDate,
+                                hint: 'من تاريخ',
+                                onTap: () => context
+                                    .read<ExportCustomerStatementCubit>()
+                                    .pickFromDate(context),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 2,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text('إلى تاريخ',
+                                  style: TextStyle(
+                                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                      fontSize: 14)),
+                              const SizedBox(height: 6),
+                              _buildDateField(
+                                context: context,
+                                value: state.toDate,
+                                hint: 'إلى تاريخ',
+                                onTap: () => context
+                                    .read<ExportCustomerStatementCubit>()
+                                    .pickToDate(context),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Padding(
+                          padding: const EdgeInsets.only(top: 22),
+                          child: ElevatedButton.icon(
+                            icon: const Icon(Icons.search, size: 18),
+                            label: const Text('عرض الكشف',
+                                style:
+                                    TextStyle(fontFamily: 'Cairo', fontSize: 14)),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 20, vertical: 14),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
+                            onPressed: () => context
                                 .read<ExportCustomerStatementCubit>()
-                                .selectCustomer(customer);
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('من تاريخ',
-                                style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
-                                    fontFamily: 'Cairo',
-                                    fontSize: 14)),
-                            const SizedBox(height: 6),
-                            _buildDateField(
-                              context: context,
-                              value: state.fromDate,
-                              hint: 'من تاريخ',
-                              onTap: () => context
-                                  .read<ExportCustomerStatementCubit>()
-                                  .pickFromDate(context),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text('إلى تاريخ',
-                                style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
-                                    fontFamily: 'Cairo',
-                                    fontSize: 14)),
-                            const SizedBox(height: 6),
-                            _buildDateField(
-                              context: context,
-                              value: state.toDate,
-                              hint: 'إلى تاريخ',
-                              onTap: () => context
-                                  .read<ExportCustomerStatementCubit>()
-                                  .pickToDate(context),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          icon: const Icon(Icons.search, size: 18),
-                          label: const Text('عرض الكشف',
-                              style:
-                                  TextStyle(fontFamily: 'Cairo', fontSize: 14)),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: AppTheme.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 20, vertical: 14),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                          ),
-                          onPressed: () => context
-                              .read<ExportCustomerStatementCubit>()
-                              .loadStatement(),
-                        ),
-                      ),
-                    ],
-                  );
-                }
-                return Row(
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: AppSearchField<CustomerModel>(
-                        label: 'العميل',
-                        hint: 'ابحث بالكود أو الاسم...',
-                        controller: _customerController,
-                        focusNode: _customerFocusNode,
-                        prefixIcon: const Icon(Icons.person_outline, size: 18),
-                        suggestionsCallback: (query) {
-                          if (query.isEmpty) return state.customers;
-                          return state.customers
-                              .where((c) =>
-                                  c.name
-                                      .toLowerCase()
-                                      .contains(query.toLowerCase()) ||
-                                  c.code
-                                      .toLowerCase()
-                                      .contains(query.toLowerCase()))
-                              .toList();
-                        },
-                        itemBuilder: (context, customer) {
-                          return ListTile(
-                            leading: CircleAvatar(
-                              radius: 16,
-                              backgroundColor:
-                                  AppTheme.primary.withValues(alpha: 0.1),
-                              child: const Icon(Icons.person_outline,
-                                  size: 16, color: AppTheme.primary),
-                            ),
-                            title: Text(customer.name,
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontFamily: 'Cairo',
-                                    fontSize: 15)),
-                            subtitle: Text(customer.code,
-                                style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontFamily: 'Cairo',
-                                    fontSize: 13)),
-                          );
-                        },
-                        onSelected: (customer) {
-                          _customerController.text =
-                              '${customer.code} - ${customer.name}';
-                          context
-                              .read<ExportCustomerStatementCubit>()
-                              .selectCustomer(customer);
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('من تاريخ',
-                              style: TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontWeight: FontWeight.w600,
-                                  fontFamily: 'Cairo',
-                                  fontSize: 14)),
-                          const SizedBox(height: 6),
-                          _buildDateField(
-                            context: context,
-                            value: state.fromDate,
-                            hint: 'من تاريخ',
-                            onTap: () => context
-                                .read<ExportCustomerStatementCubit>()
-                                .pickFromDate(context),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      flex: 2,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text('إلى تاريخ',
-                              style: TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontWeight: FontWeight.w600,
-                                  fontFamily: 'Cairo',
-                                  fontSize: 14)),
-                          const SizedBox(height: 6),
-                          _buildDateField(
-                            context: context,
-                            value: state.toDate,
-                            hint: 'إلى تاريخ',
-                            onTap: () => context
-                                .read<ExportCustomerStatementCubit>()
-                                .pickToDate(context),
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Padding(
-                      padding: const EdgeInsets.only(top: 22),
-                      child: ElevatedButton.icon(
-                        icon: const Icon(Icons.search, size: 18),
-                        label: const Text('عرض الكشف',
-                            style:
-                                TextStyle(fontFamily: 'Cairo', fontSize: 14)),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primary,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 20, vertical: 14),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
+                                .loadStatement(),
                           ),
                         ),
-                        onPressed: () => context
-                            .read<ExportCustomerStatementCubit>()
-                            .loadStatement(),
-                      ),
-                    ),
-                  ],
-                );
-              },
+                      ],
+                    );
+                  },
+                ),
+              ],
             ),
           ),
         ),
@@ -502,33 +780,35 @@ class _ExportCustomerStatementPageState
     required String hint,
     required VoidCallback onTap,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          border: Border.all(color: const Color(0xFFBDBDBD)),
+          border: Border.all(color: isDark ? const Color(0xFFBDBDBD) : const Color(0xFFCBD5E1)),
           borderRadius: BorderRadius.circular(8),
-          color: Colors.white.withValues(alpha: 0.05),
+          color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
         ),
         child: Row(
           children: [
-            const Icon(Icons.calendar_today_outlined,
-                size: 16, color: AppTheme.textSecondary),
+            Icon(Icons.calendar_today_outlined,
+                size: 16, color: isDark ? AppTheme.textSecondary : Colors.black),
             const SizedBox(width: 8),
             Expanded(
               child: Text(
                 value != null ? AppUtils.formatDate(value) : hint,
                 overflow: TextOverflow.ellipsis,
                 maxLines: 1,
-                style: value != null
-                    ? const TextStyle(
-                        color: Colors.white, fontFamily: 'Cairo', fontSize: 15)
-                    : TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontFamily: 'Cairo',
-                        fontSize: 13),
+                style: TextStyle(
+                  color: value != null
+                      ? (isDark ? Colors.white : Colors.black)
+                      : (isDark ? AppTheme.textSecondary : const Color(0xFF64748B)),
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                ),
               ),
             ),
           ],
@@ -694,6 +974,8 @@ class _ExportCustomerStatementPageState
     final iconInner = compact ? 16.0 : 20.0;
     final fontSize = compact ? 11.0 : 13.0;
     final valSize = compact ? 12.0 : (isBold ? 15.0 : 14.0);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
@@ -708,10 +990,10 @@ class _ExportCustomerStatementPageState
                   width: iconSize,
                   height: iconSize,
                   decoration: BoxDecoration(
-                    color: color.withValues(alpha: 0.1),
+                    color: color.withValues(alpha: isDark ? 0.1 : 0.18),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: Icon(icon, color: color, size: iconInner),
+                  child: Icon(icon, color: isDark ? color : (color == AppTheme.primary ? const Color(0xFF0284C7) : color), size: iconInner),
                 ),
                 SizedBox(width: compact ? 8 : 12),
                 Expanded(
@@ -723,7 +1005,8 @@ class _ExportCustomerStatementPageState
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                              color: AppTheme.textSecondary,
+                              color: isDark ? AppTheme.textSecondary : Colors.black,
+                              fontWeight: FontWeight.bold,
                               fontFamily: 'Cairo',
                               fontSize: fontSize)),
                       SizedBox(height: compact ? 2 : 4),
@@ -733,8 +1016,8 @@ class _ExportCustomerStatementPageState
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: valSize,
-                          fontWeight: FontWeight.bold,
-                          color: color,
+                          fontWeight: FontWeight.w900,
+                          color: isDark ? color : Colors.black,
                           fontFamily: 'Cairo',
                         ),
                       ),
@@ -820,71 +1103,27 @@ class _ExportCustomerStatementPageState
   }
 
   Widget _buildTableHeader() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final headerStyle = TextStyle(
+        color: isDark ? AppTheme.textSecondary : Colors.black,
+        fontWeight: FontWeight.bold,
+        fontFamily: 'Cairo',
+        fontSize: 14);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-      color: const Color(0x1A00E5FF),
+      color: isDark ? const Color(0x1A00E5FF) : const Color(0x120284C7),
       child: Row(
         children: [
-          SizedBox(width: _colShipNo, child: Text('رقم الشحنة',
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Cairo',
-                      fontSize: 14))),
-          SizedBox(width: _colDate, child: Text('التاريخ',
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Cairo',
-                      fontSize: 14))),
-          SizedBox(width: _colAccount, child: Text('نوع الحساب',
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Cairo',
-                      fontSize: 14))),
-          Expanded(child: Text('البيان',
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Cairo',
-                      fontSize: 14),
-                  overflow: TextOverflow.ellipsis)),
-          SizedBox(width: _colCartons, child: Text('الكراتين',
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Cairo',
-                      fontSize: 14),
-                  textAlign: TextAlign.center)),
-          SizedBox(width: _colDebit, child: Text('المدين',
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Cairo',
-                      fontSize: 14),
-                  textAlign: TextAlign.center)),
-          SizedBox(width: _colCredit, child: Text('الدائن',
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Cairo',
-                      fontSize: 14),
-                  textAlign: TextAlign.center)),
-          SizedBox(width: _colBalance, child: Text('الرصيد',
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Cairo',
-                      fontSize: 14),
-                  textAlign: TextAlign.center)),
-          SizedBox(width: _colNotes, child: Text('ملاحظات',
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
-                      fontFamily: 'Cairo',
-                      fontSize: 14),
-                  textAlign: TextAlign.center)),
+          SizedBox(width: _colShipNo, child: Text('رقم الشحنة', style: headerStyle)),
+          SizedBox(width: _colDate, child: Text('التاريخ', style: headerStyle)),
+          SizedBox(width: _colAccount, child: Text('نوع الحساب', style: headerStyle)),
+          Expanded(child: Text('البيان', style: headerStyle, overflow: TextOverflow.ellipsis)),
+          SizedBox(width: _colCartons, child: Text('الكراتين', style: headerStyle, textAlign: TextAlign.center)),
+          SizedBox(width: _colDebit, child: Text('المدين', style: headerStyle, textAlign: TextAlign.center)),
+          SizedBox(width: _colCredit, child: Text('الدائن', style: headerStyle, textAlign: TextAlign.center)),
+          SizedBox(width: _colBalance, child: Text('الرصيد', style: headerStyle, textAlign: TextAlign.center)),
+          SizedBox(width: _colNotes, child: Text('ملاحظات', style: headerStyle, textAlign: TextAlign.center)),
         ],
       ),
     );
@@ -897,14 +1136,16 @@ class _ExportCustomerStatementPageState
 
   Widget _buildTableRow(BuildContext context, StatementRow row, String currency,
       Map<String, String> rowNotes) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      color: Colors.white.withValues(alpha: 0.03),
+      color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.transparent,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       child: Row(
         children: [
           SizedBox(width: _colShipNo, child: Text(row.transactionNumber,
                 style: TextStyle(
-                    color: AppTheme.textSecondary,
+                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                    fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo',
                     fontSize: 13),
                 textDirection: TextDirection.ltr,
@@ -913,20 +1154,29 @@ class _ExportCustomerStatementPageState
           SizedBox(width: _colDate, child: Text(
               _formatDateDisplay(row.date),
               style: TextStyle(
-                  color: Colors.white, fontFamily: 'Cairo', fontSize: 15),
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo',
+                  fontSize: 14),
               textDirection: TextDirection.ltr,
               textAlign: TextAlign.right,
             ),
           ),
           SizedBox(width: _colAccount, child: Text(row.accountName,
                 style: TextStyle(
-                    color: Colors.white, fontFamily: 'Cairo', fontSize: 14),
+                    color: isDark ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                    fontSize: 14),
                 overflow: TextOverflow.ellipsis),
           ),
           Expanded(child: Text(
               row.description.replaceAll(' - ', ' \u200E-\u200E '),
               style: TextStyle(
-                  color: Colors.white, fontFamily: 'Cairo', fontSize: 14),
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo',
+                  fontSize: 14),
                   overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -935,7 +1185,8 @@ class _ExportCustomerStatementPageState
                   ? AppUtils.formatNumber(row.piecesCount)
                   : '—',
               style: TextStyle(
-                  color: AppTheme.textSecondary,
+                  color: isDark ? AppTheme.textSecondary : Colors.black,
+                  fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo',
                   fontSize: 13),
               textAlign: TextAlign.center,
@@ -946,7 +1197,7 @@ class _ExportCustomerStatementPageState
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
-                color: row.debit > 0 ? AppTheme.danger : AppTheme.textSecondary,
+                color: row.debit > 0 ? (isDark ? AppTheme.danger : const Color(0xFFDC2626)) : (isDark ? AppTheme.textSecondary : Colors.black54),
                 fontFamily: 'Cairo',
               ),
               textAlign: TextAlign.center,
@@ -957,8 +1208,7 @@ class _ExportCustomerStatementPageState
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.bold,
-                color:
-                    row.credit > 0 ? AppTheme.success : AppTheme.textSecondary,
+                color: row.credit > 0 ? (isDark ? AppTheme.success : const Color(0xFF16A34A)) : (isDark ? AppTheme.textSecondary : Colors.black54),
                 fontFamily: 'Cairo',
               ),
               textAlign: TextAlign.center,
@@ -970,8 +1220,8 @@ class _ExportCustomerStatementPageState
                   _formatCurrency(row.balance, currency),
                   style: TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.bold,
-                    color: row.balance > 0 ? AppTheme.danger : AppTheme.success,
+                    fontWeight: FontWeight.w900,
+                    color: row.balance > 0 ? (isDark ? AppTheme.danger : const Color(0xFFDC2626)) : (isDark ? AppTheme.success : const Color(0xFF16A34A)),
                     fontFamily: 'Cairo',
                   ),
                   textAlign: TextAlign.center,
@@ -983,8 +1233,9 @@ class _ExportCustomerStatementPageState
                           ? 'له'
                           : 'متوازن',
                   style: TextStyle(
-                    fontSize: 9,
-                    color: row.balance > 0 ? AppTheme.danger : AppTheme.success,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: row.balance > 0 ? (isDark ? AppTheme.danger : const Color(0xFFDC2626)) : (isDark ? AppTheme.success : const Color(0xFF16A34A)),
                     fontFamily: 'Cairo',
                   ),
                   textAlign: TextAlign.center,
@@ -996,14 +1247,15 @@ class _ExportCustomerStatementPageState
               onTap: () => _showNoteDialog(context, row.transactionNumber),
               child: (rowNotes[row.transactionNumber] ?? '').isNotEmpty
                   ? Text(rowNotes[row.transactionNumber]!,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 11,
-                          color: AppTheme.primary,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
                           fontFamily: 'Cairo'),
                       overflow: TextOverflow.ellipsis,
                       maxLines: 2)
                   : Icon(Icons.edit_note_rounded,
-                      size: 18, color: AppTheme.textMuted.withAlpha(120)),
+                      size: 18, color: isDark ? AppTheme.textMuted.withAlpha(120) : Colors.black38),
             ),
           ),
         ],
@@ -1016,23 +1268,25 @@ class _ExportCustomerStatementPageState
     required String title,
     required String subtitle,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Icon(icon,
-              size: 72, color: AppTheme.textSecondary.withValues(alpha: 0.3)),
+              size: 72, color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.3) : const Color(0xFF64748B)),
           const SizedBox(height: 16),
           Text(title,
               style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
-                  color: AppTheme.textSecondary,
+                  color: isDark ? AppTheme.textSecondary : Colors.black,
                   fontFamily: 'Cairo')),
           const SizedBox(height: 8),
           Text(subtitle,
               style: TextStyle(
-                  color: AppTheme.textSecondary,
+                  color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                  fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo',
                   fontSize: 13)),
         ],

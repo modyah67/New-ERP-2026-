@@ -10,6 +10,7 @@ import '../auth/auth_cubit.dart';
 import 'customer_cubit.dart';
 import 'customer_state.dart';
 import 'customer_form_dialog.dart';
+import '../../core/widgets/password_verification_dialog.dart';
 
 class CustomersPage extends StatefulWidget {
   const CustomersPage({super.key});
@@ -38,15 +39,18 @@ class _CustomersPageState extends State<CustomersPage> {
     return BlocProvider.value(
       value: _cubit,
       child: Scaffold(
+        backgroundColor: Colors.transparent,
         body: Padding(
           padding: EdgeInsets.all(MediaQuery.of(context).size.width < 600 ? 12 : 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildHeader(),
-              const SizedBox(height: 20),
+              const SizedBox(height: 18),
               _buildSearchBar(),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
+              _buildFilterToolbar(),
+              const SizedBox(height: 14),
               Expanded(child: _buildTable()),
             ],
           ),
@@ -57,6 +61,7 @@ class _CustomersPageState extends State<CustomersPage> {
 
   Widget _buildHeader() {
     final isMobile = MediaQuery.of(context).size.width < 600;
+    final isDark = ThemeCubit.isCurrentDark;
     return Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -64,10 +69,10 @@ class _CustomersPageState extends State<CustomersPage> {
             width: 44,
             height: 44,
             decoration: BoxDecoration(
-              color: AppTheme.primary.withValues(alpha: 0.1),
+              color: (isDark ? AppTheme.primary : AppTheme.lightPrimary).withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(12),
             ),
-            child: const Icon(Icons.person_outline, color: AppTheme.primary, size: 22),
+            child: Icon(Icons.person_outline, color: isDark ? AppTheme.primary : AppTheme.lightPrimary, size: 22),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -75,19 +80,44 @@ class _CustomersPageState extends State<CustomersPage> {
               fit: BoxFit.scaleDown,
               alignment: AlignmentDirectional.centerStart,
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text('العملاء', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(fontSize: isMobile ? 22 : 32, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo')),
+                Text(
+                  'العملاء',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: isMobile ? 22 : 32,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    fontFamily: 'Cairo',
+                  ),
+                ),
               BlocBuilder<CustomerCubit, CustomerState>(
                 buildWhen: (prev, curr) => curr is CustomerLoaded,
                 builder: (context, state) {
-                  final count = state is CustomerLoaded ? state.customers.length : 0;
-                  return Text('$count عميل', style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13));
+                  if (state is! CustomerLoaded) {
+                    return Text('0 عميل', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF334155), fontFamily: 'Cairo', fontSize: 13, fontWeight: isDark ? FontWeight.normal : FontWeight.bold));
+                  }
+                  final displayed = state.filteredCustomers.length;
+                  final total = state.customers.length;
+                  final text = state.typeFilter == 'all'
+                      ? '$total عميل'
+                      : '$displayed من $total عميل';
+                  return Text(
+                    text,
+                    style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                      fontFamily: 'Cairo',
+                      fontSize: 13,
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                    ),
+                  );
                 },
               ),
             ]),
           ),
         ),
         IconButton(
-          icon: const Icon(Icons.refresh_outlined),
+          icon: Icon(Icons.refresh_outlined, color: isDark ? Colors.white : const Color(0xFF0F172A)),
           tooltip: 'تحديث',
           onPressed: () => _cubit.loadAll(reset: true),
         ),
@@ -95,10 +125,10 @@ class _CustomersPageState extends State<CustomersPage> {
         BlocBuilder<CustomerCubit, CustomerState>(
           buildWhen: (prev, curr) => curr is CustomerLoaded,
           builder: (context, state) {
-            final customers = state is CustomerLoaded ? state.customers : <CustomerModel>[];
+            final customers = state is CustomerLoaded ? state.filteredCustomers : <CustomerModel>[];
             if (customers.isEmpty) return const SizedBox.shrink();
             return IconButton(
-              icon: const Icon(Icons.picture_as_pdf_outlined, color: Colors.white70),
+              icon: Icon(Icons.picture_as_pdf_outlined, color: isDark ? Colors.white70 : const Color(0xFF334155)),
               tooltip: 'حفظ PDF',
               onPressed: () => _savePdf(customers),
             );
@@ -139,6 +169,148 @@ class _CustomersPageState extends State<CustomersPage> {
     );
   }
 
+  Widget _buildFilterToolbar() {
+    return BlocBuilder<CustomerCubit, CustomerState>(
+      buildWhen: (prev, curr) => curr is CustomerLoaded,
+      builder: (context, state) {
+        final currentFilter = state is CustomerLoaded ? state.typeFilter : _cubit.currentTypeFilter;
+        final allCount = state is CustomerLoaded ? state.allCount : 0;
+        final localCount = state is CustomerLoaded ? state.localCount : 0;
+        final exportCount = state is CustomerLoaded ? state.exportCount : 0;
+
+        final options = [
+          {
+            'key': 'all',
+            'label': 'الكل',
+            'count': allCount,
+            'icon': Icons.people_alt_outlined,
+            'color': AppTheme.primary,
+          },
+          {
+            'key': 'local',
+            'label': 'العملاء المحليين',
+            'count': localCount,
+            'icon': Icons.storefront_outlined,
+            'color': Colors.greenAccent,
+          },
+          {
+            'key': 'export',
+            'label': 'عملاء التصدير',
+            'count': exportCount,
+            'icon': Icons.flight_takeoff_outlined,
+            'color': Colors.lightBlueAccent,
+          },
+        ];
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          child: Row(
+            children: options.map((opt) {
+              final key = opt['key'] as String;
+              final label = opt['label'] as String;
+              final count = opt['count'] as int;
+              final icon = opt['icon'] as IconData;
+              final color = opt['color'] as Color;
+              final isSelected = currentFilter == key;
+              final isDark = ThemeCubit.isCurrentDark;
+              final effectiveColor = isDark
+                  ? color
+                  : (key == 'all'
+                      ? AppTheme.lightPrimary
+                      : (key == 'local' ? const Color(0xFF16A34A) : const Color(0xFF0284C7)));
+
+              return Padding(
+                padding: const EdgeInsetsDirectional.only(end: 10),
+                child: InkWell(
+                  onTap: () => _cubit.setTypeFilter(key),
+                  borderRadius: BorderRadius.circular(12),
+                  child: AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    curve: Curves.easeInOut,
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? effectiveColor.withValues(alpha: isDark ? 0.18 : 0.15)
+                          : (isDark ? const Color(0xFF0A1E35).withValues(alpha: 0.7) : Colors.white),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isSelected ? effectiveColor : (isDark ? AppTheme.glassBorder : AppTheme.lightBorder),
+                        width: isSelected ? 1.5 : 1.0,
+                      ),
+                      boxShadow: isSelected
+                          ? [
+                              BoxShadow(
+                                color: effectiveColor.withValues(alpha: 0.25),
+                                blurRadius: 10,
+                                offset: const Offset(0, 2),
+                              ),
+                            ]
+                          : (!isDark
+                              ? [
+                                  BoxShadow(
+                                    color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                                    blurRadius: 4,
+                                    offset: const Offset(0, 1),
+                                  ),
+                                ]
+                              : null),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          icon,
+                          size: 16,
+                          color: isSelected
+                              ? effectiveColor
+                              : (isDark ? AppTheme.textSecondary : const Color(0xFF334155)),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            color: isSelected
+                                ? (isDark ? Colors.white : effectiveColor)
+                                : (isDark ? AppTheme.textSecondary : const Color(0xFF0F172A)),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? effectiveColor.withValues(alpha: isDark ? 0.3 : 0.25)
+                                : (isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0)),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            '$count',
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: isSelected
+                                  ? effectiveColor
+                                  : (isDark ? AppTheme.textSecondary : const Color(0xFF0F172A)),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        );
+      },
+    );
+  }
+
   Widget _buildTable() {
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
@@ -173,6 +345,7 @@ class _CustomersPageState extends State<CustomersPage> {
   }
 
   Widget _buildDataTable(CustomerLoaded state) {
+    final displayCustomers = state.filteredCustomers;
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
@@ -180,36 +353,67 @@ class _CustomersPageState extends State<CustomersPage> {
           child: ConstrainedBox(
             constraints: BoxConstraints(
               minWidth: constraints.maxWidth,
-              maxWidth: constraints.maxWidth > 860 ? constraints.maxWidth : 860,
+              maxWidth: constraints.maxWidth > 980 ? constraints.maxWidth : 980,
             ),
             child: Column(
               children: [
                 _buildTableHeader(),
                 const Divider(height: 1),
                 Expanded(
-                  child: NotificationListener<ScrollNotification>(
-                    onNotification: (ScrollNotification scrollInfo) {
-                      if (!state.isFetchingMore &&
-                          state.hasMore &&
-                          scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
-                        _cubit.fetchMore();
-                      }
-                      return false;
-                    },
-                    child: ListView.separated(
-                      itemCount: state.customers.length + (state.hasMore ? 1 : 0),
-                      separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
-                      itemBuilder: (listContext, index) {
-                        if (index == state.customers.length) {
-                          return const Padding(
-                            padding: EdgeInsets.all(16.0),
-                            child: Center(child: CircularProgressIndicator()),
-                          );
-                        }
-                        return _buildTableRow(listContext, state.customers[index], index);
-                      },
-                    ),
-                  ),
+                  child: displayCustomers.isEmpty
+                      ? Center(
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(
+                                state.typeFilter == 'local'
+                                    ? Icons.storefront_outlined
+                                    : (state.typeFilter == 'export'
+                                        ? Icons.flight_takeoff_outlined
+                                        : Icons.person_search_outlined),
+                                size: 48,
+                                color: AppTheme.textSecondary.withValues(alpha: 0.4),
+                              ),
+                              const SizedBox(height: 12),
+                              Text(
+                                state.typeFilter == 'local'
+                                    ? 'لا يوجد عملاء محليين'
+                                    : (state.typeFilter == 'export'
+                                        ? 'لا يوجد عملاء تصدير'
+                                        : 'لا توجد نتائج'),
+                                style: const TextStyle(
+                                  color: AppTheme.textSecondary,
+                                  fontFamily: 'Cairo',
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : NotificationListener<ScrollNotification>(
+                          onNotification: (ScrollNotification scrollInfo) {
+                            if (!state.isFetchingMore &&
+                                state.hasMore &&
+                                scrollInfo.metrics.pixels >= scrollInfo.metrics.maxScrollExtent - 200) {
+                              _cubit.fetchMore();
+                            }
+                            return false;
+                          },
+                          child: ListView.separated(
+                            itemCount: displayCustomers.length + (state.hasMore ? 1 : 0),
+                            separatorBuilder: (_, __) => const Divider(height: 1, indent: 16, endIndent: 16),
+                            itemBuilder: (listContext, index) {
+                              if (index == displayCustomers.length) {
+                                return const Padding(
+                                  padding: EdgeInsets.all(16.0),
+                                  child: Center(child: CircularProgressIndicator()),
+                                );
+                              }
+                              return _buildTableRow(listContext, displayCustomers[index], index);
+                            },
+                          ),
+                        ),
                 ),
               ],
             ),
@@ -219,46 +423,87 @@ class _CustomersPageState extends State<CustomersPage> {
     );
   }
 
-  static const _labelStyle = TextStyle(
-    color: AppTheme.textSecondary,
-    fontWeight: FontWeight.w600,
-    fontFamily: 'Cairo',
-    fontSize: 13,
-  );
-
   Widget _buildTableHeader() {
+    final isDark = ThemeCubit.isCurrentDark;
+    final labelStyle = TextStyle(
+      color: isDark ? AppTheme.textSecondary : const Color(0xFF0F172A),
+      fontWeight: FontWeight.bold,
+      fontFamily: 'Cairo',
+      fontSize: 13,
+    );
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      color: const Color(0x1A00E5FF),
-      child: const Row(
+      color: isDark ? const Color(0x1A00E5FF) : const Color(0xFFF1F5F9),
+      child: Row(
         children: [
-          SizedBox(width: 36, child: Text('#', style: _labelStyle)),
-          SizedBox(width: 90, child: Text('الكود', style: _labelStyle)),
-          Expanded(flex: 2, child: Text('الاسم', style: _labelStyle)),
-          Expanded(flex: 2, child: Text('العنوان', style: _labelStyle)),
-          SizedBox(width: 90, child: Text('الهاتف', style: _labelStyle)),
-          SizedBox(width: 90, child: Text('الرصيد الحالي', style: _labelStyle, textAlign: TextAlign.center)),
-          SizedBox(width: 80, child: Text('الرصيد المبدئي', style: _labelStyle, textAlign: TextAlign.center)),
-          SizedBox(width: 70, child: Text('إجراءات', style: _labelStyle, textAlign: TextAlign.center)),
+          SizedBox(width: 36, child: Text('#', style: labelStyle)),
+          SizedBox(width: 90, child: Text('الكود', style: labelStyle)),
+          Expanded(flex: 2, child: Text('الاسم', style: labelStyle)),
+          SizedBox(width: 125, child: Text('نوع العميل', style: labelStyle, textAlign: TextAlign.center)),
+          Expanded(flex: 2, child: Text('العنوان', style: labelStyle)),
+          SizedBox(width: 90, child: Text('الهاتف', style: labelStyle)),
+          SizedBox(width: 110, child: Text('الرصيد الحالي', style: labelStyle, textAlign: TextAlign.center)),
+          SizedBox(width: 85, child: Text('الرصيد المبدئي', style: labelStyle, textAlign: TextAlign.center)),
+          SizedBox(width: 70, child: Text('إجراءات', style: labelStyle, textAlign: TextAlign.center)),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCustomerTypeBadge(String type) {
+    final isDark = ThemeCubit.isCurrentDark;
+    final isLocal = type.toLowerCase() == 'local';
+    final color = isLocal ? (isDark ? Colors.greenAccent : const Color(0xFF16A34A)) : (isDark ? Colors.lightBlueAccent : const Color(0xFF0284C7));
+    final icon = isLocal ? Icons.storefront : Icons.flight_takeoff;
+    final label = isLocal ? 'محلي (12512)' : 'تصدير (12511)';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: isDark ? 0.12 : 0.15),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: color.withValues(alpha: isDark ? 0.4 : 0.5),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10.5,
+              fontWeight: FontWeight.bold,
+              color: color,
+              fontFamily: 'Cairo',
+            ),
+          ),
         ],
       ),
     );
   }
 
   Widget _buildTableRow(BuildContext listContext, CustomerModel customer, int index) {
+    final isDark = ThemeCubit.isCurrentDark;
     final isEven = index % 2 == 0;
     final authState = context.read<AuthCubit>().state;
     final isAdmin = authState is AuthAuthenticated && authState.isAdmin;
 
     return Container(
-      height: 55,
-      color: isEven ? Colors.white.withValues(alpha: 0.03) : Colors.white.withValues(alpha: 0.05),
+      height: 58,
+      color: isEven 
+          ? (isDark ? Colors.white.withValues(alpha: 0.03) : Colors.transparent)
+          : (isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF8FAFC)),
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
           SizedBox(
             width: 36,
-            child: Text('${index + 1}', style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13)),
+            child: Text('${index + 1}', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF475569), fontFamily: 'Cairo', fontSize: 13, fontWeight: isDark ? FontWeight.normal : FontWeight.w600)),
           ),
 
           SizedBox(
@@ -266,12 +511,12 @@ class _CustomersPageState extends State<CustomersPage> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
               decoration: BoxDecoration(
-                color: AppTheme.primary.withValues(alpha: 0.08),
+                color: (isDark ? AppTheme.primary : AppTheme.lightPrimary).withValues(alpha: isDark ? 0.08 : 0.12),
                 borderRadius: BorderRadius.circular(6),
               ),
               child: Text(
                 customer.code.isNotEmpty ? customer.code : '—',
-                style: const TextStyle(fontSize: 11, color: AppTheme.primary, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                style: TextStyle(fontSize: 11, color: isDark ? AppTheme.primary : AppTheme.lightPrimary, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -281,8 +526,15 @@ class _CustomersPageState extends State<CustomersPage> {
             flex: 2,
             child: Text(
               customer.name,
-              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 14),
+              style: TextStyle(color: isDark ? Colors.white : const Color(0xFF0F172A), fontFamily: 'Cairo', fontSize: 14, fontWeight: FontWeight.bold),
               overflow: TextOverflow.ellipsis,
+            ),
+          ),
+
+          SizedBox(
+            width: 125,
+            child: Center(
+              child: _buildCustomerTypeBadge(customer.customerType),
             ),
           ),
 
@@ -290,7 +542,7 @@ class _CustomersPageState extends State<CustomersPage> {
             flex: 2,
             child: Text(
               customer.city.isNotEmpty ? customer.city : '—',
-              style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13),
+              style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF475569), fontFamily: 'Cairo', fontSize: 13, fontWeight: isDark ? FontWeight.normal : FontWeight.w600),
               overflow: TextOverflow.ellipsis,
             ),
           ),
@@ -299,37 +551,75 @@ class _CustomersPageState extends State<CustomersPage> {
             width: 90,
             child: Text(
               customer.phone.isNotEmpty ? customer.phone : '—',
-              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+              style: TextStyle(color: isDark ? Colors.white : const Color(0xFF0F172A), fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold),
               textDirection: TextDirection.ltr,
               overflow: TextOverflow.ellipsis,
             ),
           ),
 
           SizedBox(
-            width: 90,
-            child: Text(
-              '${customer.balance < 0 ? '-' : ''}${customer.balance.abs().toStringAsFixed(2)}',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: customer.balance > 0 ? AppTheme.success : AppTheme.danger,
-                fontFamily: 'Cairo',
-              ),
-              textAlign: TextAlign.center,
+            width: 110,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  customer.balance == 0
+                      ? '0.00'
+                      : '${customer.balance < 0 ? '-' : ''}${AppUtils.formatCurrency(customer.balance.abs())}',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: customer.balance == 0
+                        ? (isDark ? AppTheme.textSecondary : const Color(0xFF0F172A))
+                        : (customer.balance < 0 ? (isDark ? AppTheme.cyan : AppTheme.lightPrimary) : AppTheme.danger),
+                    fontFamily: 'Cairo',
+                  ),
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (customer.balance != 0)
+                  Text(
+                    '${customer.currency} (${customer.balance < 0 ? 'له' : 'عليه'})',
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: customer.balance < 0 ? (isDark ? AppTheme.cyan : AppTheme.lightPrimary) : (isDark ? AppTheme.warning : const Color(0xFFD97706)),
+                      fontFamily: 'Cairo',
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
             ),
           ),
 
           SizedBox(
-            width: 80,
-            child: Text(
-              customer.initialBalance == 0.0 ? '0.00' : customer.initialBalance.toStringAsFixed(2),
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
-                color: customer.initialBalance > 0 ? AppTheme.success : AppTheme.textSecondary,
-                fontFamily: 'Cairo',
-              ),
-              textAlign: TextAlign.center,
+            width: 85,
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Text(
+                  customer.initialBalance == 0.0 ? '0.00' : AppUtils.formatCurrency(customer.initialBalance.abs()),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w900,
+                    color: customer.initialBalance > 0 ? (isDark ? AppTheme.success : const Color(0xFF16A34A)) : (isDark ? AppTheme.textSecondary : const Color(0xFF0F172A)),
+                    fontFamily: 'Cairo',
+                  ),
+                  textAlign: TextAlign.center,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (customer.initialBalance != 0)
+                  Text(
+                    customer.currency,
+                    style: TextStyle(
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                      fontFamily: 'Cairo',
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
             ),
           ),
 
@@ -339,8 +629,8 @@ class _CustomersPageState extends State<CustomersPage> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 GestureDetector(
-                  onTap: () => _showFormDialog(customer: customer),
-                  child: const Icon(Icons.edit_outlined, size: 17, color: AppTheme.primary),
+                  onTap: () => _showEditDialog(customer),
+                  child: Icon(Icons.edit_outlined, size: 17, color: isDark ? AppTheme.primary : AppTheme.lightPrimary),
                 ),
               ],
             ),
@@ -351,20 +641,21 @@ class _CustomersPageState extends State<CustomersPage> {
   }
 
   Widget _buildEmptyState(String searchQuery) {
+    final isDark = ThemeCubit.isCurrentDark;
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.person_search_outlined, size: 72, color: AppTheme.textSecondary.withValues(alpha: 0.3)),
+          Icon(Icons.person_search_outlined, size: 72, color: (isDark ? AppTheme.textSecondary : AppTheme.lightTextMuted).withValues(alpha: 0.3)),
           const SizedBox(height: 16),
           Text(
             searchQuery.isEmpty ? 'لا يوجد عملاء بعد' : 'لا توجد نتائج للبحث',
-            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? AppTheme.textSecondary : const Color(0xFF0F172A), fontFamily: 'Cairo'),
           ),
           const SizedBox(height: 8),
           Text(
             searchQuery.isEmpty ? 'اضغط "إضافة عميل" لإضافة أول عميل' : 'جرب كلمة بحث مختلفة',
-            style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13),
+            style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF475569), fontFamily: 'Cairo', fontSize: 13, fontWeight: isDark ? FontWeight.normal : FontWeight.w600),
           ),
           if (searchQuery.isEmpty) ...[
             const SizedBox(height: 20),
@@ -479,6 +770,13 @@ class _CustomersPageState extends State<CustomersPage> {
         },
       ),
     );
+  }
+
+  void _showEditDialog(CustomerModel customer) async {
+    final verified = await showPasswordVerificationDialog(context);
+    if (!verified) return;
+    if (!mounted) return;
+    _showFormDialog(customer: customer);
   }
 
   void _showFormDialog({CustomerModel? customer}) {

@@ -1,8 +1,8 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/read_only_guard.dart';
+import '../../data/dao/station_dao.dart';
 import '../../data/models/station_model.dart';
 import 'station_cubit.dart';
 import 'station_state.dart';
@@ -33,6 +33,64 @@ class _StationFormDialogState extends State<StationFormDialog> {
 
   Future<void> _save() async {
     if (!ReadOnlyGuard.check(context)) return;
+
+    // ── Form Validation Guard: Strict Numerical Boundary Check ──
+    final codeText = _cubit.codeController.text.trim();
+    final codeValidationError = StationModel.validateStationCode(codeText);
+    if (codeValidationError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded,
+                  color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  codeValidationError,
+                  style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppTheme.danger,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    // ── Collision Check Guard ──
+    if (widget.station == null || widget.station!.code != codeText) {
+      final exists = await StationDao().checkCodeExists(codeText, excludeId: widget.station?.id);
+      if (exists) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'كود المحطة ($codeText) مستخدم بالفعل، يرجى اختيار كود آخر',
+                    style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: AppTheme.danger,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+    }
+
     final success = await _cubit.save();
     if (!mounted) return;
     if (success) {
@@ -76,13 +134,14 @@ class _StationFormDialogState extends State<StationFormDialog> {
   Widget build(BuildContext context) {
     final isEditing = widget.station != null;
     final screenWidth = MediaQuery.of(context).size.width;
+    final isDark = ThemeCubit.isCurrentDark;
 
     return Dialog(
       clipBehavior: Clip.antiAlias,
-      backgroundColor: const Color(0xCC05192D),
+      backgroundColor: isDark ? const Color(0xCC05192D) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: AppTheme.glassBorder),
+        side: BorderSide(color: isDark ? AppTheme.glassBorder : AppTheme.lightBorder),
       ),
       child: BlocBuilder<StationCubit, StationState>(
         builder: (context, state) {
@@ -116,12 +175,12 @@ class _StationFormDialogState extends State<StationFormDialog> {
                           alignment: AlignmentDirectional.centerStart,
                           child: Text(
                             isEditing ? 'تعديل المحطة' : 'إضافة محطة جديدة',
-                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo'),
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo'),
                           ),
                         ),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.close, color: Colors.white70),
+                        icon: Icon(Icons.close, color: isDark ? Colors.white70 : Colors.black),
                         onPressed: () => Navigator.pop(context),
                         padding: EdgeInsets.zero,
                         constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -131,18 +190,30 @@ class _StationFormDialogState extends State<StationFormDialog> {
                   const SizedBox(height: 24),
                   TextFormField(
                     controller: _cubit.codeController,
+                    validator: (v) => StationModel.validateStationCode(v),
                     decoration: InputDecoration(
                       labelText: 'كود المحطة',
-                      hintText: 'مثال: STA0001',
-                      labelStyle: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
-                      hintStyle: TextStyle(color: AppTheme.textSecondary.withValues(alpha: 0.5)),
+                      hintText: StationModel.codeHint,
+                      labelStyle: TextStyle(
+                        color: isDark ? AppTheme.textSecondary : Colors.black,
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      ),
+                      hintStyle: TextStyle(
+                        color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.5) : const Color(0xFF64748B),
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      ),
                       enabled: false,
                       filled: true,
-                      fillColor: Colors.white.withValues(alpha: 0.05),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.glassBorder)),
-                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.glassBorder)),
+                      fillColor: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF1F5F9),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                     ),
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
                   ),
                   const SizedBox(height: 16),
                   TextFormField(
@@ -154,13 +225,24 @@ class _StationFormDialogState extends State<StationFormDialog> {
                     decoration: InputDecoration(
                       labelText: 'اسم المحطة *',
                       hintText: 'مثال: المحطة الرئيسية',
-                      labelStyle: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
-                      hintStyle: TextStyle(color: AppTheme.textSecondary.withValues(alpha: 0.5)),
+                      labelStyle: TextStyle(
+                        color: isDark ? AppTheme.textSecondary : Colors.black,
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      ),
+                      hintStyle: TextStyle(
+                        color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.5) : const Color(0xFF64748B),
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      ),
                       filled: true,
-                      fillColor: const Color(0x3805192D),
-                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.glassBorder)),
+                      fillColor: isDark ? const Color(0x3805192D) : const Color(0xFFF8FAFC),
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                     ),
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
                   ),
                   const SizedBox(height: 24),
                   Row(
@@ -169,13 +251,13 @@ class _StationFormDialogState extends State<StationFormDialog> {
                       Expanded(
                         child: OutlinedButton(
                           style: OutlinedButton.styleFrom(
-                            foregroundColor: AppTheme.textSecondary,
-                            side: BorderSide(color: Colors.white.withValues(alpha: 0.15)),
+                            foregroundColor: isDark ? AppTheme.textSecondary : Colors.black,
+                            side: BorderSide(color: isDark ? Colors.white.withValues(alpha: 0.15) : const Color(0xFFCBD5E1)),
                             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                             shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                           onPressed: state is StationFormState && state.isSaving ? null : () => Navigator.pop(context),
-                          child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
+                          child: Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', fontWeight: isDark ? FontWeight.normal : FontWeight.bold)),
                         ),
                       ),
                       const SizedBox(width: 12),

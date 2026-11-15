@@ -58,7 +58,8 @@ extension FiscalYearStatusExtension on FiscalYearStatus {
     }
   }
 
-  bool get canTransitionToClosing => this == FiscalYearStatus.active;
+  bool get canTransitionToClosing =>
+      this == FiscalYearStatus.active || this == FiscalYearStatus.closing;
   bool get canTransitionToClosed => this == FiscalYearStatus.closing;
   bool get canTransitionToActive => this == FiscalYearStatus.draft ||
       this == FiscalYearStatus.closing ||

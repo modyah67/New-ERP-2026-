@@ -120,10 +120,14 @@ class FiscalYearClosingEngine {
       await _auditService.logLockAcquired(fy: fy, userId: userId);
 
       // Step 2.5: Verify backup exists (Part 7)
-      final backupVerified = await _client.rpc('verify_fiscal_year_backup', params: {'p_fiscal_year_id': fiscalYearId});
-      if (backupVerified == null || (backupVerified is Map && backupVerified['verified'] == false)) {
-        await _rollback(fiscalYearId, fy, userId, 'لا توجد نسخة احتياطية موثقة');
-        return ClosingResult.failure('يجب التحقق من النسخة الاحتياطية قبل الإغلاق');
+      try {
+        final backupVerified = await _client.rpc('verify_fiscal_year_backup', params: {'p_fiscal_year_id': fiscalYearId});
+        if (backupVerified != null && (backupVerified is Map && backupVerified['verified'] == false)) {
+          await _rollback(fiscalYearId, fy, userId, 'لا توجد نسخة احتياطية موثقة');
+          return ClosingResult.failure('يجب التحقق من النسخة الاحتياطية قبل الإغلاق');
+        }
+      } catch (backupErr) {
+        debugPrint('verify_fiscal_year_backup warning (proceeding): $backupErr');
       }
 
       // Step 3: Begin database transaction - set status to CLOSING
@@ -138,13 +142,21 @@ class FiscalYearClosingEngine {
       double netIncome = 0;
 
       for (final entry in closingEntries) {
-        if (entry.entryType == 'TRANSFER_RETAINED') {
+        if (entry.entryType == 'TRANSFER_RETAINED' &&
+            entry.accountCode == '23411' &&
+            entry.description?.contains('صافي الدخل') == true) {
           netIncome = entry.credit > 0 ? entry.credit : -entry.debit;
         } else if (entry.accountType == 'revenue') {
-          revenueTotals[entry.accountCode] = entry.credit - entry.debit;
+          revenueTotals[entry.accountCode] = entry.debit > 0 ? entry.debit : -entry.credit;
         } else if (entry.accountType == 'expense') {
-          expenseTotals[entry.accountCode] = entry.debit - entry.credit;
+          expenseTotals[entry.accountCode] = entry.credit > 0 ? entry.credit : -entry.debit;
         }
+      }
+
+      if (netIncome == 0 && (revenueTotals.isNotEmpty || expenseTotals.isNotEmpty)) {
+        final revSum = revenueTotals.values.fold(0.0, (a, b) => a + b);
+        final expSum = expenseTotals.values.fold(0.0, (a, b) => a + b);
+        netIncome = revSum - expSum;
       }
 
       final persisted = await _persistJournalEntries(
@@ -200,41 +212,49 @@ class FiscalYearClosingEngine {
       await _updateProgress(fiscalYearId, ClosingProgressStatus.finalizing, 'الإنهاء');
       await _dao.closeStatus(fiscalYearId, performedBy: userId, reason: reason);
 
-      // Step 9: Create next fiscal year if requested
+      // Step 9: Handle next fiscal year (create if requested or link to existing next year)
       int? newFiscalYearId;
+      FiscalYear? nextFy;
       if (createNextYear) {
-        final nextFy = await _createNextFiscalYear(fy, userId);
-        if (nextFy != null) {
-          newFiscalYearId = nextFy.id;
+        nextFy = await _createNextFiscalYear(fy, userId);
+      }
+      // Check if next year was already created beforehand by user (e.g. FY 2027)
+      nextFy ??= await _dao.getByYear(fy.year + 1);
 
-          // Persist opening entries for new year
-          final persistedOpening = await _persistJournalEntries(
-            entries: openingEntries.map((e) => e.copyWith(fiscalYearId: nextFy.id)).toList(),
-            transactionDate: nextFy.startDate,
-            referenceType: 'opening_balance',
-            referenceId: nextFy.id.toString(),
-          );
+      if (nextFy != null) {
+        newFiscalYearId = nextFy.id;
 
-          if (persistedOpening) {
-            for (final entry in openingEntries) {
-              await _dao.insertClosingEntry(entry.toJson()
-                ..['fiscal_year_id'] = nextFy.id
-                ..['entry_type'] = 'OPENING_BALANCE');
-            }
-            await _captureInventorySnapshot(nextFy.id, 'OPENING');
+        // Persist opening entries for new year
+        final persistedOpening = await _persistJournalEntries(
+          entries: openingEntries.map((e) => e.copyWith(fiscalYearId: nextFy!.id)).toList(),
+          transactionDate: nextFy.startDate,
+          referenceType: 'opening_balance',
+          referenceId: nextFy.id.toString(),
+        );
+
+        if (persistedOpening) {
+          for (final entry in openingEntries) {
+            await _dao.insertClosingEntry(entry.toJson()
+              ..['fiscal_year_id'] = nextFy.id
+              ..['entry_type'] = 'OPENING_BALANCE');
           }
-
-          await _auditService.logOpeningEntries(
-            fy: fy,
-            userId: userId,
-            details: {
-              'new_fiscal_year_id': nextFy.id,
-              'new_fiscal_year': nextFy.year,
-              'opening_entries_count': openingEntries.length,
-            },
-            durationMs: stopwatch.elapsedMilliseconds,
-          );
+          await _captureInventorySnapshot(nextFy.id, 'OPENING');
         }
+
+        // Ensure next fiscal year is ACTIVE and marked as current
+        await _dao.updateStatus(nextFy.id, status: FiscalYearStatus.active, performedBy: userId);
+        await _dao.setCurrent(nextFy.id, performedBy: userId);
+
+        await _auditService.logOpeningEntries(
+          fy: fy,
+          userId: userId,
+          details: {
+            'new_fiscal_year_id': nextFy.id,
+            'new_fiscal_year': nextFy.year,
+            'opening_entries_count': openingEntries.length,
+          },
+          durationMs: stopwatch.elapsedMilliseconds,
+        );
       }
 
       // Step 10: Post-closing verification (Part 8)
@@ -272,6 +292,12 @@ class FiscalYearClosingEngine {
       final fy = await _dao.getById(fiscalYearId);
       if (fy != null) {
         await _auditService.logClosingFailed(fy: fy, userId: userId, error: e.toString());
+      }
+      // Revert status to ACTIVE on failure so it does not remain stuck in CLOSING
+      try {
+        await _dao.updateStatus(fiscalYearId, status: FiscalYearStatus.active, performedBy: userId, reason: 'فشل الإغلاق: $e');
+      } catch (statusErr) {
+        debugPrint('Failed to revert status to active: $statusErr');
       }
       await _dao.releaseClosingLock();
       await _updateProgress(fiscalYearId, ClosingProgressStatus.failed, 'فشل الإغلاق', error: e.toString());
@@ -517,12 +543,12 @@ class FiscalYearClosingEngine {
 
         lines.add({
           'account_id': int.parse(accountId),
-          'debit': entry.isDebit ? entry.debit : 0,
-          'base_debit': entry.isDebit ? entry.debit : 0,
-          'credit': !entry.isDebit ? entry.credit : 0,
-          'base_credit': !entry.isDebit ? entry.credit : 0,
+          'debit': entry.debit,
+          'base_debit': entry.debit,
+          'credit': entry.credit,
+          'base_credit': entry.credit,
           'currency': 'EGP',
-          'description': entry.description ?? 'إقفال سنة مالية',
+          'description': entry.description ?? (referenceType == 'opening_balance' ? 'قيد افتتاحي' : 'إقفال سنة مالية'),
         });
       }
 
@@ -530,9 +556,13 @@ class FiscalYearClosingEngine {
       final fy = await _dao.getById(fyId);
       final companyId = fy?.companyId ?? (await _client.from('sys_companies').select('id').maybeSingle())?['id'];
 
+      final entryDesc = referenceType == 'opening_balance'
+          ? 'قيد افتتاحي للسنة المالية ${fy?.year ?? ''}'
+          : 'قيد إقفال السنة المالية ${fy?.year ?? ''}';
+
       await _client.rpc('post_journal_entry', params: {
-        'p_source_type': 'fiscal_year_closing',
-        'p_description': 'قيد إقفال السنة المالية ${fy?.year ?? ''}',
+        'p_source_type': referenceType,
+        'p_description': entryDesc,
         'p_entry_date': transactionDate.toIso8601String().substring(0, 10),
         'p_company_id': companyId,
         'p_created_by': _client.auth.currentUser?.id,

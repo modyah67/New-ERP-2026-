@@ -4,7 +4,6 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
-import 'package:path_provider/path_provider.dart';
 import '../../core/constants.dart';
 import '../../data/models/shipping_company_model.dart';
 import 'package:accounting_system/core/utils/file_helper.dart';
@@ -26,9 +25,6 @@ class ShippingCompanyPdfService {
     await _loadFonts();
     final doc = pw.Document();
     final theme = pw.ThemeData.withFont(base: _font!, bold: _boldFont!);
-
-    final totalBalance =
-        companies.fold<double>(0, (s, c) => s + c.balance);
 
     // Per-currency totals
     final Map<String, double> totalsByCurrency = {};
@@ -110,10 +106,10 @@ class ShippingCompanyPdfService {
                 font: _font, fontSize: 9, color: PdfColors.black),
             headerDecoration:
                 const pw.BoxDecoration(color: PdfColors.blueGrey),
-            cellDecoration: (row, col, isHeader) => pw.BoxDecoration(
+            cellDecoration: (row, col, isHeader) => const pw.BoxDecoration(
                 border: pw.Border(
                     bottom: pw.BorderSide(color: PdfColors.grey300))),
-            headers: ['#', 'الكود', 'اسم الشركة', 'الهاتف', 'البريد الإلكتروني', 'العملة', 'الرصيد'],
+            headers: ['#', 'الكود', 'اسم الشركة', 'الهاتف', 'البريد الإلكتروني', 'العملة', 'الرصيد الافتتاحي', 'الرصيد المالي الحالي'],
             data: List.generate(companies.length, (i) {
               final c = companies[i];
               return [
@@ -123,7 +119,8 @@ class ShippingCompanyPdfService {
                 c.phone,
                 c.email,
                 c.currency,
-                c.balance.toStringAsFixed(2),
+                c.initialBalance.toStringAsFixed(2),
+                c.currentBalance.toStringAsFixed(2),
               ];
             }),
           ),

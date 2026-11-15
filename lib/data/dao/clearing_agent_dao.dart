@@ -5,18 +5,49 @@ class ClearingAgentDao {
   final _client = Supabase.instance.client;
 
   static const _table = 'clearing_agents';
-  Future<String> generateNextCode() async {
+
+  Future<String> generateNextCode({String? brokerType}) async {
     try {
+      final isSea = brokerType == null ||
+          brokerType.trim().isEmpty ||
+          brokerType.trim() == 'بحري' ||
+          brokerType.trim().toLowerCase() == 'maritime' ||
+          brokerType.trim().toLowerCase() == 'sea';
+
+      final int minRange = isSea ? 20000 : 25000;
+      final int maxRange = isSea ? 25000 : 30000;
+
       final response = await _client.from(_table).select('code');
-      int maxCode = 0;
+      int maxCode = minRange - 1;
       for (var row in response) {
         final codeStr = row['code']?.toString() ?? '';
         final num = int.tryParse(codeStr.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-        if (num > maxCode) maxCode = num;
+        if (num >= minRange && num < maxRange && num > maxCode) {
+          maxCode = num;
+        }
       }
-      return (maxCode + 1).toString().padLeft(5, '0');
+      if (maxCode < minRange) {
+        return minRange.toString();
+      }
+      return (maxCode + 1).toString();
     } catch (e) {
-      return '00001';
+      final isSea = brokerType == null || brokerType.trim() == 'بحري';
+      return isSea ? '20000' : '25000';
+    }
+  }
+
+  /// Check if a clearing agent code already exists in the database to prevent collisions
+  Future<bool> checkCodeExists(String code, {String? excludeId}) async {
+    try {
+      final clean = code.trim();
+      var query = _client.from(_table).select('id').eq('code', clean);
+      if (excludeId != null && excludeId.isNotEmpty) {
+        query = query.neq('id', excludeId);
+      }
+      final res = await query.limit(1);
+      return res.isNotEmpty;
+    } catch (_) {
+      return false;
     }
   }
 
@@ -39,7 +70,7 @@ class ClearingAgentDao {
     String? str(dynamic v) => v?.toString();
     num? numVal(dynamic v) => v is num ? v : num.tryParse('$v');
 
-    final computedBal = row['computed_balance'];
+    final computedBal = row['computed_balance'] ?? row['current_balance'];
     final effectiveBal = computedBal != null
         ? (computedBal as num).toDouble()
         : (numVal(row['balance'])?.toDouble() ?? 0.0);
@@ -59,6 +90,7 @@ class ClearingAgentDao {
       addresses: _parseAddresses(row['addresses']),
       balance: effectiveBal,
       initialBalance: numVal(row['initial_balance'])?.toDouble() ?? 0.0,
+      initialBalanceDirection: str(row['initial_balance_direction']) ?? 'CREDIT',
       currency: str(row['currency']) ?? 'EGP',
       createdAt: str(row['created_at']) ?? '',
     );
@@ -132,10 +164,41 @@ class ClearingAgentDao {
     }).toList();
   }
 
+  /// Resolves the master Level-5 summary account ID directly (21116: مخلصي الجمارك)
+  Future<int?> resolveMasterAccountId() async {
+    try {
+      final res = await _client
+          .from('accounts')
+          .select('id')
+          .eq('account_code', '21116')
+          .limit(1)
+          .maybeSingle();
+      if (res != null && res['id'] != null) {
+        return (res['id'] as num).toInt();
+      }
+      final fallback = await _client
+          .from('accounts')
+          .select('id')
+          .eq('account_code', '2111')
+          .limit(1)
+          .maybeSingle();
+      return (fallback?['id'] as num?)?.toInt();
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<String> insert(ClearingAgentModel agent) async {
     final agentData = agent.toInsertMap();
     if (agent.addresses.isNotEmpty) {
       agentData['addresses'] = agent.addresses;
+    }
+
+    if (!agentData.containsKey('account_id') || agentData['account_id'] == null) {
+      final masterId = await resolveMasterAccountId();
+      if (masterId != null) {
+        agentData['account_id'] = masterId;
+      }
     }
 
     final data = await _client
@@ -170,6 +233,7 @@ class ClearingAgentDao {
       'initial_balance': agent.initialBalance,
       'initial_balance_direction': agent.initialBalanceDirection,
       'balance': newBalance,
+      'current_balance': newBalance,
       'currency': agent.currency,
       'addresses': agent.addresses,
     }).eq('id', int.tryParse(agent.id!) ?? agent.id!);

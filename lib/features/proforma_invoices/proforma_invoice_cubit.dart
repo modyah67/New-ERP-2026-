@@ -143,7 +143,7 @@ class ProformaInvoiceCubit extends Cubit<ProformaInvoiceState> {
         } catch (_) {}
       }
       final results = await Future.wait([
-        _customerDao.getAll(limit: 2000),
+        _customerDao.getAll(limit: 2000, customerType: 'export'),
         _invoiceDao.getAll(limit: 2000),
       ]);
       final customers = results[0] as List<CustomerModel>;

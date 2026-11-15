@@ -87,12 +87,41 @@ class LotReceiptModel {
   double get fruitCostPerKg => productCostPerKg;
   double get totalFruitCost => totalProductCost;
   int get netCartonCount {
-    if (purchaseMode == 'carton' && (weightPerCartonKg ?? 0) > 0) {
+    if (cartonCount != null && cartonCount! > 0) {
+      return cartonCount!;
+    }
+    if (purchaseMode == 'carton' && (weightPerCartonKg ?? 0) > 0 && netWeightKg > 0) {
       return (netWeightKg / weightPerCartonKg!).round();
     }
     return cartonCount ?? 0;
   }
   double get costPerCarton => pricePerCarton ?? 0.0;
+
+  /// The Net Quantity that entered the warehouse (الكمية الصافية المخزنية)
+  double get netWarehouseQuantity {
+    if (purchaseMode == 'carton' && (cartonCount ?? 0) > 0) {
+      return (cartonCount ?? 0).toDouble();
+    }
+    if (netWeightKg > 0) {
+      return netWeightKg;
+    }
+    return grossWeightKg > 0 ? grossWeightKg : (cartonCount ?? 0).toDouble();
+  }
+
+  /// The Gross Original Purchase Quantity (الكمية المشتراة الإجمالية / القائم)
+  double get grossPurchaseQuantity {
+    if (purchaseMode == 'carton' && (cartonCount ?? 0) > 0) {
+      return (cartonCount ?? 0).toDouble();
+    }
+    if (grossWeightKg > 0) {
+      return grossWeightKg;
+    }
+    return netWeightKg > 0 ? netWeightKg : (cartonCount ?? 0).toDouble();
+  }
+
+  double get purchasedQuantity => netWarehouseQuantity;
+
+  String get unitLabel => purchaseMode == 'carton' ? 'كرتونة' : 'كجم';
 
   List<LotGradingResult> gradingResults;
 

@@ -1,7 +1,30 @@
 class CustomerModel {
+  // ── Scalable 5-Digit Category Range Constants ──
+  static const int minCode = 12000;
+  static const int maxCode = 19999;
+  static const int capacity = 8000;
+  static const String codeHint = 'مثال: 12000 (نطاق 12000 - 19999)';
+
+  static String? validateCustomerCode(String? code) {
+    if (code == null || code.trim().isEmpty) {
+      return 'كود العميل مطلوب';
+    }
+    final cleanCode = code.trim().replaceAll(RegExp(r'[^0-9]'), '');
+    final num = int.tryParse(cleanCode);
+    if (num == null) {
+      return 'يجب أن يحتوي الكود على أرقام فقط';
+    }
+    if (num < minCode || num > maxCode) {
+      return 'كود العميل يجب أن يكون بين $minCode و $maxCode (السعة: $capacity عميل)';
+    }
+    return null;
+  }
+
   final String? id;
   final String code;
   final String name;
+  final String customerType;
+  final int? accountId;
   final String phone;
   final String city;
   final String country;
@@ -22,6 +45,8 @@ class CustomerModel {
     this.id,
     this.code = '',
     required this.name,
+    this.customerType = 'export',
+    this.accountId,
     this.phone = '',
     this.city = '',
     this.country = '',
@@ -54,6 +79,8 @@ class CustomerModel {
       id: str(map['id']),
       code: str(map['code']) ?? '',
       name: str(map['name']) ?? '',
+      customerType: str(map['company_type']) ?? str(map['customer_type']) ?? 'export',
+      accountId: intVal(map['account_id']),
       phone: str(map['phone']) ?? '',
       city: str(map['city']) ?? '',
       country: str(map['country']) ?? '',
@@ -77,6 +104,8 @@ class CustomerModel {
       if (id != null) 'id': id,
       'code': code,
       'name': name,
+      'company_type': customerType,
+      if (accountId != null) 'account_id': accountId,
       'phone': phone,
       'city': city,
       'country': country,
@@ -97,6 +126,8 @@ class CustomerModel {
     return {
       'code': code,
       'name': name,
+      'company_type': customerType,
+      if (accountId != null) 'account_id': accountId,
       'phone': phone,
       'city': city,
       'country': country,
@@ -118,6 +149,8 @@ class CustomerModel {
     String? id,
     String? code,
     String? name,
+    String? customerType,
+    int? accountId,
     String? phone,
     String? city,
     String? country,
@@ -138,6 +171,8 @@ class CustomerModel {
       id: id ?? this.id,
       code: code ?? this.code,
       name: name ?? this.name,
+      customerType: customerType ?? this.customerType,
+      accountId: accountId ?? this.accountId,
       phone: phone ?? this.phone,
       city: city ?? this.city,
       country: country ?? this.country,

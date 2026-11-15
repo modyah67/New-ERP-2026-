@@ -54,27 +54,30 @@ class _PackingRecipePageState extends State<PackingRecipePage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
         body: Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
+              colors: isDark
+                  ? [AppTheme.background, const Color(0xFF0D2137), AppTheme.background]
+                  : [const Color(0xFFF8FAFC), const Color(0xFFEDF2F7), const Color(0xFFF8FAFC)],
             ),
           ),
           child: _loading
               ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
               : CustomScrollView(
                   slivers: [
-                    _buildSliverHeader(),
+                    _buildSliverHeader(isDark),
                     SliverPadding(
                       padding: const EdgeInsets.all(16),
                       sliver: _recipes.isEmpty
-                          ? _buildEmptyState()
-                          : _buildRecipeList(),
+                          ? _buildEmptyState(isDark)
+                          : _buildRecipeList(isDark),
                     ),
                   ],
                 ),
@@ -83,13 +86,13 @@ class _PackingRecipePageState extends State<PackingRecipePage> {
           backgroundColor: AppTheme.primary,
           onPressed: () => _openEditor(),
           icon: const Icon(Icons.add, color: Colors.white),
-          label: const Text('وصفة جديدة', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+          label: const Text('وصفة جديدة', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
         ),
       ),
     );
   }
 
-  Widget _buildSliverHeader() {
+  Widget _buildSliverHeader(bool isDark) {
     return SliverAppBar(
       backgroundColor: Colors.transparent,
       pinned: true,
@@ -98,17 +101,22 @@ class _PackingRecipePageState extends State<PackingRecipePage> {
           filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0x3805192D),
-              border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+              color: isDark ? const Color(0x3805192D) : Colors.white,
+              border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(50) : const Color(0xFFCBD5E1))),
             ),
             padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 12, bottom: 12),
             child: Row(children: [
               IconButton(
-                icon: const Icon(Icons.arrow_forward, color: Colors.white),
+                icon: Icon(Icons.arrow_forward, color: isDark ? Colors.white : Colors.black87),
                 onPressed: () => context.pop(),
               ),
-              const Text('وصفات التعبئة',
-                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+              Text('وصفات التعبئة',
+                  style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : Colors.black,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                  )),
             ]),
           ),
         ),
@@ -116,26 +124,36 @@ class _PackingRecipePageState extends State<PackingRecipePage> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool isDark) {
     return SliverFillRemaining(
       child: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.description_outlined, size: 80, color: AppTheme.textSecondary.withAlpha(80)),
+            Icon(Icons.description_outlined, size: 80, color: isDark ? AppTheme.textSecondary.withAlpha(80) : Colors.black26),
             const SizedBox(height: 16),
-            const Text('لا توجد وصفات تعبئة',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 18, fontFamily: 'Cairo')),
+            Text('لا توجد وصفات تعبئة',
+                style: TextStyle(
+                  color: isDark ? AppTheme.textSecondary : Colors.black87,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo',
+                )),
             const SizedBox(height: 8),
-            const Text('أضف وصفة لكل منتج ودرجة',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo')),
+            Text('أضف وصفة لكل منتج ودرجة',
+                style: TextStyle(
+                  color: isDark ? AppTheme.textSecondary : Colors.black54,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo',
+                )),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildRecipeList() {
+  Widget _buildRecipeList(bool isDark) {
     final grouped = <String, List<PackingRecipeModel>>{};
     for (final r in _recipes) {
       final key = '${r.name ?? 'وصفة'} — درجة ${r.grade}';
@@ -147,14 +165,14 @@ class _PackingRecipePageState extends State<PackingRecipePage> {
       delegate: SliverChildBuilderDelegate(
         (context, index) {
           final entry = grouped.entries.elementAt(index);
-          return _buildGroupCard(entry.key, entry.value);
+          return _buildGroupCard(entry.key, entry.value, isDark);
         },
         childCount: grouped.length,
       ),
     );
   }
 
-  Widget _buildGroupCard(String title, List<PackingRecipeModel> items) {
+  Widget _buildGroupCard(String title, List<PackingRecipeModel> items, bool isDark) {
     final totalCostPerCarton = items.fold<double>(0.0, (s, r) {
       return s + r.quantityPerCarton * _rawMaterialPrice(r.rawMaterialId);
     });
@@ -167,9 +185,16 @@ class _PackingRecipePageState extends State<PackingRecipePage> {
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0x3805192D),
+              color: isDark ? const Color(0x3805192D) : Colors.white,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              boxShadow: isDark ? null : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
             ),
             padding: const EdgeInsets.all(12),
             child: Column(
@@ -178,30 +203,57 @@ class _PackingRecipePageState extends State<PackingRecipePage> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(title, style: const TextStyle(color: AppTheme.primary, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                    Text(title,
+                        style: TextStyle(
+                          color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo',
+                        )),
                     Row(children: [
-                      const Text('تكلفة الكرتونة: ', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                      Text('تكلفة الكرتونة: ',
+                          style: TextStyle(
+                            color: isDark ? AppTheme.textSecondary : Colors.black87,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          )),
                       Text('${totalCostPerCarton.toStringAsFixed(2)} ج.م',
-                          style: const TextStyle(color: AppTheme.success, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                          style: TextStyle(
+                            color: isDark ? AppTheme.success : const Color(0xFF16A34A),
+                            fontSize: 13,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          )),
                     ]),
                   ],
                 ),
                 const SizedBox(height: 8),
-                ...items.map((r) => _buildRecipeRow(r)),
+                ...items.map((r) => _buildRecipeRow(r, isDark)),
                 const SizedBox(height: 8),
                 Row(
                   children: [
                     Expanded(
                       child: TextButton.icon(
                         onPressed: () => _openEditor(items: items),
-                        icon: const Icon(Icons.edit, size: 16, color: AppTheme.primary),
-                        label: const Text('تعديل', style: TextStyle(color: AppTheme.primary, fontFamily: 'Cairo')),
+                        icon: Icon(Icons.edit, size: 16, color: isDark ? AppTheme.primary : const Color(0xFF0284C7)),
+                        label: Text('تعديل',
+                            style: TextStyle(
+                              color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold,
+                            )),
                       ),
                     ),
                     TextButton.icon(
                       onPressed: () => _confirmDeleteGroup(items),
                       icon: const Icon(Icons.delete_outline, size: 16, color: AppTheme.danger),
-                      label: const Text('حذف', style: TextStyle(color: AppTheme.danger, fontFamily: 'Cairo')),
+                      label: const Text('حذف',
+                          style: TextStyle(
+                            color: AppTheme.danger,
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
+                          )),
                     ),
                   ],
                 ),
@@ -213,7 +265,7 @@ class _PackingRecipePageState extends State<PackingRecipePage> {
     );
   }
 
-  Widget _buildRecipeRow(PackingRecipeModel r) {
+  Widget _buildRecipeRow(PackingRecipeModel r, bool isDark) {
     final unitPrice = _rawMaterialPrice(r.rawMaterialId);
     final lineCost = r.quantityPerCarton * unitPrice;
     return Container(
@@ -221,17 +273,33 @@ class _PackingRecipePageState extends State<PackingRecipePage> {
       child: Row(children: [
         Container(
           width: 8, height: 8,
-          decoration: const BoxDecoration(shape: BoxShape.circle, color: AppTheme.primary),
+          decoration: BoxDecoration(shape: BoxShape.circle, color: isDark ? AppTheme.primary : const Color(0xFF0284C7)),
         ),
         const SizedBox(width: 8),
         Expanded(
-          child: Text(r.rawMaterialName ?? '', style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, fontFamily: 'Cairo')),
+          child: Text(r.rawMaterialName ?? '',
+              style: TextStyle(
+                color: isDark ? AppTheme.textPrimary : Colors.black87,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Cairo',
+              )),
         ),
         Text('${r.quantityPerCarton.toStringAsFixed(1)} ${r.unit} × ${unitPrice.toStringAsFixed(2)}',
-            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontFamily: 'Cairo')),
+            style: TextStyle(
+              color: isDark ? AppTheme.textSecondary : Colors.black87,
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo',
+            )),
         const SizedBox(width: 8),
         Text('${lineCost.toStringAsFixed(2)} ج.م',
-            style: const TextStyle(color: AppTheme.success, fontSize: 12, fontFamily: 'Cairo')),
+            style: TextStyle(
+              color: isDark ? AppTheme.success : const Color(0xFF16A34A),
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo',
+            )),
       ]),
     );
   }
@@ -244,21 +312,49 @@ class _PackingRecipePageState extends State<PackingRecipePage> {
 
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xCC05192D),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24), side: const BorderSide(color: AppTheme.glassBorder)),
-        title: const Text('حذف الوصفة', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
-        content: Text('هل أنت متأكد من حذف وصفة "$title"؟\n\nلا يمكن حذف الوصفة إذا كانت مستخدمة في أي شحنة.',
-            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo')),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary))),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-            child: const Text('حذف'),
+      builder: (ctx) {
+        final isDialogDark = Theme.of(ctx).brightness == Brightness.dark;
+        return AlertDialog(
+          backgroundColor: isDialogDark ? const Color(0xCC05192D) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(color: isDialogDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
           ),
-        ],
-      ),
+          title: Text('حذف الوصفة',
+              style: TextStyle(
+                color: isDialogDark ? Colors.white : Colors.black,
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold,
+              )),
+          content: Text('هل أنت متأكد من حذف وصفة "$title"؟\n\nلا يمكن حذف الوصفة إذا كانت مستخدمة في أي شحنة.',
+              style: TextStyle(
+                color: isDialogDark ? AppTheme.textSecondary : Colors.black87,
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Cairo',
+              )),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: Text('إلغاء',
+                  style: TextStyle(
+                    color: isDialogDark ? AppTheme.textSecondary : Colors.black87,
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.bold,
+                  )),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.danger,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('حذف', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
     );
 
     if (confirmed != true) return;
@@ -338,6 +434,7 @@ class _RecipeEditorSheetState extends State<_RecipeEditorSheet> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       child: BackdropFilter(
@@ -345,8 +442,8 @@ class _RecipeEditorSheetState extends State<_RecipeEditorSheet> {
         child: Container(
           height: MediaQuery.of(context).size.height * 0.85,
           decoration: BoxDecoration(
-            color: const Color(0xF005192D),
-            border: Border(top: BorderSide(color: AppTheme.glassBorder.withAlpha(100))),
+            color: isDark ? const Color(0xF005192D) : Colors.white,
+            border: Border(top: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(100) : const Color(0xFFCBD5E1))),
           ),
           child: Form(
             key: _formKey,
@@ -354,16 +451,21 @@ class _RecipeEditorSheetState extends State<_RecipeEditorSheet> {
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: const Color(0x0AFFFFFF),
-                  border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(30))),
+                  color: isDark ? const Color(0x0AFFFFFF) : const Color(0xFFF8FAFC),
+                  border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(30) : const Color(0xFFE2E8F0))),
                 ),
                 child: Row(children: [
                   IconButton(
-                    icon: const Icon(Icons.close, color: Colors.white),
+                    icon: Icon(Icons.close, color: isDark ? Colors.white : Colors.black87),
                     onPressed: () => Navigator.pop(context),
                   ),
-                  const Text('وصفة التعبئة',
-                      style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                  Text('وصفة التعبئة',
+                      style: TextStyle(
+                        color: isDark ? AppTheme.textPrimary : Colors.black,
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      )),
                 ]),
               ),
               Expanded(
@@ -372,36 +474,59 @@ class _RecipeEditorSheetState extends State<_RecipeEditorSheet> {
                   child: Column(children: [
                     TextFormField(
                       controller: _nameController,
-                      decoration: _inputDecoration('اسم الوصفة'),
-                      style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                      decoration: _inputDecoration('اسم الوصفة', isDark: isDark),
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      ),
                       validator: (v) => v == null || v.trim().isEmpty ? 'أدخل اسم الوصفة' : null,
                     ),
                     const SizedBox(height: 12),
                     DropdownButtonFormField<String>(
                       value: _selectedGrade,
-                      decoration: _inputDecoration('الدرجة'),
-                      dropdownColor: const Color(0xFF05192D),
-                      style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                      decoration: _inputDecoration('الدرجة', isDark: isDark),
+                      dropdownColor: isDark ? const Color(0xFF05192D) : Colors.white,
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      ),
                       items: ['A', 'B', 'C'].map((g) => DropdownMenuItem(
                         value: g,
-                        child: Text('درجة $g', style: const TextStyle(fontFamily: 'Cairo')),
+                        child: Text('درجة $g',
+                            style: TextStyle(
+                              color: isDark ? Colors.white : Colors.black87,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Cairo',
+                            )),
                       )).toList(),
                       onChanged: (v) => setState(() => _selectedGrade = v!),
                       validator: (v) => v == null ? 'اختر الدرجة' : null,
                     ),
                     const SizedBox(height: 20),
                     Row(children: [
-                      const Text('مواد التعبئة',
-                          style: TextStyle(color: AppTheme.primary, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                      Text('مواد التعبئة',
+                          style: TextStyle(
+                            color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          )),
                       const Spacer(),
                       TextButton.icon(
                         onPressed: () => setState(() => _items.add(_RecipeLine())),
-                        icon: const Icon(Icons.add, size: 18, color: AppTheme.primary),
-                        label: const Text('إضافة مادة', style: TextStyle(color: AppTheme.primary, fontFamily: 'Cairo')),
+                        icon: Icon(Icons.add, size: 18, color: isDark ? AppTheme.primary : const Color(0xFF0284C7)),
+                        label: Text('إضافة مادة',
+                            style: TextStyle(
+                              color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold,
+                            )),
                       ),
                     ]),
                     const SizedBox(height: 8),
-                    ..._items.asMap().entries.map((entry) => _buildMaterialRow(entry.key, entry.value)),
+                    ..._items.asMap().entries.map((entry) => _buildMaterialRow(entry.key, entry.value, isDark: isDark)),
                   ]),
                 ),
               ),
@@ -428,7 +553,7 @@ class _RecipeEditorSheetState extends State<_RecipeEditorSheet> {
     );
   }
 
-  Widget _buildMaterialRow(int index, _RecipeLine line) {
+  Widget _buildMaterialRow(int index, _RecipeLine line, {required bool isDark}) {
     final selected = line.rawMaterialId != null
         ? widget.rawMaterials.cast<RawMaterialModel?>().firstWhere(
             (m) => m?.id == line.rawMaterialId,
@@ -445,12 +570,22 @@ class _RecipeEditorSheetState extends State<_RecipeEditorSheet> {
             children: [
               DropdownButtonFormField<String>(
                 value: line.rawMaterialId,
-                decoration: _inputDecoration('المادة'),
-                dropdownColor: const Color(0xFF05192D),
-                style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                decoration: _inputDecoration('المادة', isDark: isDark),
+                dropdownColor: isDark ? const Color(0xFF05192D) : Colors.white,
+                style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo',
+                ),
                 items: widget.rawMaterials.map((m) => DropdownMenuItem<String>(
                   value: m.id,
-                  child: Text('${m.code} - ${m.name}', style: const TextStyle(fontFamily: 'Cairo', fontSize: 12)),
+                  child: Text('${m.code} - ${m.name}',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black87,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo',
+                        fontSize: 12,
+                      )),
                 )).toList(),
                 onChanged: (v) => setState(() => line.rawMaterialId = v),
               ),
@@ -458,7 +593,12 @@ class _RecipeEditorSheetState extends State<_RecipeEditorSheet> {
                 Padding(
                   padding: const EdgeInsets.only(top: 2, right: 4),
                   child: Text('${selected.defaultPurchasePrice.toStringAsFixed(2)} ج.م/الوحدة',
-                      style: const TextStyle(color: AppTheme.success, fontSize: 10, fontFamily: 'Cairo')),
+                      style: TextStyle(
+                        color: isDark ? AppTheme.success : const Color(0xFF16A34A),
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      )),
                 ),
             ],
           ),
@@ -468,9 +608,14 @@ class _RecipeEditorSheetState extends State<_RecipeEditorSheet> {
           flex: 2,
           child: TextFormField(
             initialValue: line.quantity > 0 ? line.quantity.toString() : null,
-            decoration: _inputDecoration('الكمية'),
+            decoration: _inputDecoration('الكمية', isDark: isDark),
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 12),
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo',
+              fontSize: 12,
+            ),
             onChanged: (v) => line.quantity = double.tryParse(v) ?? 0,
           ),
         ),
@@ -479,8 +624,13 @@ class _RecipeEditorSheetState extends State<_RecipeEditorSheet> {
           width: 60,
           child: TextFormField(
             initialValue: line.unit,
-            decoration: _inputDecoration('الوحدة'),
-            style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 12),
+            decoration: _inputDecoration('الوحدة', isDark: isDark),
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo',
+              fontSize: 12,
+            ),
             onChanged: (v) => line.unit = v,
           ),
         ),
@@ -530,13 +680,29 @@ class _RecipeEditorSheetState extends State<_RecipeEditorSheet> {
     );
   }
 
-  InputDecoration _inputDecoration(String label) {
+  InputDecoration _inputDecoration(String label, {bool isDark = true}) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo'),
+      labelStyle: TextStyle(
+        color: isDark ? AppTheme.textSecondary : Colors.black87,
+        fontSize: 13,
+        fontWeight: FontWeight.bold,
+        fontFamily: 'Cairo',
+      ),
       filled: true,
-      fillColor: const Color(0x1AFFFFFF),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      fillColor: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF8FAFC),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: isDark ? AppTheme.primary : const Color(0xFF0284C7), width: 1.5),
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
       isDense: true,
     );

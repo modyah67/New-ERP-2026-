@@ -7,17 +7,20 @@ class QuickActionsGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryTextColor = isDark ? Colors.white : Colors.black;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(Icons.bolt, color: AppTheme.warning, size: 16),
+            const Icon(Icons.bolt, color: AppTheme.warning, size: 16),
             const SizedBox(width: 6),
-            const Text(
+            Text(
               'إجراءات سريعة',
               style: TextStyle(
-                color: Colors.white,
+                color: primaryTextColor,
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
@@ -42,6 +45,7 @@ class QuickActionsGrid extends StatelessWidget {
   }
 
   Widget _actionCard(BuildContext context, String label, IconData icon, Color color, String route) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return MouseRegion(
       cursor: SystemMouseCursors.click,
       child: Material(
@@ -55,9 +59,9 @@ class QuickActionsGrid extends StatelessWidget {
             width: 160,
             padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 14),
             decoration: BoxDecoration(
-              color: color.withAlpha(12),
+              color: color.withAlpha(isDark ? 12 : 24),
               borderRadius: BorderRadius.circular(14),
-              border: Border.all(color: color.withAlpha(40)),
+              border: Border.all(color: color.withAlpha(isDark ? 40 : 80)),
             ),
             child: Row(
               children: [
@@ -72,7 +76,7 @@ class QuickActionsGrid extends StatelessWidget {
                 const SizedBox(width: 10),
                 Text(label,
                     style: TextStyle(
-                      color: color,
+                      color: isDark ? color : Colors.black,
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',

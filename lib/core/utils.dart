@@ -35,10 +35,24 @@ class AppUtils {
     return double.parse(value.toStringAsFixed(places));
   }
 
-  // Formats 1234567.5 → "1,234,567.50 ج.م" (default EGP)
-  // formatCurrency(100, 'USD') → "100.00 $"
   static String formatCurrency(double amount, [String currency = 'EGP']) {
-    return '${_formatWithCommas(amount)} ${currencySymbol(currency)}';
+    final ccy = currency.toUpperCase();
+    final formatted = _formatWithCommas(amount);
+    switch (ccy) {
+      case 'GBP':
+        return '£$formatted';
+      case 'USD':
+        return '\$$formatted';
+      case 'EUR':
+        return '€$formatted';
+      case 'SAR':
+        return '$formatted ر.س';
+      case 'AED':
+        return '$formatted د.إ';
+      case 'EGP':
+      default:
+        return '$formatted ${currencySymbol(currency)}';
+    }
   }
 
   // Returns the symbol for a currency code

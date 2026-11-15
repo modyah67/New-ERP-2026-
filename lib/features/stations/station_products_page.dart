@@ -407,10 +407,11 @@ class _StationProductsPageState extends State<StationProductsPage>
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : AppTheme.lightBackground,
         body: FadeTransition(
           opacity: _fadeAnimation,
           child: LayoutBuilder(
@@ -421,11 +422,11 @@ class _StationProductsPageState extends State<StationProductsPage>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildHeader(),
+                    _buildHeader(isDark),
                     const SizedBox(height: 16),
-                    _buildCategoryTabs(),
+                    _buildCategoryTabs(isDark),
                     const SizedBox(height: 12),
-                    _buildSearchBar(),
+                    _buildSearchBar(isDark),
                     const SizedBox(height: 16),
                     Expanded(
                       child: _isLoading
@@ -437,10 +438,10 @@ class _StationProductsPageState extends State<StationProductsPage>
                                   child: CircularProgressIndicator(
                                       color: AppTheme.primary))
                               : _filteredProducts.isEmpty
-                                  ? _buildEmptyState()
+                                  ? _buildEmptyState(isDark)
                                   : _isGridView
-                                      ? _buildGridView(isMobile)
-                                      : _buildTableView(),
+                                      ? _buildGridView(isMobile, isDark)
+                                      : _buildTableView(isDark),
                     ),
                   ],
                 ),
@@ -452,24 +453,25 @@ class _StationProductsPageState extends State<StationProductsPage>
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     final isMobile = MediaQuery.of(context).size.width < 600;
     return Row(
       children: [
         IconButton(
-          icon: const Icon(Icons.arrow_back_ios,
-              color: AppTheme.primary, size: 20),
+          icon: Icon(Icons.arrow_back_ios,
+              color: isDark ? AppTheme.primary : Colors.black, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         Container(
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: AppTheme.accent.withValues(alpha: 0.1),
+            color: isDark ? AppTheme.accent.withValues(alpha: 0.1) : const Color(0xFFE0F2FE),
             borderRadius: BorderRadius.circular(12),
+            border: isDark ? null : Border.all(color: const Color(0xFFBAE6FD)),
           ),
-          child: const Icon(Icons.store_outlined,
-              color: AppTheme.accent, size: 22),
+          child: Icon(Icons.store_outlined,
+              color: isDark ? AppTheme.accent : const Color(0xFF0284C7), size: 22),
         ),
         const SizedBox(width: 14),
         Expanded(
@@ -483,14 +485,15 @@ class _StationProductsPageState extends State<StationProductsPage>
                     style: TextStyle(
                         fontSize: isMobile ? 20 : 28,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: isDark ? Colors.white : Colors.black,
                         fontFamily: 'Cairo')),
                 Row(
                   children: [
                     Text(widget.stationCode,
-                        style: const TextStyle(
-                            color: AppTheme.accent,
+                        style: TextStyle(
+                            color: isDark ? AppTheme.accent : const Color(0xFF0284C7),
                             fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
                             fontSize: 13)),
                     const SizedBox(width: 8),
                     Container(
@@ -498,9 +501,10 @@ class _StationProductsPageState extends State<StationProductsPage>
                           horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
                         color: widget.stationType == 'main'
-                            ? AppTheme.primary.withValues(alpha: 0.15)
-                            : AppTheme.accent.withValues(alpha: 0.15),
+                            ? (isDark ? AppTheme.primary.withValues(alpha: 0.15) : const Color(0xFFE0F2FE))
+                            : (isDark ? AppTheme.accent.withValues(alpha: 0.15) : const Color(0xFFF1F5F9)),
                         borderRadius: BorderRadius.circular(4),
+                        border: isDark ? null : Border.all(color: const Color(0xFFCBD5E1)),
                       ),
                       child: Text(
                           widget.stationType == 'main' ? 'رئيسي' : 'فرعي',
@@ -508,8 +512,8 @@ class _StationProductsPageState extends State<StationProductsPage>
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
                               color: widget.stationType == 'main'
-                                  ? AppTheme.primary
-                                  : AppTheme.accent,
+                                  ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                                  : (isDark ? AppTheme.accent : Colors.black),
                               fontFamily: 'Cairo')),
                     ),
                   ],
@@ -519,43 +523,39 @@ class _StationProductsPageState extends State<StationProductsPage>
           ),
         ),
         IconButton(
-          icon: const Icon(Icons.refresh_outlined),
+          icon: Icon(Icons.refresh_outlined, color: isDark ? null : Colors.black),
           tooltip: 'تحديث',
           onPressed: _refreshData,
         ),
-        // IconButton(
-        //   icon:
-        //       const Icon(Icons.picture_as_pdf_outlined, color: AppTheme.danger),
-        //   tooltip: 'تصدير PDF',
-        //   onPressed: _exportPdf,
-        // ),
         IconButton(
           icon: const Icon(Icons.table_chart_outlined, color: AppTheme.success),
           tooltip: 'تصدير Excel',
           onPressed: _exportExcel,
         ),
+        const SizedBox(width: 8),
+        _viewToggleButton(isDark),
       ],
     );
   }
 
-  Widget _viewToggleButton() {
+  Widget _viewToggleButton(bool isDark) {
     return Container(
       decoration: BoxDecoration(
-        color: const Color(0x3805192D),
+        color: isDark ? const Color(0x3805192D) : const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.glassBorder),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _viewButton(Icons.grid_view_rounded, _isGridView),
-          _viewButton(Icons.table_rows_rounded, !_isGridView),
+          _viewButton(Icons.grid_view_rounded, _isGridView, isDark),
+          _viewButton(Icons.table_rows_rounded, !_isGridView, isDark),
         ],
       ),
     );
   }
 
-  Widget _viewButton(IconData icon, bool isActive) {
+  Widget _viewButton(IconData icon, bool isActive, bool isDark) {
     return GestureDetector(
       onTap: () =>
           setState(() => _isGridView = icon == Icons.grid_view_rounded),
@@ -563,18 +563,20 @@ class _StationProductsPageState extends State<StationProductsPage>
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
           color: isActive
-              ? AppTheme.primary.withValues(alpha: 0.15)
+              ? (isDark ? AppTheme.primary.withValues(alpha: 0.15) : const Color(0xFFBAE6FD))
               : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(icon,
             size: 18,
-            color: isActive ? AppTheme.primary : AppTheme.textSecondary),
+            color: isActive
+                ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                : (isDark ? AppTheme.textSecondary : Colors.black54)),
       ),
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(bool isDark) {
     return SizedBox(
       height: 48,
       child: TextField(
@@ -584,18 +586,21 @@ class _StationProductsPageState extends State<StationProductsPage>
           _searchQuery = v;
           _applyFilter();
         },
-        style: const TextStyle(
-            color: Colors.white, fontFamily: 'Cairo', fontSize: 14),
+        style: TextStyle(
+            color: isDark ? Colors.white : Colors.black,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Cairo', fontSize: 14),
         decoration: InputDecoration(
           hintText: 'بحث بالاسم أو الكود...',
           hintStyle: TextStyle(
-              color: AppTheme.textSecondary.withValues(alpha: 0.5),
+              color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.5) : Colors.black54,
+              fontWeight: FontWeight.bold,
               fontFamily: 'Cairo'),
           prefixIcon: Icon(Icons.search,
-              color: AppTheme.textSecondary.withValues(alpha: 0.5), size: 20),
+              color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.5) : Colors.black87, size: 20),
           suffixIcon: _searchQuery.isNotEmpty
               ? IconButton(
-                  icon: const Icon(Icons.clear, size: 18),
+                  icon: Icon(Icons.clear, size: 18, color: isDark ? null : Colors.black87),
                   onPressed: () {
                     _searchController.clear();
                     _searchQuery = '';
@@ -604,13 +609,13 @@ class _StationProductsPageState extends State<StationProductsPage>
                 )
               : null,
           filled: true,
-          fillColor: const Color(0x3805192D),
+          fillColor: isDark ? const Color(0x3805192D) : const Color(0xFFF1F5F9),
           border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: AppTheme.glassBorder)),
+              borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
           enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: AppTheme.glassBorder)),
+              borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
           focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
               borderSide: const BorderSide(color: AppTheme.primary)),
@@ -621,7 +626,7 @@ class _StationProductsPageState extends State<StationProductsPage>
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool isDark) {
     final hasSearch = _searchQuery.isNotEmpty;
     return Center(
       child: Column(
@@ -630,15 +635,15 @@ class _StationProductsPageState extends State<StationProductsPage>
           Icon(
             hasSearch ? Icons.search_off_outlined : Icons.inventory_2_outlined,
             size: 72,
-            color: AppTheme.textSecondary.withValues(alpha: 0.3),
+            color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.3) : Colors.black26,
           ),
           const SizedBox(height: 16),
           Text(
             hasSearch ? 'لا توجد نتائج' : 'لا توجد منتجات في هذا المخزن',
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 18,
                 fontWeight: FontWeight.bold,
-                color: AppTheme.textSecondary,
+                color: isDark ? AppTheme.textSecondary : Colors.black,
                 fontFamily: 'Cairo'),
           ),
           const SizedBox(height: 8),
@@ -646,8 +651,9 @@ class _StationProductsPageState extends State<StationProductsPage>
             hasSearch
                 ? 'جرب كلمة بحث مختلفة'
                 : 'سيظهر المنتجات هنا بعد التحويل أو الشراء',
-            style: const TextStyle(
-                color: AppTheme.textSecondary,
+            style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : Colors.black87,
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
                 fontSize: 13),
           ),
@@ -660,7 +666,7 @@ class _StationProductsPageState extends State<StationProductsPage>
     return _batchRemainingQty[p.itemKey] ?? p.quantity.toDouble();
   }
 
-  Widget _buildCategoryTabs() {
+  Widget _buildCategoryTabs(bool isDark) {
     final totalQty = _products.fold<int>(
         0,
         (s, p) =>
@@ -713,6 +719,7 @@ class _StationProductsPageState extends State<StationProductsPage>
               qty: totalQty,
               valueByCurrency: totalValueByCurrency,
               isSelected: _selectedCategory == null,
+              isDark: isDark,
               onTap: () {
                 _selectedCategory = null;
                 _applyFilter();
@@ -723,6 +730,7 @@ class _StationProductsPageState extends State<StationProductsPage>
               qty: cropQty,
               valueByCurrency: cropValueByCurrency,
               isSelected: _selectedCategory == 'crops',
+              isDark: isDark,
               onTap: () {
                 _selectedCategory = 'crops';
                 _applyFilter();
@@ -733,6 +741,7 @@ class _StationProductsPageState extends State<StationProductsPage>
               qty: rawQty,
               valueByCurrency: rawValueByCurrency,
               isSelected: _selectedCategory == 'raw',
+              isDark: isDark,
               onTap: () {
                 _selectedCategory = 'raw';
                 _applyFilter();
@@ -750,8 +759,9 @@ class _StationProductsPageState extends State<StationProductsPage>
     required Map<String, double> valueByCurrency,
     required bool isSelected,
     required VoidCallback onTap,
+    required bool isDark,
   }) {
-    final tabColor = AppTheme.primary;
+    final tabColor = isDark ? AppTheme.primary : const Color(0xFF0284C7);
     final currencies =
         valueByCurrency.entries.where((e) => e.value > 0).toList();
     return Padding(
@@ -763,13 +773,20 @@ class _StationProductsPageState extends State<StationProductsPage>
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           decoration: BoxDecoration(
             color: isSelected
-                ? tabColor.withValues(alpha: 0.15)
-                : Colors.transparent,
+                ? (isDark ? tabColor.withValues(alpha: 0.15) : const Color(0xFFE0F2FE))
+                : (isDark ? Colors.transparent : Colors.white),
             borderRadius: BorderRadius.circular(16),
             border: Border.all(
-              color: isSelected ? tabColor : AppTheme.border,
+              color: isSelected ? tabColor : (isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
               width: isSelected ? 1.5 : 1,
             ),
+            boxShadow: isDark ? null : [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.04),
+                blurRadius: 6,
+                offset: const Offset(0, 2),
+              ),
+            ],
           ),
           constraints: const BoxConstraints(minWidth: 140),
           child: Row(
@@ -782,8 +799,8 @@ class _StationProductsPageState extends State<StationProductsPage>
                 style: TextStyle(
                   fontFamily: 'Cairo',
                   fontSize: 16,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                  color: isSelected ? tabColor : AppTheme.textSecondary,
+                  fontWeight: FontWeight.bold,
+                  color: isSelected ? tabColor : (isDark ? AppTheme.textSecondary : Colors.black87),
                 ),
               ),
               const SizedBox(width: 16),
@@ -798,7 +815,7 @@ class _StationProductsPageState extends State<StationProductsPage>
                       Icon(Icons.inventory_2_outlined,
                           size: 12,
                           color:
-                              isSelected ? tabColor : AppTheme.textSecondary),
+                              isSelected ? tabColor : (isDark ? AppTheme.textSecondary : Colors.black87)),
                       const SizedBox(width: 3),
                       Text(
                         '$qty',
@@ -806,7 +823,7 @@ class _StationProductsPageState extends State<StationProductsPage>
                           fontFamily: 'Cairo',
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
-                          color: isSelected ? tabColor : AppTheme.textSecondary,
+                          color: isSelected ? tabColor : (isDark ? AppTheme.textSecondary : Colors.black),
                         ),
                       ),
                     ],
@@ -829,7 +846,7 @@ class _StationProductsPageState extends State<StationProductsPage>
                             fontSize: 11,
                             fontWeight: FontWeight.bold,
                             color:
-                                isSelected ? tabColor : AppTheme.textSecondary,
+                                isSelected ? tabColor : (isDark ? AppTheme.textSecondary : Colors.black87),
                           ),
                         ),
                       );
@@ -844,7 +861,7 @@ class _StationProductsPageState extends State<StationProductsPage>
     );
   }
 
-  Widget _buildGridView(bool isMobile) {
+  Widget _buildGridView(bool isMobile, bool isDark) {
     final crossAxisCount =
         isMobile ? 2 : (MediaQuery.of(context).size.width > 1400 ? 4 : 3);
     return GridView.builder(
@@ -856,11 +873,11 @@ class _StationProductsPageState extends State<StationProductsPage>
       ),
       itemCount: _filteredProducts.length,
       itemBuilder: (context, index) =>
-          _buildProductCard(_filteredProducts[index], index),
+          _buildProductCard(_filteredProducts[index], index, isDark),
     );
   }
 
-  Widget _buildProductCard(StationProductModel product, int index) {
+  Widget _buildProductCard(StationProductModel product, int index, bool isDark) {
     final isFruit = product.itemType == 'fruit' || product.fruitTypeId != null;
     final pKey = product.itemKey;
     final displayQty = _getProductQuantity(product);
@@ -920,33 +937,45 @@ class _StationProductsPageState extends State<StationProductsPage>
           filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: Container(
             decoration: BoxDecoration(
-              color: displayQty <= 0
-                  ? const Color(0x20FF4444)
-                  : displayQty <= _lowStockThreshold
-                      ? const Color(0x20FFB300)
-                      : const Color(0x3805192D),
+              color: isDark
+                  ? (displayQty <= 0
+                      ? const Color(0x20FF4444)
+                      : displayQty <= _lowStockThreshold
+                          ? const Color(0x20FFB300)
+                          : const Color(0x3805192D))
+                  : Colors.white,
               borderRadius: BorderRadius.circular(24),
               border: Border.all(
-                color: displayQty <= 0
-                    ? AppTheme.danger.withValues(alpha: 0.6)
-                    : displayQty <= _lowStockThreshold
-                        ? AppTheme.warning.withValues(alpha: 0.6)
-                        : AppTheme.glassBorder,
+                color: isDark
+                    ? (displayQty <= 0
+                        ? AppTheme.danger.withValues(alpha: 0.6)
+                        : displayQty <= _lowStockThreshold
+                            ? AppTheme.warning.withValues(alpha: 0.6)
+                            : AppTheme.glassBorder)
+                    : const Color(0xFFCBD5E1),
                 width: displayQty <= 0 || displayQty <= _lowStockThreshold
                     ? 1.5
                     : 1,
               ),
-              boxShadow: [
-                BoxShadow(
-                  color: displayQty <= 0
-                      ? AppTheme.danger.withValues(alpha: 0.15)
-                      : displayQty <= _lowStockThreshold
-                          ? AppTheme.warning.withValues(alpha: 0.12)
-                          : AppTheme.primary.withValues(alpha: 0.06),
-                  blurRadius: 20,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+              boxShadow: isDark
+                  ? [
+                      BoxShadow(
+                        color: displayQty <= 0
+                            ? AppTheme.danger.withValues(alpha: 0.15)
+                            : displayQty <= _lowStockThreshold
+                                ? AppTheme.warning.withValues(alpha: 0.12)
+                                : AppTheme.primary.withValues(alpha: 0.06),
+                        blurRadius: 20,
+                        offset: const Offset(0, 4),
+                      ),
+                    ]
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
             ),
             child: Material(
               color: Colors.transparent,
@@ -1011,18 +1040,19 @@ class _StationProductsPageState extends State<StationProductsPage>
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 6, vertical: 2),
                               decoration: BoxDecoration(
-                                color: AppTheme.accent.withValues(alpha: 0.08),
+                                color: isDark ? AppTheme.accent.withValues(alpha: 0.08) : const Color(0xFFF1F5F9),
                                 borderRadius: BorderRadius.circular(6),
+                                border: isDark ? null : Border.all(color: const Color(0xFFCBD5E1)),
                               ),
                               child: Text(
                                 fruitType != null
                                     ? fruitType.code
                                     : product.productCode,
-                                style: const TextStyle(
+                                style: TextStyle(
                                     fontFamily: 'Cairo',
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
-                                    color: AppTheme.accent),
+                                    color: isDark ? AppTheme.accent : Colors.black),
                               ),
                             ),
                         ],
@@ -1030,11 +1060,11 @@ class _StationProductsPageState extends State<StationProductsPage>
                       const SizedBox(height: 8),
                       Text(
                         displayTitle,
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontFamily: 'Cairo',
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white),
+                            color: isDark ? Colors.white : Colors.black),
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -1070,16 +1100,16 @@ class _StationProductsPageState extends State<StationProductsPage>
                         const SizedBox(height: 3),
                         Row(
                           children: [
-                            const Icon(Icons.scale_outlined,
-                                size: 13, color: AppTheme.textSecondary),
+                            Icon(Icons.scale_outlined,
+                                size: 13, color: isDark ? AppTheme.textSecondary : Colors.black87),
                             const SizedBox(width: 4),
                             Text(
                               'الوزن الصافي: ${(displayQty * wpc).toStringAsFixed(1)} كجم',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontFamily: 'Cairo',
                                 fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.textSecondary,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? AppTheme.textSecondary : Colors.black87,
                               ),
                             ),
                           ],
@@ -1091,31 +1121,34 @@ class _StationProductsPageState extends State<StationProductsPage>
                         padding: const EdgeInsets.symmetric(
                             horizontal: 10, vertical: 6),
                         decoration: BoxDecoration(
-                          gradient: LinearGradient(
-                            colors: [
-                              AppTheme.accent.withValues(alpha: 0.12),
-                              AppTheme.accent.withValues(alpha: 0.04),
-                            ],
-                          ),
+                          gradient: isDark
+                              ? LinearGradient(
+                                  colors: [
+                                    AppTheme.accent.withValues(alpha: 0.12),
+                                    AppTheme.accent.withValues(alpha: 0.04),
+                                  ],
+                                )
+                              : null,
+                          color: isDark ? null : const Color(0xFFE0F2FE),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                              color: AppTheme.accent.withValues(alpha: 0.15)),
+                              color: isDark ? AppTheme.accent.withValues(alpha: 0.15) : const Color(0xFFBAE6FD)),
                         ),
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.monetization_on_outlined,
-                                size: 14, color: AppTheme.accent),
+                            Icon(Icons.monetization_on_outlined,
+                                size: 14, color: isDark ? AppTheme.accent : const Color(0xFF0284C7)),
                             const SizedBox(width: 6),
                             Flexible(
                               child: FittedBox(
                                 fit: BoxFit.scaleDown,
                                 child: Text(
                                   'قيمة المخزون: ${AppUtils.formatNumber(inventoryValue)} $curr',
-                                  style: const TextStyle(
+                                  style: TextStyle(
                                     fontSize: 11,
                                     fontFamily: 'Cairo',
-                                    color: AppTheme.accent,
+                                    color: isDark ? AppTheme.accent : const Color(0xFF0284C7),
                                     fontWeight: FontWeight.bold,
                                   ),
                                 ),
@@ -1135,24 +1168,37 @@ class _StationProductsPageState extends State<StationProductsPage>
     );
   }
 
-  Widget _buildTableView() {
+  Widget _buildTableView(bool isDark) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
-          decoration: AppTheme.glassCard(),
+          decoration: isDark
+              ? AppTheme.glassCard()
+              : BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: const Color(0xFFCBD5E1)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
           child: Column(
             children: [
-              _buildTableHeader(),
-              const Divider(height: 1),
+              _buildTableHeader(isDark),
+              Divider(height: 1, color: isDark ? null : const Color(0xFFCBD5E1)),
               Expanded(
                 child: ListView.separated(
                   itemCount: _filteredProducts.length,
                   separatorBuilder: (_, __) => Divider(
-                      height: 1, color: Colors.white.withValues(alpha: 0.05)),
+                      height: 1, color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFE2E8F0)),
                   itemBuilder: (context, index) =>
-                      _buildTableRow(_filteredProducts[index], index),
+                      _buildTableRow(_filteredProducts[index], index, isDark),
                 ),
               ),
             ],
@@ -1162,41 +1208,41 @@ class _StationProductsPageState extends State<StationProductsPage>
     );
   }
 
-  Widget _buildTableHeader() {
+  Widget _buildTableHeader(bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      color: const Color(0x1A00E5FF),
-      child: const Row(
+      color: isDark ? const Color(0x1A00E5FF) : const Color(0xFFF1F5F9),
+      child: Row(
         children: [
           SizedBox(
               width: 40,
               child: Text('#',
                   style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
+                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',
                       fontSize: 13))),
           SizedBox(
               width: 100,
               child: Text('الكود',
                   style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
+                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',
                       fontSize: 13))),
           Expanded(
               child: Text('الاسم',
                   style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
+                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',
                       fontSize: 13))),
           SizedBox(
               width: 100,
               child: Text('الكمية',
                   style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
+                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',
                       fontSize: 13),
                   textAlign: TextAlign.center)),
@@ -1204,8 +1250,8 @@ class _StationProductsPageState extends State<StationProductsPage>
               width: 120,
               child: Text('الحالة',
                   style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontWeight: FontWeight.w600,
+                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',
                       fontSize: 13),
                   textAlign: TextAlign.center)),
@@ -1214,7 +1260,7 @@ class _StationProductsPageState extends State<StationProductsPage>
     );
   }
 
-  Widget _buildTableRow(StationProductModel product, int index) {
+  Widget _buildTableRow(StationProductModel product, int index, bool isDark) {
     final isEven = index % 2 == 0;
     final isFruit = product.itemType == 'fruit' || product.fruitTypeId != null;
 
@@ -1249,17 +1295,20 @@ class _StationProductsPageState extends State<StationProductsPage>
         onTap: () => _showProductDetails(product),
         child: Container(
           height: 55,
-          color: isEven
-              ? Colors.white.withValues(alpha: 0.03)
-              : Colors.white.withValues(alpha: 0.05),
+          color: isDark
+              ? (isEven
+                  ? Colors.white.withValues(alpha: 0.03)
+                  : Colors.white.withValues(alpha: 0.05))
+              : (isEven ? Colors.white : const Color(0xFFF8FAFC)),
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: Row(
             children: [
               SizedBox(
                 width: 40,
                 child: Text('${index + 1}',
-                    style: const TextStyle(
-                        color: AppTheme.textSecondary,
+                    style: TextStyle(
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
+                        fontWeight: FontWeight.bold,
                         fontFamily: 'Cairo',
                         fontSize: 13)),
               ),
@@ -1270,28 +1319,31 @@ class _StationProductsPageState extends State<StationProductsPage>
                         padding: const EdgeInsets.symmetric(
                             horizontal: 8, vertical: 3),
                         decoration: BoxDecoration(
-                          color: AppTheme.accent.withValues(alpha: 0.08),
+                          color: isDark ? AppTheme.accent.withValues(alpha: 0.08) : const Color(0xFFF1F5F9),
                           borderRadius: BorderRadius.circular(6),
+                          border: isDark ? null : Border.all(color: const Color(0xFFCBD5E1)),
                         ),
                         child: Text(displayCode,
-                            style: const TextStyle(
+                            style: TextStyle(
                                 fontSize: 11,
-                                color: AppTheme.accent,
+                                color: isDark ? AppTheme.accent : Colors.black,
                                 fontWeight: FontWeight.bold,
                                 fontFamily: 'Cairo'),
                             overflow: TextOverflow.ellipsis),
                       )
-                    : const Text('—',
+                    : Text('—',
                         style: TextStyle(
-                            color: AppTheme.textSecondary,
+                            color: isDark ? AppTheme.textSecondary : Colors.black54,
                             fontFamily: 'Cairo',
                             fontSize: 13)),
               ),
               Expanded(
                 child: Text(
                     displayTitle,
-                    style: const TextStyle(
-                        color: Colors.white, fontFamily: 'Cairo', fontSize: 14),
+                    style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo', fontSize: 14),
                     overflow: TextOverflow.ellipsis),
               ),
               SizedBox(

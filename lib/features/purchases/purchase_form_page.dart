@@ -4,8 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:go_router/go_router.dart';
+import 'package:flutter_typeahead/flutter_typeahead.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
+import '../../core/widgets/read_only_guard.dart';
 import '../../data/services/currency_conversion_service.dart';
 import '../../data/models/supplier_model.dart';
 import '../../data/models/item_model.dart';
@@ -30,6 +32,7 @@ class _PurchaseLineController {
   String currency = 'EGP';
   String? existingItemId;
   int? stationId;
+  String costCenterId = 'packing_station';
   final ValueNotifier<double> totalPriceRx = ValueNotifier(0.0);
   VoidCallback? _onChanged;
 
@@ -101,13 +104,35 @@ class _PurchaseLineController {
     exchangeRateController.addListener(_refreshTotal);
   }
 
-  void loadItem(ItemModel item) {
+  void loadItem(ItemModel item, {int? defaultStationId}) {
     codeController.text = item.code;
     nameController.text = item.name;
-    purchasePriceController.text = item.costPrice.toStringAsFixed(2);
+    if (item.costPrice > 0) {
+      purchasePriceController.text = item.costPrice.toStringAsFixed(2);
+    } else if (item.pricePerUnit > 0) {
+      purchasePriceController.text = item.pricePerUnit.toStringAsFixed(2);
+    }
     existingItemId = item.id;
-    unit = item.unit;
+    if (item.unit.isNotEmpty) {
+      unit = item.unit;
+    }
+    if (stationId == null && defaultStationId != null) {
+      stationId = defaultStationId;
+    }
+    if (quantityController.text.trim().isEmpty || quantityController.text.trim() == '0') {
+      quantityController.text = '1';
+    }
     searchController.text = '${item.code} - ${item.name}';
+    _refreshTotal();
+  }
+
+  void clearItem() {
+    codeController.clear();
+    nameController.clear();
+    existingItemId = null;
+    searchController.clear();
+    purchasePriceController.clear();
+    _refreshTotal();
   }
 
   PurchaseLineData toData() {
@@ -122,6 +147,7 @@ class _PurchaseLineController {
       existingItemId: existingItemId?.toString(),
       stationId: stationId?.toString(),
       exchangeRate: exchangeRate,
+      costCenterId: costCenterId,
     );
   }
 
@@ -192,7 +218,10 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
     // Cache lists locally so TypeAheadField doesn't reset on cubit state changes
     final state = cubit.state;
     if (state is PurchaseLoaded) {
-      _suppliers = state.suppliers;
+      _suppliers = state.suppliers.where((s) => s.isPackagingSupplier).toList();
+      if (fs.isEditing && fs.selectedSupplier != null && !_suppliers.any((s) => s.id == fs.selectedSupplier!.id)) {
+        _suppliers.insert(0, fs.selectedSupplier!);
+      }
       _allItems = state.allItems;
       _stations = state.stations;
     }
@@ -208,8 +237,10 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
         if (firstRate > 0) {
           invoiceExchangeRateController.text = firstRate.toStringAsFixed(2);
         }
+      } else if (fs.exchangeRate > 0) {
+        invoiceExchangeRateController.text = fs.exchangeRate.toStringAsFixed(2);
       }
-      cubit.selectSupplier(fs.selectedSupplier!);
+      cubit.selectSupplier(fs.selectedSupplier!, initialCurrency: fs.invoiceCurrency);
 
       for (final line in fs.purchaseLines) {
         final ctrl = _PurchaseLineController();
@@ -220,9 +251,10 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
         ctrl.purchasePriceController.text = line.purchasePrice.toStringAsFixed(2);
         ctrl.exchangeRateController.text = line.exchangeRate.toStringAsFixed(2);
         ctrl.unit = line.unit;
-        ctrl.currency = fs.selectedSupplier!.currency ?? 'EGP';
+        ctrl.currency = fs.invoiceCurrency;
         ctrl.existingItemId = line.existingItemId;
         ctrl.stationId = int.tryParse(line.stationId ?? '');
+        ctrl.costCenterId = line.costCenterId ?? 'packing_station';
         ctrl.onChanged = _refreshSubtotal;
         ctrl.initListeners();
         ctrl.totalPriceRx.value = ctrl.totalPrice;
@@ -251,12 +283,14 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
           },
           onSearchSelect: (ctrl, query) {
             if (query.isEmpty) return;
-            final currentState = cubit.state;
-            if (currentState is PurchaseLoaded) {
-              final matches = currentState.allItems
-                  .where((it) => it.name.toLowerCase().contains(query.toLowerCase()) || it.code.toLowerCase().contains(query.toLowerCase()))
-                  .toList();
-              if (matches.isNotEmpty) ctrl.loadItem(matches.first);
+            final matches = _getFilteredItems(query);
+            if (matches.isNotEmpty) {
+              int? defaultStation;
+              if (_stations.isNotEmpty) {
+                defaultStation = int.tryParse(_stations.first.id ?? '');
+              }
+              ctrl.loadItem(matches.first, defaultStationId: defaultStation);
+              setState(() {});
             }
           },
           index: idx,
@@ -291,9 +325,12 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
   void _addLine() {
     final cubit = context.read<PurchaseCubit>();
     final line = _PurchaseLineController();
-    line.currency = cubit.formState.selectedSupplier?.currency ?? 'EGP';
+    line.currency = cubit.formState.invoiceCurrency;
     if (invoiceExchangeRateController.text.isNotEmpty) {
       line.exchangeRateController.text = invoiceExchangeRateController.text;
+    }
+    if (_stations.isNotEmpty && line.stationId == null) {
+      line.stationId = int.tryParse(_stations.first.id ?? '');
     }
     line.onChanged = _refreshSubtotal;
     line.initListeners();
@@ -328,16 +365,14 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
       },
       onSearchSelect: (ctrl, query) {
         if (query.isEmpty) return;
-        final currentState = cubit.state;
-        if (currentState is PurchaseLoaded) {
-          final matches = currentState.allItems
-              .where((it) =>
-                  it.name.toLowerCase().contains(query.toLowerCase()) ||
-                  it.code.toLowerCase().contains(query.toLowerCase()))
-              .toList();
-          if (matches.isNotEmpty) {
-            ctrl.loadItem(matches.first);
+        final matches = _getFilteredItems(query);
+        if (matches.isNotEmpty) {
+          int? defaultStation;
+          if (_stations.isNotEmpty) {
+            defaultStation = int.tryParse(_stations.first.id ?? '');
           }
+          ctrl.loadItem(matches.first, defaultStationId: defaultStation);
+          setState(() {});
         }
       },
       index: index,
@@ -370,29 +405,135 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
     subtotalEgpNotifier.value = newSubtotalEgp;
   }
 
-  Future<void> _selectSupplier(SupplierModel s) async {
+  String _getCurrencyLabel(String cur) {
+    switch (cur.toUpperCase()) {
+      case 'USD':
+        return 'دولار أمريكي';
+      case 'EUR':
+        return 'يورو أوروبي';
+      case 'GBP':
+        return 'جنيه إسترليني';
+      case 'EGP':
+        return 'جنيه مصري';
+      case 'SAR':
+        return 'ريال سعودي';
+      case 'AED':
+        return 'درهم إماراتي';
+      default:
+        return cur;
+    }
+  }
+
+  Future<void> _onInvoiceCurrencyChanged(String newCurrency, {bool syncCubit = true}) async {
     final cubit = context.read<PurchaseCubit>();
-    supplierSearchController.text = '${s.supplierCode} - ${s.name}';
-    cubit.selectSupplier(s);
-    if (s.currency != null && s.currency!.toUpperCase() != 'EGP') {
-      final defaultRate = await CurrencyConversionService.instance.getRate(s.currency!);
-      if (defaultRate > 0) {
-        invoiceExchangeRateController.text = defaultRate.toStringAsFixed(2);
+    double rate = 1.0;
+    if (newCurrency.toUpperCase() != 'EGP') {
+      try {
+        final fetchedRate = await CurrencyConversionService.instance.getRate(newCurrency);
+        if (fetchedRate > 0) rate = fetchedRate;
+      } catch (e) {
+        debugPrint('⚠️ Error fetching spot rate for $newCurrency: $e');
       }
+      invoiceExchangeRateController.text = rate.toStringAsFixed(2);
     } else {
       invoiceExchangeRateController.text = '1.00';
     }
+
+    if (syncCubit) {
+      cubit.setInvoiceCurrency(newCurrency, rate: rate);
+    }
+
+    final curUpper = newCurrency.trim().toUpperCase();
     for (final c in _controllers) {
-      c.currency = s.currency ?? 'EGP';
-      if (invoiceExchangeRateController.text.isNotEmpty) {
-        c.exchangeRateController.text = invoiceExchangeRateController.text;
+      c.currency = newCurrency;
+      c.exchangeRateController.text = invoiceExchangeRateController.text;
+
+      // Auto-clear item if its registered currency does not match the new invoice currency
+      if (c.existingItemId != null) {
+        final it = _allItems.cast<ItemModel?>().firstWhere(
+              (item) => item?.id == c.existingItemId,
+              orElse: () => null,
+            );
+        if (it != null) {
+          final itCur = it.currency.trim().toUpperCase();
+          final mismatch = curUpper == 'EGP'
+              ? (itCur != 'EGP' && itCur.isNotEmpty)
+              : (itCur != curUpper);
+          if (mismatch) {
+            c.clearItem();
+          }
+        }
       }
     }
     _refreshSubtotal();
     if (mounted) setState(() {});
+  }
+
+  Future<void> _refreshExchangeRate() async {
+    final cubit = context.read<PurchaseCubit>();
+    final cur = cubit.formState.invoiceCurrency;
+    if (cur.toUpperCase() == 'EGP') return;
+    try {
+      final fetchedRate = await CurrencyConversionService.instance.getRate(cur);
+      if (fetchedRate > 0) {
+        invoiceExchangeRateController.text = fetchedRate.toStringAsFixed(2);
+        cubit.updateExchangeRate(fetchedRate);
+        for (final c in _controllers) {
+          c.exchangeRateController.text = invoiceExchangeRateController.text;
+        }
+        _refreshSubtotal();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('تم تحديث سعر الصرف الحي: 1 $cur = ${fetchedRate.toStringAsFixed(2)} ج.م',
+                  style: const TextStyle(fontFamily: 'Cairo')),
+              backgroundColor: AppTheme.success,
+              duration: const Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('⚠️ Error fetching live exchange rate: $e');
+    }
+  }
+
+  Future<void> _selectSupplier(SupplierModel s) async {
+    final cubit = context.read<PurchaseCubit>();
+    supplierSearchController.text = '${s.supplierCode} - ${s.name}';
+    
+    // Auto-determine initial invoice currency
+    String targetCurrency = 'EGP';
+    if (s.supportsMultiCurrency) {
+      if (s.packagingCurrency.isNotEmpty && s.supportedCurrencies.contains(s.packagingCurrency)) {
+        targetCurrency = s.packagingCurrency;
+      } else if (s.supportedCurrencies.isNotEmpty) {
+        targetCurrency = s.supportedCurrencies.first;
+      }
+    } else {
+      targetCurrency = (s.currency.isNotEmpty && s.currency != 'MULTI') ? s.currency : 'EGP';
+    }
+
+    cubit.selectSupplier(s, initialCurrency: targetCurrency);
+    await _onInvoiceCurrencyChanged(targetCurrency, syncCubit: false);
+
+    // Auto-clear item if supplier binding is restricted
+    for (final c in _controllers) {
+      if (c.existingItemId != null) {
+        final it = _allItems.cast<ItemModel?>().firstWhere(
+              (item) => item?.id == c.existingItemId,
+              orElse: () => null,
+            );
+        if (it != null && it.supplierId != null && it.supplierId!.isNotEmpty && it.supplierId != s.id) {
+          c.clearItem();
+        }
+      }
+    }
+
     if (_controllers.isNotEmpty) {
       _controllers.first.codeFocus.requestFocus();
     }
+    if (mounted) setState(() {});
   }
 
   void _resetForm() {
@@ -408,6 +549,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
         context.read<PurchaseCubit>().formState.copyWith(
               clearSelectedSupplier: true,
               clearEditingPurchaseId: true,
+              invoiceCurrency: 'EGP',
+              exchangeRate: 1.0,
             );
     _initialized = false;
     _addLine();
@@ -419,14 +562,185 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
     });
   }
 
+  Widget _buildCurrencyAndExchangeRateSection(BuildContext context, {required bool isMobile}) {
+    final cubit = context.watch<PurchaseCubit>();
+    final supplier = cubit.formState.selectedSupplier;
+    if (supplier == null) return const SizedBox.shrink();
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final isMulti = supplier.supportsMultiCurrency;
+    final allowedCurrencies = isMulti
+        ? (supplier.supportedCurrencies.isNotEmpty ? supplier.supportedCurrencies : ['EGP', 'USD', 'EUR'])
+        : [((supplier.currency.isNotEmpty && supplier.currency != 'MULTI') ? supplier.currency : 'EGP')];
+
+    final currentCurrency = allowedCurrencies.contains(cubit.formState.invoiceCurrency)
+        ? cubit.formState.invoiceCurrency
+        : allowedCurrencies.first;
+
+    final isForeign = currentCurrency.toUpperCase() != 'EGP';
+
+    final currencySelectorWidget = isMulti
+        ? DropdownButtonFormField<String>(
+            value: currentCurrency,
+            dropdownColor: isDark ? const Color(0xFF0A2A4A) : Colors.white,
+            style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+                fontFamily: 'Cairo',
+                fontSize: 13,
+                fontWeight: FontWeight.bold),
+            decoration: InputDecoration(
+              labelText: 'عملة الفاتورة *',
+              labelStyle: TextStyle(
+                  color: isDark ? AppTheme.textSecondary : Colors.black87,
+                  fontFamily: 'Cairo',
+                  fontSize: 12,
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold),
+              prefixIcon: const Icon(Icons.currency_exchange, size: 18, color: AppTheme.primary),
+              filled: true,
+              fillColor: isDark ? const Color(0x3805192D) : Colors.white,
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+              enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+              focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(10),
+                  borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            ),
+            items: allowedCurrencies.map((cur) => DropdownMenuItem(
+              value: cur,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(cur,
+                      style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo',
+                          color: isDark ? Colors.white : Colors.black)),
+                  const SizedBox(width: 8),
+                  Text('(${_getCurrencyLabel(cur)})',
+                      style: TextStyle(
+                          fontSize: 11,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                          fontFamily: 'Cairo',
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold)),
+                ],
+              ),
+            )).toList(),
+            onChanged: (newCur) {
+              if (newCur != null && newCur != cubit.formState.invoiceCurrency) {
+                _onInvoiceCurrencyChanged(newCur);
+              }
+            },
+          )
+        : Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.primary.withValues(alpha: 0.1) : Colors.white,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                  color: isDark ? AppTheme.primary.withValues(alpha: 0.3) : const Color(0xFFCBD5E1)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.lock_outline, size: 16, color: AppTheme.primary),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'عملة الفاتورة: $currentCurrency (${_getCurrencyLabel(currentCurrency)})',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black,
+                      fontFamily: 'Cairo',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+
+    final exchangeRateWidget = isForeign
+        ? AppTextField(
+            label: 'سعر الصرف (مقابل EGP)',
+            controller: invoiceExchangeRateController,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            isRequired: true,
+            inputFormatters: [
+              FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
+            ],
+            hint: 'أدخل سعر الصرف...',
+            prefixIcon: const Icon(Icons.trending_up, size: 18, color: AppTheme.warning),
+            suffixIcon: IconButton(
+              icon: const Icon(Icons.sync, size: 18, color: AppTheme.primary),
+              tooltip: 'تحديث سعر الصرف الحي',
+              onPressed: _refreshExchangeRate,
+            ),
+            onChanged: (val) {
+              final rate = double.tryParse(val) ?? 1.0;
+              cubit.updateExchangeRate(rate);
+              for (final line in _controllers) {
+                line.exchangeRateController.text = val;
+              }
+              _refreshSubtotal();
+            },
+          )
+        : null;
+
+    if (isMobile) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 8),
+          currencySelectorWidget,
+          if (exchangeRateWidget != null) ...[
+            const SizedBox(height: 8),
+            exchangeRateWidget,
+          ],
+        ],
+      );
+    } else {
+      return Padding(
+        padding: const EdgeInsets.only(top: 8),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: isForeign ? 5 : 10,
+              child: currencySelectorWidget,
+            ),
+            if (isForeign && exchangeRateWidget != null) ...[
+              const SizedBox(width: 12),
+              Expanded(
+                flex: 5,
+                child: exchangeRateWidget,
+              ),
+            ],
+          ],
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final c = context.read<PurchaseCubit>();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isEditing = c.formState.isEditing;
     final isMobile = MediaQuery.of(context).size.width < 600;
 
+    final state = c.state;
+    if (state is PurchaseLoaded) {
+      _suppliers = state.suppliers.where((s) => s.isPackagingSupplier).toList();
+      _allItems = state.allItems;
+      _stations = state.stations;
+    }
+
     final paidAmtForBtn = double.tryParse(paidAmountController.text) ?? 0.0;
-    final isSaveDisabled = paidAmtForBtn > 0 && _selectedTreasuryId == null && _selectedBankAccountId == null;
+    final isSaveDisabled = ReadOnlyGuard.isReadOnly ||
+        (paidAmtForBtn > 0 && _selectedTreasuryId == null && _selectedBankAccountId == null);
 
     return BlocListener<PurchaseCubit, PurchaseState>(
       listener: (context, state) {
@@ -435,19 +749,31 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
         }
       },
       child: Scaffold(
+        backgroundColor: isDark ? null : const Color(0xFFF8FAFC),
         appBar: AppBar(
+          backgroundColor: isDark ? null : Colors.white,
+          elevation: 0,
+          iconTheme: IconThemeData(color: isDark ? Colors.white : Colors.black),
           title: FittedBox(
             fit: BoxFit.scaleDown,
             alignment: AlignmentDirectional.centerStart,
             child: Text(isEditing ? 'تعديل مشتريات' : 'مشتريات جديدة',
-                style: const TextStyle(fontFamily: 'Cairo', color: Colors.white)),
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    color: isDark ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.bold)),
           ),
           actions: [
             if (!widget.viewOnly)
               IconButton(
-              icon: Icon(Icons.save, color: isSaveDisabled ? Colors.white38 : Colors.white, size: 20),
+              icon: Icon(Icons.save,
+                  color: isSaveDisabled
+                      ? (isDark ? Colors.white38 : Colors.black26)
+                      : (isDark ? Colors.white : Colors.black),
+                  size: 20),
               tooltip: isEditing ? 'تحديث' : 'حفظ',
               onPressed: isSaveDisabled ? null : () async {
+                if (!await ReadOnlyGuard.checkAsync(context)) return;
                 final lines = _controllers.map((l) => l.toData()).toList();
                 final hasNullStation = lines.any((l) => l.stationId == null && l.quantity > 0 && l.code.isNotEmpty);
                 if (hasNullStation) {
@@ -460,8 +786,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                   return;
                 }
 
-                final supplierCurrency = c.formState.selectedSupplier?.currency ?? 'EGP';
-                final isForeign = supplierCurrency.toUpperCase() != 'EGP';
+                final invoiceCurrency = c.formState.invoiceCurrency;
+                final isForeign = invoiceCurrency.toUpperCase() != 'EGP';
                 final hasInvalidExchangeRate = isForeign && lines.any((l) => l.exchangeRate <= 0 && l.quantity > 0 && l.code.isNotEmpty);
                 if (hasInvalidExchangeRate) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -477,7 +803,7 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
 
                 // ── Balance validation: prevent payment exceeding available funds ──
                 if (paidAmount > 0) {
-                  final curSuppCurrency = (c.formState.selectedSupplier?.currency ?? 'EGP').toUpperCase();
+                  final curInvoiceCurrency = invoiceCurrency.toUpperCase();
                   double availableBalance = 0;
                   String sourceName = '';
                   bool hasSource = false;
@@ -489,7 +815,7 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                         final balances = t['treasury_balances'];
                         if (balances is List) {
                           for (final b in balances) {
-                            if ((b['currency']?.toString() ?? '').toUpperCase() == curSuppCurrency) {
+                            if ((b['currency']?.toString() ?? '').toUpperCase() == curInvoiceCurrency) {
                               availableBalance = num.tryParse(b['balance']?.toString() ?? '0')?.toDouble() ?? 0.0;
                               hasSource = true;
                               break;
@@ -514,7 +840,7 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text(
-                          'المبلغ المدفوع ($paidAmount $curSuppCurrency) أكبر من الرصيد المتاح في "$sourceName" ($availableBalance $curSuppCurrency). قم بشحن الخزينة أو الحساب أولاً.',
+                          'المبلغ المدفوع ($paidAmount $curInvoiceCurrency) أكبر من الرصيد المتاح في "$sourceName" ($availableBalance $curInvoiceCurrency). قم بشحن الخزينة أو الحساب أولاً.',
                           textDirection: TextDirection.rtl,
                         ),
                         backgroundColor: AppTheme.danger,
@@ -615,9 +941,10 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                           highlightColor:
                               AppTheme.primary.withValues(alpha: 0.5),
                           suggestionsCallback: (pattern) {
-                            if (pattern.isEmpty) return _suppliers;
+                            final packagingSuppliers = _suppliers.where((s) => s.isPackagingSupplier).toList();
+                            if (pattern.isEmpty) return packagingSuppliers;
                             final p = pattern.toLowerCase();
-                            return _suppliers
+                            return packagingSuppliers
                                 .where((s) =>
                                     s.name.toLowerCase().contains(p) ||
                                     s.supplierCode.toLowerCase().contains(p))
@@ -625,14 +952,17 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                           },
                           itemBuilder: (context, supplier) {
                             return ListTile(
+                              tileColor: isDark ? null : Colors.white,
                               title: Text(supplier.name,
                                   style: TextStyle(
-                                      color: Colors.white,
+                                      color: isDark ? Colors.white : Colors.black,
+                                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                       fontFamily: 'Cairo',
                                       fontSize: 15)),
                               subtitle: Text(supplier.supplierCode,
                                   style: TextStyle(
-                                      color: AppTheme.textSecondary,
+                                      color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                       fontFamily: 'Cairo',
                                       fontSize: 13)),
                             );
@@ -644,57 +974,7 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                         );
                       },
                     ),
-                    Builder(
-                      builder: (context) {
-                        final supplier = c.formState.selectedSupplier;
-                        if (supplier == null) return const SizedBox.shrink();
-                        final isForeign = supplier.currency.toUpperCase() != 'EGP';
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Container(
-                              margin: const EdgeInsets.only(top: 8),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: AppTheme.warning.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const Icon(Icons.monetization_on_outlined, size: 14, color: AppTheme.warning),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'عملة المورد: ${supplier.currency}',
-                                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.warning, fontFamily: 'Cairo'),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            if (isForeign) ...[
-                              const SizedBox(height: 8),
-                              AppTextField(
-                                label: 'سعر الصرف',
-                                controller: invoiceExchangeRateController,
-                                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                isRequired: true,
-                                inputFormatters: [
-                                  FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
-                                ],
-                                hint: 'أدخل سعر الصرف...',
-                                prefixIcon: const Icon(Icons.currency_exchange, size: 18),
-                                onChanged: (val) {
-                                  for (final line in _controllers) {
-                                    line.exchangeRateController.text = val;
-                                  }
-                                },
-                              ),
-                            ],
-                          ],
-                        );
-                      },
-                    ),
+                    _buildCurrencyAndExchangeRateSection(context, isMobile: true),
                     const SizedBox(height: 12),
                     Row(
                       children: [
@@ -705,8 +985,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                             children: [
                               Text('التاريخ',
                                   style: TextStyle(
-                                      color: AppTheme.textSecondary,
-                                      fontWeight: FontWeight.w600,
+                                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                                      fontWeight: FontWeight.bold,
                                       fontFamily: 'Cairo',
                                       fontSize: 14)),
                               const SizedBox(height: 6),
@@ -731,19 +1011,20 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                           horizontal: 12, vertical: 14),
                                       decoration: BoxDecoration(
                                         border: Border.all(
-                                            color: const Color(0xFFBDBDBD)),
+                                            color: isDark ? const Color(0xFFBDBDBD) : const Color(0xFFCBD5E1)),
                                         borderRadius: BorderRadius.circular(8),
-                                        color: Colors.white.withValues(alpha: 0.03),
+                                        color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.white,
                                       ),
                                       child: Row(
                                         children: [
-                                          const Icon(Icons.calendar_today,
+                                          Icon(Icons.calendar_today,
                                               size: 16,
-                                              color: AppTheme.textSecondary),
+                                              color: isDark ? AppTheme.textSecondary : Colors.black87),
                                           const SizedBox(width: 8),
                                           Text(AppUtils.formatDate(purchaseDate),
                                               style: TextStyle(
-                                                  color: Colors.white,
+                                                  color: isDark ? Colors.white : Colors.black,
+                                                  fontWeight: FontWeight.bold,
                                                   fontFamily: 'Cairo',
                                                   fontSize: 15)),
                                         ],
@@ -763,8 +1044,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                             children: [
                               Text('رقم المشتريات',
                                   style: TextStyle(
-                                      color: AppTheme.textSecondary,
-                                      fontWeight: FontWeight.w600,
+                                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                                      fontWeight: FontWeight.bold,
                                       fontFamily: 'Cairo',
                                       fontSize: 14)),
                               const SizedBox(height: 6),
@@ -772,20 +1053,20 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 12, vertical: 12),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.background,
+                                  color: isDark ? AppTheme.background : Colors.white,
                                   borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: AppTheme.border),
+                                  border: Border.all(color: isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
                                 ),
                                 child: Center(
                                   child: Text(
                                     c.formState.nextPurchaseNumber
                                         .toString()
                                         .padLeft(6, '0'),
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 16,
                                         fontFamily: 'Cairo',
-                                        color: AppTheme.primary),
+                                        color: isDark ? AppTheme.primary : Colors.black),
                                   ),
                                 ),
                               ),
@@ -818,9 +1099,10 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                 highlightColor:
                                     AppTheme.primary.withValues(alpha: 0.5),
                                 suggestionsCallback: (pattern) {
-                                  if (pattern.isEmpty) return _suppliers;
+                                  final packagingSuppliers = _suppliers.where((s) => s.isPackagingSupplier).toList();
+                                  if (pattern.isEmpty) return packagingSuppliers;
                                   final p = pattern.toLowerCase();
-                                  return _suppliers
+                                  return packagingSuppliers
                                       .where((s) =>
                                           s.name.toLowerCase().contains(p) ||
                                           s.supplierCode.toLowerCase().contains(p))
@@ -828,14 +1110,17 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                 },
                                 itemBuilder: (context, supplier) {
                                   return ListTile(
+                                    tileColor: isDark ? null : Colors.white,
                                     title: Text(supplier.name,
                                         style: TextStyle(
-                                            color: Colors.white,
+                                            color: isDark ? Colors.white : Colors.black,
+                                            fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                             fontFamily: 'Cairo',
                                             fontSize: 15)),
                                     subtitle: Text(supplier.supplierCode,
                                         style: TextStyle(
-                                            color: AppTheme.textSecondary,
+                                            color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                                            fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                             fontFamily: 'Cairo',
                                             fontSize: 13)),
                                   );
@@ -847,57 +1132,7 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                               );
                             },
                           ),
-                          Builder(
-                            builder: (context) {
-                              final supplier = c.formState.selectedSupplier;
-                              if (supplier == null) return const SizedBox.shrink();
-                              final isForeign = supplier.currency.toUpperCase() != 'EGP';
-                              return Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Container(
-                                    margin: const EdgeInsets.only(top: 8),
-                                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                                    decoration: BoxDecoration(
-                                      color: AppTheme.warning.withValues(alpha: 0.15),
-                                      borderRadius: BorderRadius.circular(8),
-                                      border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
-                                    ),
-                                    child: Row(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Icon(Icons.monetization_on_outlined, size: 14, color: AppTheme.warning),
-                                        const SizedBox(width: 6),
-                                        Text(
-                                          'عملة المورد: ${supplier.currency}',
-                                          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.warning, fontFamily: 'Cairo'),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  if (isForeign) ...[
-                                    const SizedBox(height: 8),
-                                    AppTextField(
-                                      label: 'سعر الصرف',
-                                      controller: invoiceExchangeRateController,
-                                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                                      isRequired: true,
-                                      inputFormatters: [
-                                        FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
-                                      ],
-                                      hint: 'أدخل سعر الصرف...',
-                                      prefixIcon: const Icon(Icons.currency_exchange, size: 18),
-                                      onChanged: (val) {
-                                        for (final line in _controllers) {
-                                          line.exchangeRateController.text = val;
-                                        }
-                                      },
-                                    ),
-                                  ],
-                                ],
-                              );
-                            },
-                          ),
+                          _buildCurrencyAndExchangeRateSection(context, isMobile: false),
                         ],
                       ),
                     ),
@@ -909,8 +1144,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                         children: [
                           Text('التاريخ',
                               style: TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? AppTheme.textSecondary : Colors.black,
+                                  fontWeight: FontWeight.bold,
                                   fontFamily: 'Cairo',
                                   fontSize: 14)),
                           const SizedBox(height: 6),
@@ -935,19 +1170,20 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                       horizontal: 12, vertical: 14),
                                   decoration: BoxDecoration(
                                     border: Border.all(
-                                        color: const Color(0xFFBDBDBD)),
+                                        color: isDark ? const Color(0xFFBDBDBD) : const Color(0xFFCBD5E1)),
                                     borderRadius: BorderRadius.circular(8),
-                                    color: Colors.white.withValues(alpha: 0.03),
+                                    color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.white,
                                   ),
                                   child: Row(
                                     children: [
-                                      const Icon(Icons.calendar_today,
+                                      Icon(Icons.calendar_today,
                                           size: 16,
-                                          color: AppTheme.textSecondary),
+                                          color: isDark ? AppTheme.textSecondary : Colors.black87),
                                       const SizedBox(width: 8),
                                       Text(AppUtils.formatDate(purchaseDate),
                                           style: TextStyle(
-                                              color: Colors.white,
+                                              color: isDark ? Colors.white : Colors.black,
+                                              fontWeight: FontWeight.bold,
                                               fontFamily: 'Cairo',
                                               fontSize: 15)),
                                     ],
@@ -967,8 +1203,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                         children: [
                           Text('رقم المشتريات',
                               style: TextStyle(
-                                  color: AppTheme.textSecondary,
-                                  fontWeight: FontWeight.w600,
+                                  color: isDark ? AppTheme.textSecondary : Colors.black,
+                                  fontWeight: FontWeight.bold,
                                   fontFamily: 'Cairo',
                                   fontSize: 14)),
                           const SizedBox(height: 6),
@@ -976,20 +1212,20 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 12, vertical: 12),
                             decoration: BoxDecoration(
-                              color: AppTheme.background,
+                              color: isDark ? AppTheme.background : Colors.white,
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppTheme.border),
+                              border: Border.all(color: isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
                             ),
                             child: Center(
                               child: Text(
                                 c.formState.nextPurchaseNumber
                                     .toString()
                                     .padLeft(6, '0'),
-                                style: const TextStyle(
+                                style: TextStyle(
                                     fontWeight: FontWeight.bold,
                                     fontSize: 16,
                                     fontFamily: 'Cairo',
-                                    color: AppTheme.primary),
+                                    color: isDark ? AppTheme.primary : Colors.black),
                               ),
                             ),
                           ),
@@ -1005,7 +1241,7 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                       style: TextStyle(
                           fontSize: isMobile ? 16 : 18,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: isDark ? Colors.white : Colors.black,
                           fontFamily: 'Cairo')),
                   const Spacer(),
                   ElevatedButton.icon(
@@ -1030,9 +1266,18 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                   child: Container(
                     padding: const EdgeInsets.all(16),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.03),
+                      color: isDark ? Colors.white.withValues(alpha: 0.03) : Colors.white,
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.border),
+                      border: Border.all(color: isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
+                      boxShadow: isDark
+                          ? null
+                          : [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.03),
+                                blurRadius: 8,
+                                offset: const Offset(0, 2),
+                              ),
+                            ],
                     ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1042,8 +1287,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                           children: [
                             Text('الإجمالي:',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 14)),
                             const SizedBox(width: 12),
@@ -1053,12 +1298,12 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                 builder: (_, val, __) => FittedBox(
                                   fit: BoxFit.scaleDown,
                                   child: Text(
-                                    '${AppUtils.formatNumber(val)} ${c.formState.selectedSupplier?.currency ?? 'EGP'}',
-                                    style: const TextStyle(
+                                    '${AppUtils.formatNumber(val)} ${c.formState.invoiceCurrency}',
+                                    style: TextStyle(
                                         fontWeight: FontWeight.bold,
                                         fontSize: 18,
                                         fontFamily: 'Cairo',
-                                        color: Colors.white),
+                                        color: isDark ? Colors.white : Colors.black),
                                   ),
                                 ),
                               ),
@@ -1077,8 +1322,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                 children: [
                                   Text('بالجنيه المصري:',
                                       style: TextStyle(
-                                          color: AppTheme.textSecondary,
-                                          fontWeight: FontWeight.w600,
+                                          color: isDark ? AppTheme.textSecondary : Colors.black,
+                                          fontWeight: FontWeight.bold,
                                           fontFamily: 'Cairo',
                                           fontSize: 13)),
                                   const SizedBox(width: 12),
@@ -1089,11 +1334,11 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                         fit: BoxFit.scaleDown,
                                         child: Text(
                                           '${AppUtils.formatNumber(val)} ج.م',
-                                          style: const TextStyle(
+                                          style: TextStyle(
                                               fontWeight: FontWeight.bold,
                                               fontSize: 16,
                                               fontFamily: 'Cairo',
-                                              color: AppTheme.cyan),
+                                              color: isDark ? AppTheme.cyan : const Color(0xFF0284C7)),
                                         ),
                                       ),
                                     ),
@@ -1128,11 +1373,12 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                             //   ),
                             // ),
                             const SizedBox(width: 8),
-                            Text(c.formState.selectedSupplier?.currency ?? 'EGP',
+                            Text(c.formState.invoiceCurrency,
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black54,
                                     fontFamily: 'Cairo',
-                                    fontSize: 12)),
+                                    fontSize: 12,
+                                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold)),
                           ],
                         ),
                         ValueListenableBuilder<double>(
@@ -1152,14 +1398,14 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                 ),
                               );
                             }
-                            final supplierCurrency = (cubit.formState.selectedSupplier?.currency ?? 'EGP').toUpperCase();
-                            // Check if any treasuries/banks match the supplier currency
+                            final invoiceCurrency = (cubit.formState.invoiceCurrency).toUpperCase();
+                            // Check if any treasuries/banks match the invoice currency
                             bool hasMatchingTreasury = false;
                             for (final t in treasuries) {
                               final balances = t['treasury_balances'];
                               if (balances is List) {
                                 for (final b in balances) {
-                                  if ((b['currency']?.toString() ?? '').toUpperCase() == supplierCurrency) {
+                                  if ((b['currency']?.toString() ?? '').toUpperCase() == invoiceCurrency) {
                                     hasMatchingTreasury = true;
                                     break;
                                   }
@@ -1168,22 +1414,22 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                               if (hasMatchingTreasury) break;
                             }
                             final hasMatchingBank = bankAccounts.any((b) =>
-                                (b['currency']?.toString() ?? '').toUpperCase() == supplierCurrency);
+                                (b['currency']?.toString() ?? '').toUpperCase() == invoiceCurrency);
                             if (!hasMatchingTreasury && !hasMatchingBank) {
                               return Padding(
                                 padding: const EdgeInsets.only(top: 8),
                                 child: Text(
-                                  '⚠️ لا توجد خزينة أو حساب بنكي بعملة $supplierCurrency. أضف رصيد بالعملة المطلوبة أولاً.',
+                                  '⚠️ لا توجد خزينة أو حساب بنكي بعملة $invoiceCurrency. أضف رصيد بالعملة المطلوبة أولاً.',
                                   style: TextStyle(color: AppTheme.warning, fontFamily: 'Cairo', fontSize: 12),
                                 ),
                               );
                             }
                             String? dropdownValue;
                             if (_selectedPaymentSourceType == 'bank' && _selectedBankAccountId != null) {
-                              final hasBank = bankAccounts.any((b) => b['id']?.toString() == _selectedBankAccountId.toString() && (b['currency']?.toString() ?? '').toUpperCase() == supplierCurrency);
+                              final hasBank = bankAccounts.any((b) => b['id']?.toString() == _selectedBankAccountId.toString() && (b['currency']?.toString() ?? '').toUpperCase() == invoiceCurrency);
                               if (hasBank) dropdownValue = 'bank_$_selectedBankAccountId';
                             } else if (_selectedPaymentSourceType == 'treasury' && _selectedTreasuryId != null && _selectedTreasuryCurrency != null) {
-                              if (_selectedTreasuryCurrency == supplierCurrency) {
+                              if (_selectedTreasuryCurrency == invoiceCurrency) {
                                 dropdownValue = 't_${_selectedTreasuryId}_${_selectedTreasuryCurrency}';
                               }
                             }
@@ -1194,8 +1440,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                 children: [
                                   Text('الخزينة/البنك *:',
                                       style: TextStyle(
-                                          color: AppTheme.textSecondary,
-                                          fontWeight: FontWeight.w600,
+                                          color: isDark ? AppTheme.textSecondary : Colors.black,
+                                          fontWeight: FontWeight.bold,
                                           fontFamily: 'Cairo',
                                           fontSize: 14)),
                                   const SizedBox(width: 12),
@@ -1203,14 +1449,28 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                     child: DropdownButtonFormField<String>(
                                       value: dropdownValue,
                                       isExpanded: true,
-                                      dropdownColor: const Color(0xFF0A2A4A),
-                                      style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+                                      dropdownColor: isDark ? const Color(0xFF0A2A4A) : Colors.white,
+                                      style: TextStyle(
+                                          color: isDark ? Colors.white : Colors.black,
+                                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                          fontSize: 13),
                                       decoration: InputDecoration(
                                         labelText: 'اختر الخزينة أو الحساب البنكي',
-                                        labelStyle: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+                                        labelStyle: TextStyle(
+                                            color: isDark ? AppTheme.textSecondary : Colors.black87,
+                                            fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                            fontFamily: 'Cairo'),
                                         filled: true,
-                                        fillColor: const Color(0x3805192D),
-                                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.glassBorder)),
+                                        fillColor: isDark ? const Color(0x3805192D) : Colors.white,
+                                        border: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                                color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                                        enabledBorder: OutlineInputBorder(
+                                            borderRadius: BorderRadius.circular(8),
+                                            borderSide: BorderSide(
+                                                color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                                         contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                                       ),
                                       items: [
@@ -1224,7 +1484,7 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                             final List<dynamic> balances = balancesRaw is List ? balancesRaw : [];
                                             for (final b in balances) {
                                               final currency = (b['currency']?.toString() ?? 'EGP').toUpperCase();
-                                              if (currency != supplierCurrency) continue;
+                                              if (currency != invoiceCurrency) continue;
                                               final balance = num.tryParse(b['balance']?.toString() ?? '0')?.toDouble() ?? 0.0;
                                               filteredTreasuries.add(DropdownMenuItem<String>(
                                                 value: 't_${tId}_$currency',
@@ -1235,7 +1495,11 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                                     Expanded(
                                                       child: Text(
                                                         'خزينة - $tName ($currency) — ${balance.toStringAsFixed(2)}',
-                                                        style: const TextStyle(fontSize: 12),
+                                                        style: TextStyle(
+                                                            fontSize: 12,
+                                                            color: isDark ? Colors.white : Colors.black,
+                                                            fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                                            fontFamily: 'Cairo'),
                                                         overflow: TextOverflow.ellipsis,
                                                       ),
                                                     ),
@@ -1246,10 +1510,10 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                           }
                                           return filteredTreasuries;
                                         }(),
-                                        // ── البنوك: مُصفَّاة بعملة المورد ──
+                                        // ── البنوك: مُصفَّاة بعملة الفاتورة ──
                                         ...bankAccounts.where((b) {
                                           final bankCurrency = (b['currency']?.toString() ?? '').toUpperCase();
-                                          return bankCurrency == supplierCurrency;
+                                          return bankCurrency == invoiceCurrency;
                                         }).map((b) {
                                           final balance = num.tryParse(b['balance']?.toString() ?? '0')?.toDouble() ?? 0.0;
                                           return DropdownMenuItem<String>(
@@ -1261,7 +1525,11 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                                                 Expanded(
                                                   child: Text(
                                                     'بنك - ${b['name']} (${(b['currency']?.toString() ?? '').toUpperCase()}) — ${balance.toStringAsFixed(2)}',
-                                                    style: const TextStyle(fontSize: 12),
+                                                    style: TextStyle(
+                                                        fontSize: 12,
+                                                        color: isDark ? Colors.white : Colors.black,
+                                                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                                        fontFamily: 'Cairo'),
                                                     overflow: TextOverflow.ellipsis,
                                                   ),
                                                 ),
@@ -1359,8 +1627,554 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
     );
   }
 
+  List<ItemModel> _getFilteredItems(String pattern) {
+    final cubit = context.read<PurchaseCubit>();
+    final invoiceCurrency = cubit.formState.invoiceCurrency.trim().toUpperCase();
+    final selectedSupplier = cubit.formState.selectedSupplier;
+
+    final sourceList = (cubit.state is PurchaseLoaded && (cubit.state as PurchaseLoaded).allItems.isNotEmpty)
+        ? (cubit.state as PurchaseLoaded).allItems
+        : _allItems;
+
+    // Strict filter by invoice currency and supplier
+    var list = sourceList.where((item) {
+      final itemCur = item.currency.trim().toUpperCase();
+
+      // 1. Currency filter: strictly match the invoice currency
+      if (invoiceCurrency.isNotEmpty) {
+        if (invoiceCurrency == 'EGP') {
+          if (itemCur != 'EGP' && itemCur.isNotEmpty) {
+            return false;
+          }
+        } else {
+          if (itemCur != invoiceCurrency) {
+            return false;
+          }
+        }
+      }
+
+      // 2. Supplier binding filter: if item is bound to a specific supplier, it must match
+      if (selectedSupplier != null && item.supplierId != null && item.supplierId!.isNotEmpty) {
+        if (item.supplierId != selectedSupplier.id) {
+          return false;
+        }
+      }
+
+      return true;
+    }).toList();
+
+    if (pattern.trim().isEmpty) return list;
+    final q = pattern.trim().toLowerCase();
+    return list.where((item) =>
+        item.name.toLowerCase().contains(q) ||
+        item.code.toLowerCase().contains(q)).toList();
+  }
+
+  void _showItemPickerSheet(int lineIndex) {
+    final line = _controllers[lineIndex];
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final invoiceCurrency = context.read<PurchaseCubit>().formState.invoiceCurrency;
+    final items = _getFilteredItems('');
+    String searchQuery = '';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final filtered = searchQuery.isEmpty
+                ? items
+                : items.where((it) {
+                    final q = searchQuery.toLowerCase();
+                    return it.name.toLowerCase().contains(q) ||
+                           it.code.toLowerCase().contains(q);
+                  }).toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.75,
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0A1E38) : Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              ),
+              child: Column(
+                children: [
+                  // Handle bar
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white.withValues(alpha: 0.25) : Colors.black.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            invoiceCurrency.isNotEmpty
+                                ? 'اختيار مادة التعبئة ($invoiceCurrency)'
+                                : 'اختيار مادة التعبئة',
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '${filtered.length} صنف',
+                            style: const TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 12,
+                              color: AppTheme.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Search field
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: TextField(
+                      autofocus: false,
+                      onChanged: (v) => setSheetState(() => searchQuery = v),
+                      style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontFamily: 'Cairo',
+                          fontSize: 14,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold),
+                      decoration: InputDecoration(
+                        hintText: 'بحث سريع بالاسم أو الكود...',
+                        hintStyle: TextStyle(
+                            fontFamily: 'Cairo',
+                            color: isDark ? Colors.white.withValues(alpha: 0.35) : Colors.black38,
+                            fontSize: 13),
+                        prefixIcon: Icon(Icons.search,
+                            color: isDark ? AppTheme.textSecondary : Colors.black87, size: 20),
+                        filled: true,
+                        fillColor: isDark ? Colors.white.withValues(alpha: 0.07) : const Color(0xFFF1F5F9),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  Divider(color: isDark ? const Color(0x22FFFFFF) : const Color(0xFFE2E8F0), height: 1),
+                  // Items list
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.inbox_outlined, size: 48,
+                                    color: isDark ? Colors.white.withValues(alpha: 0.2) : Colors.black26),
+                                const SizedBox(height: 8),
+                                Text(
+                                  items.isEmpty
+                                      ? (invoiceCurrency.isNotEmpty
+                                          ? 'لا توجد أصناف مسجلة بالعملة الحالية ($invoiceCurrency)'
+                                          : 'لا توجد أصناف متاحة')
+                                      : 'لا توجد أصناف متطابقة مع البحث',
+                                  style: TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontSize: 14,
+                                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                      color: isDark ? Colors.white54 : Colors.black54),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 6),
+                            itemBuilder: (ctx, i) {
+                              final it = filtered[i];
+                              final isSelected = it.id != null && it.id == line.existingItemId;
+                              final priceText = it.costPrice > 0
+                                  ? '${it.costPrice.toStringAsFixed(2)} ${it.currency}'
+                                  : (it.pricePerUnit > 0 ? '${it.pricePerUnit.toStringAsFixed(2)} ${it.currency}' : null);
+
+                              return GestureDetector(
+                                onTap: () {
+                                  int? defaultStation;
+                                  if (_stations.isNotEmpty) {
+                                    defaultStation = int.tryParse(_stations.first.id ?? '');
+                                  }
+                                  line.loadItem(it, defaultStationId: defaultStation);
+                                  setState(() {});
+                                  Navigator.of(ctx).pop();
+                                  Future.microtask(() => line.quantityFocus.requestFocus());
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? AppTheme.primary.withValues(alpha: 0.15)
+                                        : (isDark ? Colors.white.withValues(alpha: 0.04) : const Color(0xFFF8FAFC)),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? AppTheme.primary.withValues(alpha: 0.5)
+                                          : (isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0)),
+                                      width: isSelected ? 1.5 : 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      // Code badge
+                                      Container(
+                                        width: 44,
+                                        height: 44,
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: isSelected
+                                                ? [AppTheme.primary, AppTheme.primary.withValues(alpha: 0.7)]
+                                                : (isDark
+                                                    ? [const Color(0xFF1A3A5C), const Color(0xFF0F2744)]
+                                                    : [const Color(0xFFE0F2FE), const Color(0xFFBAE6FD)]),
+                                          ),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            it.code,
+                                            style: TextStyle(
+                                              fontFamily: 'Cairo',
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: isSelected
+                                                  ? Colors.white
+                                                  : (isDark ? AppTheme.primary : const Color(0xFF0369A1)),
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      // Name & price / stock
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              it.name,
+                                              style: TextStyle(
+                                                fontFamily: 'Cairo',
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.bold,
+                                                color: isSelected
+                                                    ? AppTheme.primary
+                                                    : (isDark ? Colors.white : Colors.black),
+                                              ),
+                                            ),
+                                            const SizedBox(height: 2),
+                                            Row(
+                                              children: [
+                                                if (priceText != null) ...[
+                                                  Text(
+                                                    'السعر: $priceText',
+                                                    style: TextStyle(
+                                                        fontFamily: 'Cairo',
+                                                        fontSize: 11,
+                                                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                                        color: isDark ? AppTheme.textSecondary : const Color(0xFF475569)),
+                                                  ),
+                                                  const SizedBox(width: 8),
+                                                ],
+                                                Text(
+                                                  'المخزون: ${it.stockQuantity} ${it.unit}',
+                                                  style: TextStyle(
+                                                      fontFamily: 'Cairo',
+                                                      fontSize: 11,
+                                                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                                      color: isDark
+                                                          ? AppTheme.textSecondary.withValues(alpha: 0.7)
+                                                          : const Color(0xFF475569)),
+                                                ),
+                                              ],
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Currency / checked
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            it.currency,
+                                            style: TextStyle(
+                                                fontFamily: 'Cairo',
+                                                fontSize: 11,
+                                                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                                color: isDark ? AppTheme.textSecondary : Colors.black87),
+                                          ),
+                                          if (isSelected) ...[
+                                            const SizedBox(width: 6),
+                                            const Icon(Icons.check_circle, size: 18, color: AppTheme.primary),
+                                          ],
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildItemSearchField(_PurchaseLineController line, int lineIndex) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return TypeAheadField<ItemModel>(
+      controller: line.searchController,
+      focusNode: line.searchFocus,
+      suggestionsCallback: (pattern) => _getFilteredItems(pattern),
+      emptyBuilder: (context) {
+        final cur = context.read<PurchaseCubit>().formState.invoiceCurrency;
+        return Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.search_off_rounded, size: 28, color: AppTheme.textSecondary.withValues(alpha: 0.5)),
+              const SizedBox(height: 6),
+              Text(
+                cur.isNotEmpty
+                    ? 'لا توجد أصناف مسجلة بعملة الفاتورة ($cur)'
+                    : 'لا يوجد صنف بهذا الاسم أو الكود',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 12,
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                  color: isDark ? AppTheme.textSecondary : Colors.black87,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+      itemBuilder: (context, item) {
+        final isSelected = item.id != null && item.id == line.existingItemId;
+        final priceText = item.costPrice > 0
+            ? '${item.costPrice.toStringAsFixed(2)} ${item.currency}'
+            : (item.pricePerUnit > 0 ? '${item.pricePerUnit.toStringAsFixed(2)} ${item.currency}' : null);
+
+        return Container(
+          color: isSelected
+              ? AppTheme.primary.withValues(alpha: 0.1)
+              : (isDark ? null : Colors.white),
+          child: ListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+            leading: Container(
+              width: 42,
+              height: 36,
+              decoration: BoxDecoration(
+                color: isDark
+                    ? AppTheme.primary.withValues(alpha: 0.15)
+                    : const Color(0xFFE0F2FE),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Center(
+                child: Text(
+                  item.code,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? AppTheme.primary : const Color(0xFF0369A1),
+                  ),
+                ),
+              ),
+            ),
+            title: Text(
+              item.name,
+              style: TextStyle(
+                fontFamily: 'Cairo',
+                fontSize: 13,
+                fontWeight: FontWeight.bold,
+                color: isSelected
+                    ? AppTheme.primary
+                    : (isDark ? Colors.white : Colors.black),
+              ),
+            ),
+            subtitle: Row(
+              children: [
+                if (priceText != null)
+                  Text(
+                    'السعر: $priceText',
+                    style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 10,
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                        color: isDark ? AppTheme.textSecondary : const Color(0xFF475569)),
+                  ),
+                if (priceText != null) const SizedBox(width: 8),
+                Text(
+                  'المخزون: ${item.stockQuantity} ${item.unit}',
+                  style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 10,
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.8) : const Color(0xFF475569)),
+                ),
+              ],
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  item.currency,
+                  style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 11,
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      color: isDark ? AppTheme.textSecondary : Colors.black87),
+                ),
+                if (isSelected) ...[
+                  const SizedBox(width: 4),
+                  const Icon(Icons.check_circle, size: 16, color: AppTheme.primary),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+      onSelected: (item) {
+        int? defaultStation;
+        if (_stations.isNotEmpty) {
+          defaultStation = int.tryParse(_stations.first.id ?? '');
+        }
+        line.loadItem(item, defaultStationId: defaultStation);
+        setState(() {});
+        Future.microtask(() => line.quantityFocus.requestFocus());
+      },
+      decorationBuilder: (context, child) {
+        return Material(
+          type: MaterialType.card,
+          elevation: 12,
+          borderRadius: BorderRadius.circular(14),
+          color: isDark ? const Color(0xFF0A1E38) : Colors.white,
+          shadowColor: Colors.black.withValues(alpha: isDark ? 0.5 : 0.15),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(14),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 280),
+              child: child,
+            ),
+          ),
+        );
+      },
+      builder: (context, controller, focusNode) {
+        return TextField(
+          enabled: !widget.viewOnly,
+          controller: controller,
+          focusNode: focusNode,
+          decoration: InputDecoration(
+            labelText: 'بحث عن الصنف *',
+            hintText: 'بحث عن الصنف... اكتب اسم الصنف أو الكود',
+            hintStyle: TextStyle(
+                color: isDark ? AppTheme.textSecondary : Colors.black38, fontSize: 13, fontFamily: 'Cairo'),
+            labelStyle: TextStyle(
+                color: isDark ? AppTheme.textSecondary : Colors.black87,
+                fontSize: 14,
+                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                fontFamily: 'Cairo'),
+            filled: true,
+            fillColor: isDark ? const Color(0x1AFFFFFF) : Colors.white,
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            prefixIcon: Icon(Icons.search_rounded,
+                color: isDark ? AppTheme.textSecondary : Colors.black87, size: 20),
+            suffixIcon: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (line.existingItemId != null && !widget.viewOnly)
+                  GestureDetector(
+                    onTap: () {
+                      line.clearItem();
+                      setState(() {});
+                    },
+                    child: Icon(Icons.close,
+                        size: 18,
+                        color: isDark ? Colors.white.withValues(alpha: 0.5) : Colors.black45),
+                  ),
+                const SizedBox(width: 4),
+                // Quick-picker icon button
+                GestureDetector(
+                  onTap: !widget.viewOnly ? () => _showItemPickerSheet(lineIndex) : null,
+                  child: Container(
+                    margin: const EdgeInsets.only(left: 8, right: 4),
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primary.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+                    ),
+                    child: const Icon(Icons.grid_view_rounded, size: 18, color: AppTheme.primary),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+              fontFamily: 'Cairo'),
+          onTap: () {
+            if (controller.text.isEmpty) {
+              controller.text = '';
+            }
+          },
+        );
+      },
+    );
+  }
+
   Widget _buildLineCard(BuildContext context, PurchaseCubit c, int i) {
     final line = _controllers[i];
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isMobile = MediaQuery.of(context).size.width < 600;
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
@@ -1368,57 +2182,26 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
         filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
         child: Container(
           margin: const EdgeInsets.only(bottom: 8),
-          decoration: AppTheme.glassCard(),
+          decoration: isDark
+              ? AppTheme.glassCard()
+              : BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: const Color(0xFFE2E8F0)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: Column(
               children: [
                 if (isMobile) ...[
-                  Builder(
-                    builder: (context) {
-                      return AppSearchField<ItemModel>(
-                        label: 'بحث عن الصنف',
-                        controller: line.searchController,
-                        focusNode: line.searchFocus,
-                        hint: 'ابحث بالكود أو الاسم...',
-                        highlightColor:
-                            AppTheme.primary.withValues(alpha: 0.5),
-                        suggestionsCallback: (pattern) {
-                          if (pattern.isEmpty) return <ItemModel>[];
-                          final supplierCurrency = context.read<PurchaseCubit>().formState.selectedSupplier?.currency ?? 'EGP';
-                          return _allItems
-                              .where((item) =>
-                                  item.currency.toUpperCase() == supplierCurrency.toUpperCase() &&
-                                  (item.code
-                                      .toLowerCase()
-                                      .contains(pattern.toLowerCase()) ||
-                                  item.name
-                                      .toLowerCase()
-                                      .contains(pattern.toLowerCase())))
-                              .toList();
-                        },
-                        itemBuilder: (context, item) {
-                          return ListTile(
-                            title: Text('${item.code} - ${item.name}',
-                                style: TextStyle(
-                                    color: Colors.white,
-                                    fontFamily: 'Cairo',
-                                    fontSize: 15)),
-                            trailing: Text(item.stockQuantity.toString(),
-                                style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontFamily: 'Cairo',
-                                    fontSize: 13)),
-                          );
-                        },
-                        onSelected: (item) {
-                          line.loadItem(item);
-                          Future.microtask(
-                              () => line.quantityFocus.requestFocus());
-                        },
-                      );
-                    },
-                  ),
+                  _buildItemSearchField(line, i),
                   const SizedBox(height: 8),
                   Row(
                     children: [
@@ -1455,51 +2238,7 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                     children: [
                       Expanded(
                         flex: 4,
-                        child: Builder(
-                          builder: (context) {
-                            return AppSearchField<ItemModel>(
-                              label: 'بحث عن الصنف',
-                              controller: line.searchController,
-                              focusNode: line.searchFocus,
-                              hint: 'ابحث بالكود أو الاسم...',
-                              highlightColor:
-                                  AppTheme.primary.withValues(alpha: 0.5),
-                              suggestionsCallback: (pattern) {
-                                if (pattern.isEmpty) return <ItemModel>[];
-                                final supplierCurrency = context.read<PurchaseCubit>().formState.selectedSupplier?.currency ?? 'EGP';
-                                return _allItems
-                                    .where((item) =>
-                                        item.currency.toUpperCase() == supplierCurrency.toUpperCase() &&
-                                        (item.code
-                                            .toLowerCase()
-                                            .contains(pattern.toLowerCase()) ||
-                                        item.name
-                                            .toLowerCase()
-                                            .contains(pattern.toLowerCase())))
-                                    .toList();
-                              },
-                              itemBuilder: (context, item) {
-                                return ListTile(
-                                  title: Text('${item.code} - ${item.name}',
-                                      style: TextStyle(
-                                          color: Colors.white,
-                                          fontFamily: 'Cairo',
-                                          fontSize: 15)),
-                                  trailing: Text(item.stockQuantity.toString(),
-                                      style: TextStyle(
-                                          color: AppTheme.textSecondary,
-                                          fontFamily: 'Cairo',
-                                          fontSize: 13)),
-                                );
-                              },
-                              onSelected: (item) {
-                                line.loadItem(item);
-                                Future.microtask(
-                                    () => line.quantityFocus.requestFocus());
-                              },
-                            );
-                          },
-                        ),
+                        child: _buildItemSearchField(line, i),
                       ),
                       const SizedBox(width: 8),
                       SizedBox(
@@ -1554,7 +2293,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                             widthFactor: 1,
                             child: Text(line.unit,
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black87,
+                                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 13))),
                       ),
@@ -1575,8 +2315,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                     const SizedBox(width: 8),
                     Builder(
                       builder: (context) {
-                        final supplierCurrency = context.read<PurchaseCubit>().formState.selectedSupplier?.currency ?? 'EGP';
-                        if (supplierCurrency.toUpperCase() == 'EGP') {
+                        final invoiceCurrency = context.read<PurchaseCubit>().formState.invoiceCurrency;
+                        if (invoiceCurrency.toUpperCase() == 'EGP') {
                           return const SizedBox.shrink();
                         }
                         return SizedBox(
@@ -1602,19 +2342,38 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                           builder: (context) {
                             return DropdownButtonFormField<int>(
                               value: line.stationId,
-                              dropdownColor: const Color(0xFF0A2A4A),
-                              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+                              dropdownColor: isDark ? const Color(0xFF0A2A4A) : Colors.white,
+                              style: TextStyle(
+                                  color: isDark ? Colors.white : Colors.black,
+                                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                  fontFamily: 'Cairo',
+                                  fontSize: 13),
                               decoration: InputDecoration(
                                 labelText: 'المخزن *',
-                                labelStyle: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+                                labelStyle: TextStyle(
+                                    color: isDark ? AppTheme.textSecondary : Colors.black87,
+                                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                    fontFamily: 'Cairo'),
                                 filled: true,
-                                fillColor: const Color(0x3805192D),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.glassBorder)),
+                                fillColor: isDark ? const Color(0x3805192D) : Colors.white,
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                        color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                                enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                        color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                               ),
                               items: _stations.map((s) => DropdownMenuItem<int>(
                                 value: int.tryParse(s.id ?? ''),
-                                child: Text('${s.name} (${s.code})', style: const TextStyle(fontSize: 12)),
+                                child: Text('${s.name} (${s.code})',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: isDark ? Colors.white : Colors.black,
+                                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                        fontFamily: 'Cairo')),
                               )).toList(),
                               onChanged: (v) => line.stationId = v,
                               validator: (v) => v == null ? 'اختر المخزن' : null,
@@ -1630,18 +2389,18 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                         padding: const EdgeInsets.symmetric(horizontal: 12),
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
-                          color: AppTheme.success.withValues(alpha: 0.05),
+                          color: isDark ? AppTheme.success.withValues(alpha: 0.05) : const Color(0xFFECFDF5),
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(
-                              color: AppTheme.success.withValues(alpha: 0.2)),
+                              color: isDark ? AppTheme.success.withValues(alpha: 0.2) : const Color(0xFFA7F3D0)),
                         ),
                         child: ValueListenableBuilder<double>(
                           valueListenable: line.totalPriceRx,
                           builder: (_, val, __) => Text(
-                            '${AppUtils.formatNumber(val)} ${c.formState.selectedSupplier?.currency ?? 'EGP'}',
-                            style: const TextStyle(
+                            '${AppUtils.formatNumber(val)} ${c.formState.invoiceCurrency}',
+                            style: TextStyle(
                                 fontWeight: FontWeight.bold,
-                                color: AppTheme.success,
+                                color: isDark ? AppTheme.success : const Color(0xFF047857),
                                 fontFamily: 'Cairo'),
                           ),
                         ),
@@ -1652,8 +2411,8 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                   const SizedBox(height: 8),
                   Builder(
                     builder: (context) {
-                      final supplierCurrency = context.read<PurchaseCubit>().formState.selectedSupplier?.currency ?? 'EGP';
-                      if (supplierCurrency.toUpperCase() == 'EGP') {
+                      final invoiceCurrency = context.read<PurchaseCubit>().formState.invoiceCurrency;
+                      if (invoiceCurrency.toUpperCase() == 'EGP') {
                         return const SizedBox.shrink();
                       }
                       return Padding(
@@ -1684,19 +2443,38 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                           builder: (context) {
                             return DropdownButtonFormField<int>(
                               value: line.stationId,
-                              dropdownColor: const Color(0xFF0A2A4A),
-                              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+                              dropdownColor: isDark ? const Color(0xFF0A2A4A) : Colors.white,
+                              style: TextStyle(
+                                  color: isDark ? Colors.white : Colors.black,
+                                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                  fontFamily: 'Cairo',
+                                  fontSize: 13),
                               decoration: InputDecoration(
                                 labelText: 'المخزن *',
-                                labelStyle: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+                                labelStyle: TextStyle(
+                                    color: isDark ? AppTheme.textSecondary : Colors.black87,
+                                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                    fontFamily: 'Cairo'),
                                 filled: true,
-                                fillColor: const Color(0x3805192D),
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.glassBorder)),
+                                fillColor: isDark ? const Color(0x3805192D) : Colors.white,
+                                border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                        color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                                enabledBorder: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                    borderSide: BorderSide(
+                                        color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                                 contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
                               ),
                               items: _stations.map((s) => DropdownMenuItem<int>(
                                 value: int.tryParse(s.id ?? ''),
-                                child: Text('${s.name} (${s.code})', style: const TextStyle(fontSize: 12)),
+                                child: Text('${s.name} (${s.code})',
+                                    style: TextStyle(
+                                        fontSize: 12,
+                                        color: isDark ? Colors.white : Colors.black,
+                                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                        fontFamily: 'Cairo')),
                               )).toList(),
                               onChanged: (v) => line.stationId = v,
                               validator: (v) => v == null ? 'اختر المخزن' : null,
@@ -1712,18 +2490,18 @@ class _PurchaseFormPageState extends State<PurchaseFormPage> {
                           padding: const EdgeInsets.symmetric(horizontal: 12),
                           alignment: Alignment.center,
                           decoration: BoxDecoration(
-                            color: AppTheme.success.withValues(alpha: 0.05),
+                            color: isDark ? AppTheme.success.withValues(alpha: 0.05) : const Color(0xFFECFDF5),
                             borderRadius: BorderRadius.circular(8),
                             border: Border.all(
-                                color: AppTheme.success.withValues(alpha: 0.2)),
+                                color: isDark ? AppTheme.success.withValues(alpha: 0.2) : const Color(0xFFA7F3D0)),
                           ),
                           child: ValueListenableBuilder<double>(
                             valueListenable: line.totalPriceRx,
                             builder: (_, val, __) => Text(
-                              '${AppUtils.formatNumber(val)} ${c.formState.selectedSupplier?.currency ?? 'EGP'}',
-                              style: const TextStyle(
+                              '${AppUtils.formatNumber(val)} ${c.formState.invoiceCurrency}',
+                              style: TextStyle(
                                   fontWeight: FontWeight.bold,
-                                  color: AppTheme.success,
+                                  color: isDark ? AppTheme.success : const Color(0xFF047857),
                                   fontFamily: 'Cairo'),
                             ),
                           ),

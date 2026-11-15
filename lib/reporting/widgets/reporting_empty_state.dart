@@ -18,25 +18,29 @@ class ReportingEmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final textSecondary = AppTheme.getTextSecondary(context);
+    final textMuted = isDark ? AppTheme.textMuted : AppTheme.lightTextMuted;
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(icon, size: 64, color: AppTheme.textMuted),
+          Icon(icon, size: 64, color: textMuted),
           const SizedBox(height: 16),
           Text(
             title,
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: AppTheme.textSecondary,
+              color: textSecondary,
             ),
           ),
           if (subtitle != null) ...[
             const SizedBox(height: 8),
             Text(
               subtitle!,
-              style: TextStyle(fontSize: 13, color: AppTheme.textMuted),
+              style: TextStyle(fontSize: 13, color: textMuted),
             ),
           ],
         ],

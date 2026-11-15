@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
+import '../../core/widgets/read_only_guard.dart';
 import '../../data/models/account_model.dart';
 import 'account_cubit.dart';
 import 'account_state.dart';
@@ -123,7 +124,8 @@ class AccountFormDialog extends StatelessWidget {
                                   ),
                             label: Text(
                                 saving ? 'جاري الحفظ...' : (isEditing ? 'حفظ التعديلات' : 'إضافة')),
-                            onPressed: saving ? null : () async {
+                            onPressed: (saving || ReadOnlyGuard.isReadOnly) ? null : () async {
+                              if (!await ReadOnlyGuard.checkAsync(context)) return;
                               final ok = await controller.save();
                               if (ok && context.mounted) {
                                 Navigator.pop(context);

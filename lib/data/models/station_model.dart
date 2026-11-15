@@ -1,4 +1,25 @@
 class StationModel {
+  // ── Scalable 5-Digit Category Range Constants ──
+  static const int minCode = 80000;
+  static const int maxCode = 84999;
+  static const int capacity = 5000;
+  static const String codeHint = 'مثال: 80000 (نطاق 80000 - 84999)';
+
+  static String? validateStationCode(String? code) {
+    if (code == null || code.trim().isEmpty) {
+      return 'كود المحطة مطلوب';
+    }
+    final cleanCode = code.trim().replaceAll(RegExp(r'[^0-9]'), '');
+    final num = int.tryParse(cleanCode);
+    if (num == null) {
+      return 'يجب أن يحتوي الكود على أرقام فقط';
+    }
+    if (num < minCode || num > maxCode) {
+      return 'كود المحطة يجب أن يكون بين $minCode و $maxCode (السعة: $capacity محطة)';
+    }
+    return null;
+  }
+
   final String? id;
   final String code;
   final String name;

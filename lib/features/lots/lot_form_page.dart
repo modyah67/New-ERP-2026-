@@ -16,8 +16,10 @@ import '../../data/models/station_model.dart';
 import '../../data/dao/fruit_type_dao.dart';
 import '../../data/models/fruit_type_model.dart';
 
-import '../../data/services/cost_allocation_service.dart';
 import '../../data/services/lot_payment_service.dart';
+import '../../data/services/product_cost_center_sync_service.dart';
+import '../../data/services/currency_conversion_service.dart';
+import '../../data/services/crop_purchase_calculation_service.dart';
 import '../../core/data_change_event_bus.dart';
 
 class LotFormPage extends StatefulWidget {
@@ -54,6 +56,8 @@ class _LotFormPageState extends State<LotFormPage> {
   String _purchaseMode = 'weight';
   String _currency = 'EGP';
   double _exchangeRate = 1.0;
+  bool _isMultiCurrencySupplier = false;
+  List<String> _supplierCurrencies = [];
 
   String? _selectedTreasuryId;
   String? _selectedPaymentSourceType;
@@ -154,6 +158,7 @@ class _LotFormPageState extends State<LotFormPage> {
     _selectedBankAccountId = lot?.paymentBankAccountId;
 
     _grossWeightCtrl.addListener(_updateExpectedAmount);
+    _netWeightCtrl.addListener(_updateExpectedAmount);
     _unitCostCtrl.addListener(_updateExpectedAmount);
     _cartonCountCtrl.addListener(_updateExpectedAmount);
     _weightPerCartonCtrl.addListener(_updateExpectedAmount);
@@ -169,8 +174,11 @@ class _LotFormPageState extends State<LotFormPage> {
       final cartonCount = (double.tryParse(_cartonCountCtrl.text) ?? 0).toInt();
       final pricePerCarton = double.tryParse(_pricePerCartonCtrl.text) ?? 0;
       final weightPerCarton = double.tryParse(_weightPerCartonCtrl.text) ?? 0;
-      final netCartons = int.tryParse(_netWeightCtrl.text) ?? 0;
-      expectedAmount = cartonCount * pricePerCarton;
+      expectedAmount = CropPurchaseCalculationService.calculateTotalAmount(
+        purchaseMethod: 'carton',
+        cartonCount: cartonCount,
+        pricePerCarton: pricePerCarton,
+      );
       // Auto-fill gross weight per carton from net weight per carton
       if (weightPerCarton > 0 && (double.tryParse(_grossWeightPerCartonCtrl.text) ?? 0) <= 0) {
         _grossWeightPerCartonCtrl.text = weightPerCarton.toString();
@@ -181,9 +189,16 @@ class _LotFormPageState extends State<LotFormPage> {
         _grossWeightCtrl.text = computedGross.toStringAsFixed(3);
       }
     } else {
+      // Weight mode: Financial liability to supplier = Gross Weight (الوزن الإجمالي/القائم) × Price per Kg
       final grossWeight = double.tryParse(_grossWeightCtrl.text) ?? 0;
+      final netWeight = double.tryParse(_netWeightCtrl.text) ?? grossWeight;
       final unitCost = double.tryParse(_unitCostCtrl.text) ?? 0;
-      expectedAmount = grossWeight * unitCost;
+      expectedAmount = CropPurchaseCalculationService.calculateTotalAmount(
+        purchaseMethod: 'weight',
+        grossWeightKg: grossWeight > 0 ? grossWeight : netWeight,
+        netWeightKg: netWeight,
+        pricePerKg: unitCost,
+      );
     }
     _expectedSupplierAmountCtrl.text = expectedAmount.toStringAsFixed(2);
     setState(() {});
@@ -192,6 +207,7 @@ class _LotFormPageState extends State<LotFormPage> {
   @override
   void dispose() {
     _grossWeightCtrl.removeListener(_updateExpectedAmount);
+    _netWeightCtrl.removeListener(_updateExpectedAmount);
     _unitCostCtrl.removeListener(_updateExpectedAmount);
     _cartonCountCtrl.removeListener(_updateExpectedAmount);
     _weightPerCartonCtrl.removeListener(_updateExpectedAmount);
@@ -217,15 +233,18 @@ class _LotFormPageState extends State<LotFormPage> {
   Future<void> _loadData() async {
     try {
       final results = await Future.wait([
-        SupplierDao().getAll(),
+        SupplierDao().getAll(supplierTypes: ['crop', 'shared']),
         StationDao().getAll(),
         FruitTypeDao().getAllWithPrices(),
         Supabase.instance.client.from('treasuries').select('id,name,type,treasury_balances(currency,balance)'),
         Supabase.instance.client.from('bank_accounts').select('id,name,currency,balance'),
       ]);
       if (mounted) {
+        final cropSuppliers = (results[0] as List<SupplierModel>)
+            .where((s) => s.isCropSupplier)
+            .toList();
         setState(() {
-          _suppliers = results[0] as List<SupplierModel>;
+          _suppliers = cropSuppliers;
           _stations = results[1] as List<StationModel>;
           _fruitTypes = results[2] as List<FruitTypeModel>;
           _treasuries = List<Map<String, dynamic>>.from(results[3] as List)
@@ -235,12 +254,37 @@ class _LotFormPageState extends State<LotFormPage> {
           _loadingData = false;
         });
         if (_selectedSupplierId != null) {
-          final s = _suppliers
+          var s = _suppliers
               .where((s) => s.id == _selectedSupplierId)
               .firstOrNull;
+          if (s == null) {
+            final allSupps = await SupplierDao().getAll(limit: 1000);
+            s = allSupps.where((x) => x.id == _selectedSupplierId).firstOrNull;
+            if (s != null && mounted) {
+              setState(() {
+                _suppliers.insert(0, s!);
+              });
+            }
+          }
           if (s != null) {
             _supplierController.text = s.displayName;
-            _currency = s.currency;
+            _isMultiCurrencySupplier = s.supportsMultiCurrency;
+            if (s.supportsMultiCurrency) {
+              _supplierCurrencies = s.supportedCurrencies;
+              // In edit mode, preserve the lot's saved currency
+              if (widget.lot != null && widget.lot!.currency.isNotEmpty && widget.lot!.currency != 'MULTI') {
+                _currency = widget.lot!.currency;
+              } else {
+                _currency = s.getCurrencyForTransactionType('crop');
+              }
+            } else {
+              _supplierCurrencies = [];
+              _currency = s.currency;
+            }
+            // In edit mode, preserve the lot's saved exchange rate
+            if (widget.lot == null || widget.lot!.exchangeRate == 1.0) {
+              _fetchExchangeRate();
+            }
           }
         }
         if (_selectedTreasuryId != null) {
@@ -264,27 +308,49 @@ class _LotFormPageState extends State<LotFormPage> {
     }
   }
 
+  TextStyle get _inputTextStyle {
+    final isDark = AppTheme.isDark(context);
+    return TextStyle(
+      color: isDark ? Colors.white : Colors.black,
+      fontWeight: FontWeight.bold,
+      fontFamily: 'Cairo',
+    );
+  }
+
+  TextStyle get _readOnlyTextStyle {
+    final isDark = AppTheme.isDark(context);
+    return TextStyle(
+      color: isDark ? AppTheme.textSecondary : Colors.black87,
+      fontWeight: FontWeight.bold,
+      fontFamily: 'Cairo',
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : AppTheme.lightBackground,
         body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppTheme.background,
-                Color(0xFF0D2137),
-                AppTheme.background
-              ],
-            ),
-          ),
+          decoration: isDark
+              ? const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppTheme.background,
+                      Color(0xFF0D2137),
+                      AppTheme.background
+                    ],
+                  ),
+                )
+              : null,
           child: _loadingData
-              ? const Center(
-                  child: CircularProgressIndicator(color: AppTheme.primary))
+              ? Center(
+                  child: CircularProgressIndicator(
+                      color: isDark ? AppTheme.primary : const Color(0xFF0284C7)))
               : SingleChildScrollView(
                   padding:
                       EdgeInsets.only(top: MediaQuery.of(context).padding.top),
@@ -300,6 +366,10 @@ class _LotFormPageState extends State<LotFormPage> {
                             const SizedBox(height: 12),
                             _buildSupplierDropdown(),
                             const SizedBox(height: 12),
+                            if (_isMultiCurrencySupplier && _selectedSupplierId != null)
+                              _buildCurrencyDropdown(),
+                            if (_isMultiCurrencySupplier && _selectedSupplierId != null)
+                              const SizedBox(height: 12),
                             _buildProductField(),
                             const SizedBox(height: 12),
                             _buildDatePicker(),
@@ -318,7 +388,7 @@ class _LotFormPageState extends State<LotFormPage> {
                                     final gross = double.tryParse(_grossWeightCtrl.text) ?? 0;
                                     final net = double.tryParse(v ?? '') ?? 0;
                                     if (gross > 0 && net > gross) {
-                                      return 'الوزン الصافي ($net) لا يمكن أن يتجاوز الوزن الإجمالي ($gross)';
+                                      return 'الوزن الصافي ($net) لا يمكن أن يتجاوز الوزن الإجمالي ($gross)';
                                     }
                                     return null;
                                   }),
@@ -326,7 +396,7 @@ class _LotFormPageState extends State<LotFormPage> {
                               const SizedBox(height: 12),
                               _buildRequiredWeightField(
                                   _unitCostCtrl,
-                                   'سعر الشراء ($_currency/كجم)',
+                                  'سعر الشراء ($_currency/كجم)',
                                   'سعر شراء الكيلو'),
                             ] else ...[
                               _buildCartonCountField(),
@@ -371,6 +441,7 @@ class _LotFormPageState extends State<LotFormPage> {
   }
 
   Widget _buildHeader() {
+    final isDark = AppTheme.isDark(context);
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
@@ -381,19 +452,23 @@ class _LotFormPageState extends State<LotFormPage> {
               left: 8,
               right: 8),
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
+            color: isDark ? const Color(0x3805192D) : Colors.white,
             border: Border(
-                bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+                bottom: BorderSide(
+                    color: isDark
+                        ? AppTheme.glassBorder.withAlpha(50)
+                        : const Color(0xFFCBD5E1))),
           ),
           child: Row(children: [
             IconButton(
-              icon: const Icon(Icons.arrow_forward, color: Colors.white),
+              icon: Icon(Icons.arrow_forward,
+                  color: isDark ? Colors.white : Colors.black),
               onPressed: () => context.pop(),
             ),
             Text(
               widget.lot != null ? 'تعديل المحصول' : 'محصول جديد',
-              style: const TextStyle(
-                  color: AppTheme.textPrimary,
+              style: TextStyle(
+                  color: isDark ? AppTheme.textPrimary : Colors.black,
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo'),
@@ -405,6 +480,7 @@ class _LotFormPageState extends State<LotFormPage> {
   }
 
   Widget _buildSection(String title, List<Widget> children) {
+    final isDark = AppTheme.isDark(context);
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
       child: BackdropFilter(
@@ -412,17 +488,27 @@ class _LotFormPageState extends State<LotFormPage> {
         child: Container(
           width: double.infinity,
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
+            color: isDark ? const Color(0x3805192D) : Colors.white,
             borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: AppTheme.glassBorder),
+            border: Border.all(
+                color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1),
+                width: 1.2),
+            boxShadow: [
+              if (!isDark)
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 2),
+                ),
+            ],
           ),
           padding: const EdgeInsets.all(16),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(title,
-                  style: const TextStyle(
-                      color: AppTheme.primary,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.primary : Colors.black,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo')),
@@ -436,19 +522,22 @@ class _LotFormPageState extends State<LotFormPage> {
   }
 
   Widget _buildProductField() {
+    final isDark = AppTheme.isDark(context);
+    final filtered = _filteredFruitTypes;
+    final hasFilters = _selectedSupplierId != null;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         RichText(
-          text: const TextSpan(
+          text: TextSpan(
             text: 'الصنف',
             style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textSecondary,
+              fontWeight: FontWeight.bold,
+              color: isDark ? AppTheme.textSecondary : Colors.black,
               fontFamily: 'Cairo',
             ),
-            children: [
+            children: const [
               TextSpan(
                 text: ' *',
                 style: TextStyle(color: AppTheme.danger),
@@ -456,17 +545,42 @@ class _LotFormPageState extends State<LotFormPage> {
             ],
           ),
         ),
+        // ── Context filter chips ──
+        if (hasFilters)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, bottom: 4),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: [
+                _buildFilterChip(
+                  icon: Icons.scale_outlined,
+                  label: _purchaseMode == 'carton' ? 'بالكراتين' : 'بالوزن',
+                ),
+                _buildFilterChip(
+                  icon: Icons.monetization_on_outlined,
+                  label: _currency,
+                ),
+                _buildFilterChip(
+                  icon: Icons.inventory_2_outlined,
+                  label: '${filtered.length} صنف متاح',
+                  color: filtered.isEmpty ? AppTheme.danger : AppTheme.cyan,
+                ),
+              ],
+            ),
+          ),
         const SizedBox(height: 8),
         TypeAheadField<FruitTypeModel>(
-          key: ValueKey('${_selectedSupplierId ?? ''}_${_selectedProductId ?? ''}'),
+          key: ValueKey('${_selectedSupplierId ?? ''}_${_selectedProductId ?? ''}_${_currency}_$_purchaseMode'),
           controller: _productController,
           autoFlipDirection: true,
           hideOnEmpty: false,
           hideOnError: true,
           suggestionsCallback: (pattern) {
-            if (pattern.isEmpty) return <FruitTypeModel>[];
+            // Show all items on empty to act as a dropdown
+            if (pattern.isEmpty) return filtered;
             final lower = pattern.toLowerCase();
-            return _filteredFruitTypes.where((ft) {
+            return filtered.where((ft) {
               return ft.name.toLowerCase().contains(lower) ||
                      ft.code.toLowerCase().contains(lower);
             }).toList();
@@ -474,23 +588,93 @@ class _LotFormPageState extends State<LotFormPage> {
           emptyBuilder: (context) {
             return Padding(
               padding: const EdgeInsets.all(14),
-              child: Text(
-                'لا يوجد صنف بهذا الاسم. ربما يكون نوع التسجيل أثناء الشراء مختلف',
-                style: TextStyle(
-                  fontFamily: 'Cairo',
-                  fontSize: 13,
-                  color: AppTheme.textSecondary,
-                ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.search_off_rounded, size: 28, color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.5) : Colors.black38),
+                  const SizedBox(height: 6),
+                  Text(
+                    'لا يوجد صنف بهذا الاسم.\nتأكد من نوع الشراء ($_purchaseMode == "carton" ? "كراتين" : "وزن") والعملة ($_currency)',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 12,
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      color: isDark ? AppTheme.textSecondary : Colors.black87,
+                    ),
+                  ),
+                ],
               ),
             );
           },
           itemBuilder: (context, fruitType) {
-            return ListTile(
-              dense: true,
-              title: Text(fruitType.name,
-                  style: const TextStyle(fontFamily: 'Cairo', fontSize: 13)),
-              trailing: Text(fruitType.currency,
-                  style: const TextStyle(fontFamily: 'Cairo', fontSize: 11, color: AppTheme.textSecondary)),
+            final isSelected = fruitType.id == _selectedProductId;
+            final priceText = fruitType.latestPurchasePrice != null
+                ? '${fruitType.latestPurchasePrice!.toStringAsFixed(2)} ${SupplierModel.getCurrencySymbol(fruitType.currency)}'
+                : null;
+            return Container(
+              color: isSelected ? AppTheme.primary.withValues(alpha: 0.1) : null,
+              child: ListTile(
+                dense: true,
+                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
+                leading: Container(
+                  width: 36,
+                  height: 36,
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Center(
+                    child: Text(
+                      fruitType.code,
+                      style: const TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 10,
+                        fontWeight: FontWeight.bold,
+                        color: AppTheme.primary,
+                      ),
+                    ),
+                  ),
+                ),
+                title: Text(
+                  fruitType.name,
+                  style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: isSelected ? AppTheme.primary : (isDark ? Colors.white : Colors.black),
+                  ),
+                ),
+                subtitle: priceText != null
+                    ? Text(
+                        'آخر سعر: $priceText',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : Colors.black87,
+                        ),
+                      )
+                    : null,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      fruitType.currency,
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
+                      ),
+                    ),
+                    if (isSelected) ...[
+                      const SizedBox(width: 4),
+                      const Icon(Icons.check_circle, size: 16, color: AppTheme.primary),
+                    ],
+                  ],
+                ),
+              ),
             );
           },
           onSelected: (fruitType) {
@@ -500,17 +684,135 @@ class _LotFormPageState extends State<LotFormPage> {
               _productController.text = fruitType.name;
             });
           },
+          decorationBuilder: (context, child) {
+            return Material(
+              type: MaterialType.card,
+              elevation: 12,
+              borderRadius: BorderRadius.circular(14),
+              color: isDark ? const Color(0xFF0A1E38) : Colors.white,
+              shadowColor: Colors.black.withValues(alpha: isDark ? 0.5 : 0.1),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isDark ? Colors.transparent : const Color(0xFFCBD5E1),
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxHeight: 280),
+                    child: child,
+                  ),
+                ),
+              ),
+            );
+          },
           builder: (context, controller, focusNode) {
             return TextField(
               enabled: _canEdit,
               controller: controller,
               focusNode: focusNode,
-              decoration: _inputDecoration('بحث عن الصنف *',
-                  hint: 'اكتب اسم الصنف...'),
-              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+              decoration: InputDecoration(
+                labelText: 'بحث عن الصنف *',
+                hintText: 'اكتب اسم الصنف أو الكود...',
+                hintStyle: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : Colors.black54,
+                    fontSize: 13,
+                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                    fontFamily: 'Cairo'),
+                labelStyle: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo'),
+                filled: true,
+                fillColor: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                        color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: BorderSide(
+                        color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+                focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                    borderSide: const BorderSide(
+                        color: AppTheme.primary,
+                        width: 1.5)),
+                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                prefixIcon: Icon(Icons.search_rounded,
+                    color: isDark ? AppTheme.textSecondary : Colors.black54, size: 20),
+                suffixIcon: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_selectedProductId != null && _canEdit)
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _selectedProductId = null;
+                            _productNameCtrl.clear();
+                            _productController.clear();
+                          });
+                          controller.clear();
+                        },
+                        child: Icon(Icons.close,
+                            size: 18,
+                            color: isDark ? Colors.white.withValues(alpha: 0.5) : Colors.black54),
+                      ),
+                    const SizedBox(width: 4),
+                    // Quick-picker icon button
+                    GestureDetector(
+                      onTap: _canEdit ? () => _showItemPickerSheet() : null,
+                      child: Container(
+                        margin: const EdgeInsets.only(left: 8, right: 4),
+                        padding: const EdgeInsets.all(6),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primary.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+                        ),
+                        child: const Icon(Icons.grid_view_rounded, size: 18, color: AppTheme.primary),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              style: _inputTextStyle,
+              onTap: () {
+                // Trigger suggestions on tap (acts like a dropdown)
+                if (controller.text.isEmpty) {
+                  controller.text = '';
+                }
+              },
             );
           },
         ),
+        // Selected item indicator
+        if (_selectedProductId != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, right: 4),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: AppTheme.success.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: AppTheme.success.withValues(alpha: 0.25)),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.check_circle_outline, size: 14, color: AppTheme.success),
+                  const SizedBox(width: 6),
+                  Text(
+                    'تم اختيار: ${_productNameCtrl.text}',
+                    style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.success, fontFamily: 'Cairo'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         if (_selectedProductId == null && _formSubmitted)
           const Padding(
             padding: EdgeInsets.only(top: 4, right: 4),
@@ -521,20 +823,324 @@ class _LotFormPageState extends State<LotFormPage> {
     );
   }
 
+  /// Filter chip widget for showing active context filters
+  Widget _buildFilterChip({required IconData icon, required String label, Color? color}) {
+    final isDark = AppTheme.isDark(context);
+    final chipColor = color ?? AppTheme.textSecondary;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: chipColor.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: chipColor.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: chipColor),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: isDark ? chipColor : Colors.black,
+                fontFamily: 'Cairo'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Full-screen bottom sheet item picker
+  void _showItemPickerSheet() {
+    final isDark = AppTheme.isDark(context);
+    final items = _filteredFruitTypes;
+    String searchQuery = '';
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setSheetState) {
+            final filtered = searchQuery.isEmpty
+                ? items
+                : items.where((ft) {
+                    final q = searchQuery.toLowerCase();
+                    return ft.name.toLowerCase().contains(q) ||
+                           ft.code.toLowerCase().contains(q);
+                  }).toList();
+
+            return Container(
+              height: MediaQuery.of(context).size.height * 0.75,
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0A1E38) : Colors.white,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+                border: Border.all(
+                  color: isDark ? Colors.transparent : const Color(0xFFCBD5E1),
+                ),
+              ),
+              child: Column(
+                children: [
+                  // Handle bar
+                  Container(
+                    margin: const EdgeInsets.only(top: 12),
+                    width: 40,
+                    height: 4,
+                    decoration: BoxDecoration(
+                      color: isDark ? Colors.white.withValues(alpha: 0.25) : const Color(0xFFCBD5E1),
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  // Header
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'اختيار الصنف',
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Text(
+                            '${filtered.length} صنف',
+                            style: const TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 12,
+                              color: AppTheme.primary,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Search field
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                    child: TextField(
+                      autofocus: false,
+                      onChanged: (v) => setSheetState(() => searchQuery = v),
+                      style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo',
+                          fontSize: 14),
+                      decoration: InputDecoration(
+                        hintText: 'بحث سريع بالاسم أو الكود...',
+                        hintStyle: TextStyle(
+                            fontFamily: 'Cairo',
+                            color: isDark ? Colors.white.withValues(alpha: 0.35) : Colors.black54,
+                            fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                            fontSize: 13),
+                        prefixIcon: Icon(Icons.search,
+                            color: isDark ? AppTheme.textSecondary : Colors.black54, size: 20),
+                        filled: true,
+                        fillColor: isDark ? Colors.white.withValues(alpha: 0.07) : const Color(0xFFF8FAFC),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                              color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                              color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                      ),
+                    ),
+                  ),
+                  Divider(
+                      color: isDark ? const Color(0x22FFFFFF) : const Color(0xFFE2E8F0),
+                      height: 1),
+                  // Items grid/list
+                  Expanded(
+                    child: filtered.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.inbox_outlined,
+                                    size: 48,
+                                    color: isDark
+                                        ? Colors.white.withValues(alpha: 0.2)
+                                        : Colors.black26),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'لا توجد أصناف متطابقة',
+                                  style: TextStyle(
+                                      fontFamily: 'Cairo',
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: isDark
+                                          ? Colors.white.withValues(alpha: 0.4)
+                                          : Colors.black54),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.separated(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            itemCount: filtered.length,
+                            separatorBuilder: (_, __) => const SizedBox(height: 6),
+                            itemBuilder: (ctx, i) {
+                              final ft = filtered[i];
+                              final isSelected = ft.id == _selectedProductId;
+                              final priceText = ft.latestPurchasePrice != null
+                                  ? '${ft.latestPurchasePrice!.toStringAsFixed(2)} ${SupplierModel.getCurrencySymbol(ft.currency)}'
+                                  : null;
+                              return GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedProductId = ft.id;
+                                    _productNameCtrl.text = ft.name;
+                                    _productController.text = ft.name;
+                                  });
+                                  Navigator.of(ctx).pop();
+                                },
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 200),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? AppTheme.primary.withValues(alpha: 0.15)
+                                        : (isDark
+                                            ? Colors.white.withValues(alpha: 0.04)
+                                            : const Color(0xFFF8FAFC)),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: isSelected
+                                          ? AppTheme.primary
+                                          : (isDark
+                                              ? Colors.white.withValues(alpha: 0.08)
+                                              : const Color(0xFFE2E8F0)),
+                                      width: isSelected ? 1.5 : 1,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      // Code badge
+                                      Container(
+                                        width: 44,
+                                        height: 44,
+                                        decoration: BoxDecoration(
+                                          gradient: LinearGradient(
+                                            colors: isSelected
+                                                ? [AppTheme.primary, AppTheme.primary.withValues(alpha: 0.7)]
+                                                : [const Color(0xFF1A3A5C), const Color(0xFF0F2744)],
+                                          ),
+                                          borderRadius: BorderRadius.circular(10),
+                                        ),
+                                        child: Center(
+                                          child: Text(
+                                            ft.code,
+                                            style: TextStyle(
+                                              fontFamily: 'Cairo',
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: isSelected ? Colors.white : AppTheme.primary,
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      // Name & price
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              ft.name,
+                                              style: TextStyle(
+                                                fontFamily: 'Cairo',
+                                                fontSize: 14,
+                                                fontWeight: FontWeight.bold,
+                                                color: isSelected
+                                                    ? AppTheme.primary
+                                                    : (isDark ? Colors.white : Colors.black),
+                                              ),
+                                            ),
+                                            if (priceText != null)
+                                              Text(
+                                                'آخر سعر: $priceText',
+                                                style: TextStyle(
+                                                  fontFamily: 'Cairo',
+                                                  fontSize: 11,
+                                                  fontWeight: FontWeight.bold,
+                                                  color: isDark
+                                                      ? Colors.white.withValues(alpha: 0.45)
+                                                      : Colors.black87,
+                                                ),
+                                              ),
+                                          ],
+                                        ),
+                                      ),
+                                      // Currency + check
+                                      Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            ft.currency,
+                                            style: TextStyle(
+                                              fontFamily: 'Cairo',
+                                              fontSize: 11,
+                                              fontWeight: FontWeight.bold,
+                                              color: isDark
+                                                  ? Colors.white.withValues(alpha: 0.5)
+                                                  : Colors.black87,
+                                            ),
+                                          ),
+                                          if (isSelected)
+                                            const Icon(Icons.check_circle, size: 18, color: AppTheme.primary),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+
   Widget _buildSupplierDropdown() {
+    final isDark = AppTheme.isDark(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         RichText(
-          text: const TextSpan(
+          text: TextSpan(
             text: 'المورد',
             style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textSecondary,
+              fontWeight: FontWeight.bold,
+              color: isDark ? AppTheme.textSecondary : Colors.black,
               fontFamily: 'Cairo',
             ),
-            children: [
+            children: const [
               TextSpan(
                 text: ' *',
                 style: TextStyle(color: AppTheme.danger),
@@ -550,27 +1156,39 @@ class _LotFormPageState extends State<LotFormPage> {
           hideOnEmpty: true,
           hideOnError: true,
           suggestionsCallback: (pattern) {
-            if (pattern.isEmpty) return _suppliers;
+            final cropSuppliers = _suppliers.where((s) => s.isCropSupplier).toList();
+            if (pattern.isEmpty) return cropSuppliers;
             final lower = pattern.toLowerCase();
-            return _suppliers.where((s) {
+            return cropSuppliers.where((s) {
               return s.displayName.toLowerCase().contains(lower) ||
-                  (s.supplierCode?.toLowerCase().contains(lower) ?? false) ||
-                  (s.name?.toLowerCase().contains(lower) ?? false);
+                  s.supplierCode.toLowerCase().contains(lower) ||
+                  s.name.toLowerCase().contains(lower);
             }).toList();
           },
           itemBuilder: (context, supplier) {
             return ListTile(
               dense: true,
               title: Text(supplier.displayName,
-                  style: const TextStyle(fontFamily: 'Cairo', fontSize: 13)),
+                  style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black)),
             );
           },
           onSelected: (supplier) {
             setState(() {
               final oldCurrency = _currency;
               _selectedSupplierId = supplier.id;
-              _currency = supplier.currency;
-              if (oldCurrency != supplier.currency) {
+              _isMultiCurrencySupplier = supplier.supportsMultiCurrency;
+              if (supplier.supportsMultiCurrency) {
+                _supplierCurrencies = supplier.supportedCurrencies;
+                _currency = supplier.getCurrencyForTransactionType('crop');
+              } else {
+                _supplierCurrencies = [];
+                _currency = supplier.currency;
+              }
+              if (oldCurrency != _currency) {
                 _selectedProductId = null;
                 _productNameCtrl.clear();
                 _productController.clear();
@@ -580,6 +1198,7 @@ class _LotFormPageState extends State<LotFormPage> {
                 _exchangeRateCtrl.text = '';
               }
             });
+            _fetchExchangeRate();
             _supplierController.text = supplier.displayName;
           },
           builder: (context, controller, focusNode) {
@@ -587,16 +1206,19 @@ class _LotFormPageState extends State<LotFormPage> {
               enabled: _canEdit,
               controller: controller,
               focusNode: focusNode,
-              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+              style: _inputTextStyle,
               decoration: InputDecoration(
                 hintText: 'ابحث بالاسم أو الكود...',
                 hintStyle: TextStyle(
                   fontFamily: 'Cairo',
-                  color: Colors.white.withValues(alpha: 0.35),
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                  color: isDark ? Colors.white.withValues(alpha: 0.35) : Colors.black54,
                 ),
                 suffixIcon: _selectedSupplierId != null && _canEdit
                     ? IconButton(
-                        icon: const Icon(Icons.clear, size: 18),
+                        icon: Icon(Icons.clear,
+                            size: 18,
+                            color: isDark ? Colors.white : Colors.black),
                         onPressed: () {
                           setState(() => _selectedSupplierId = null);
                           _supplierController.clear();
@@ -605,18 +1227,18 @@ class _LotFormPageState extends State<LotFormPage> {
                     : const Icon(Icons.search,
                         size: 20, color: AppTheme.primary),
                 filled: true,
-                fillColor: Colors.white.withValues(alpha: 0.06),
+                fillColor: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF8FAFC),
                 contentPadding:
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
                   borderSide:
-                      BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                      BorderSide(color: isDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1)),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
                   borderSide:
-                      BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                      BorderSide(color: isDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1)),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(14),
@@ -631,16 +1253,24 @@ class _LotFormPageState extends State<LotFormPage> {
               type: MaterialType.card,
               elevation: 8,
               borderRadius: BorderRadius.circular(14),
-              color: const Color(0xFF0A1E38),
-              shadowColor: Colors.black.withValues(alpha: 0.4),
-              child: ClipRRect(
-                borderRadius: BorderRadius.circular(14),
-                child: child,
+              color: isDark ? const Color(0xFF0A1E38) : Colors.white,
+              shadowColor: Colors.black.withValues(alpha: isDark ? 0.4 : 0.1),
+              child: Container(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                    color: isDark ? Colors.transparent : const Color(0xFFCBD5E1),
+                  ),
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: child,
+                ),
               ),
             );
           },
         ),
-        if (_selectedSupplierId != null)
+        if (_selectedSupplierId != null && !_isMultiCurrencySupplier)
           Padding(
             padding: const EdgeInsets.only(top: 6, right: 4),
             child: Container(
@@ -657,7 +1287,11 @@ class _LotFormPageState extends State<LotFormPage> {
                   const SizedBox(width: 6),
                   Text(
                     'عملة المورد: $_currency',
-                    style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.warning, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? AppTheme.warning : const Color(0xFFB45309),
+                        fontFamily: 'Cairo'),
                   ),
                 ],
               ),
@@ -680,7 +1314,7 @@ class _LotFormPageState extends State<LotFormPage> {
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
             ],
-            style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+            style: _inputTextStyle,
             onChanged: (v) {
               _exchangeRate = double.tryParse(v) ?? 0.0;
               _updateExpectedAmount();
@@ -696,7 +1330,142 @@ class _LotFormPageState extends State<LotFormPage> {
     );
   }
 
+  /// Currency dropdown for multi-currency suppliers
+  Widget _buildCurrencyDropdown() {
+    final isDark = AppTheme.isDark(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        RichText(
+          text: TextSpan(
+            text: 'عملة الشراء',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: isDark ? AppTheme.textSecondary : Colors.black,
+              fontFamily: 'Cairo',
+            ),
+            children: const [
+              TextSpan(
+                text: ' *',
+                style: TextStyle(color: AppTheme.danger),
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 8),
+        Container(
+          decoration: BoxDecoration(
+            color: isDark ? Colors.transparent : const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(14),
+            border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(alpha: 0.12)
+                    : const Color(0xFFCBD5E1)),
+          ),
+          child: DropdownButtonFormField<String>(
+            value: _supplierCurrencies.contains(_currency) ? _currency : null,
+            items: _supplierCurrencies.map((cur) {
+              final symbol = SupplierModel.getCurrencySymbol(cur);
+              return DropdownMenuItem<String>(
+                value: cur,
+                child: Text(
+                  '$cur ($symbol)',
+                  style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                      fontSize: 14),
+                ),
+              );
+            }).toList(),
+            onChanged: _canEdit ? (value) {
+              if (value != null && value != _currency) {
+                setState(() {
+                  final oldCurrency = _currency;
+                  _currency = value;
+                  if (oldCurrency != _currency) {
+                    _selectedProductId = null;
+                    _productNameCtrl.clear();
+                    _productController.clear();
+                  }
+                  if (_currency.toUpperCase() == 'EGP') {
+                    _exchangeRate = 1.0;
+                    _exchangeRateCtrl.text = '';
+                  }
+                });
+                _fetchExchangeRate();
+              }
+            } : null,
+            decoration: InputDecoration(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              border: InputBorder.none,
+              prefixIcon: const Icon(Icons.currency_exchange, color: AppTheme.primary, size: 20),
+              hintText: 'اختر العملة',
+              hintStyle: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                  color: isDark ? Colors.white.withValues(alpha: 0.35) : Colors.black54),
+            ),
+            dropdownColor: isDark ? const Color(0xFF0A1E38) : Colors.white,
+            style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Cairo'),
+            icon: Icon(Icons.arrow_drop_down,
+                color: isDark ? AppTheme.textSecondary : Colors.black),
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(Icons.info_outline, size: 14, color: AppTheme.primary),
+              const SizedBox(width: 6),
+              Text(
+                'مورد متعدد العملات — العملة المختارة: $_currency',
+                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: AppTheme.primary, fontFamily: 'Cairo'),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Fetch exchange rate from CurrencyConversionService for the selected currency
+  Future<void> _fetchExchangeRate() async {
+    if (_currency.toUpperCase() == 'EGP') {
+      setState(() {
+        _exchangeRate = 1.0;
+        _exchangeRateCtrl.text = '';
+      });
+      _updateExpectedAmount();
+      return;
+    }
+    try {
+      final rate = await CurrencyConversionService.instance.getRate(_currency);
+      if (mounted) {
+        setState(() {
+          _exchangeRate = rate;
+          _exchangeRateCtrl.text = rate.toStringAsFixed(2);
+        });
+        _updateExpectedAmount();
+      }
+    } catch (_) {
+      // Keep existing rate if fetch fails
+    }
+  }
+
   Widget _buildDatePicker() {
+    final isDark = AppTheme.isDark(context);
     return GestureDetector(
       onTap: !_canEdit ? null : () async {
         final date = await showDatePicker(
@@ -705,9 +1474,13 @@ class _LotFormPageState extends State<LotFormPage> {
           firstDate: DateTime(2020),
           lastDate: DateTime(2030),
           builder: (context, child) => Theme(
-            data: ThemeData.dark().copyWith(
-              colorScheme: const ColorScheme.dark(primary: AppTheme.primary),
-            ),
+            data: isDark
+                ? ThemeData.dark().copyWith(
+                    colorScheme: const ColorScheme.dark(primary: AppTheme.primary),
+                  )
+                : ThemeData.light().copyWith(
+                    colorScheme: const ColorScheme.light(primary: AppTheme.primary),
+                  ),
             child: child!,
           ),
         );
@@ -716,36 +1489,38 @@ class _LotFormPageState extends State<LotFormPage> {
       child: AbsorbPointer(
         child: TextFormField(
           decoration: _inputDecoration('تاريخ الشراء / التوريد',
-              suffix: const Icon(Icons.calendar_today,
-                  color: AppTheme.textSecondary, size: 18)),
+              suffix: Icon(Icons.calendar_today,
+                  color: isDark ? AppTheme.textSecondary : Colors.black, size: 18)),
           controller: TextEditingController(
             text:
                 '${_receiptDate.year}-${_receiptDate.month.toString().padLeft(2, '0')}-${_receiptDate.day.toString().padLeft(2, '0')}',
           ),
-          style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+          style: _readOnlyTextStyle,
         ),
       ),
     );
   }
 
   Widget _buildPurchaseModeToggle() {
+    final isDark = AppTheme.isDark(context);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('طريقة الشراء',
+        Text('طريقة الشراء',
             style: TextStyle(
-                color: AppTheme.textSecondary,
+                color: isDark ? AppTheme.textSecondary : Colors.black,
                 fontSize: 14,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo')),
         const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
               child: RadioListTile<String>(
-                title: const Text('بالوزن',
+                title: Text('بالوزن',
                     style: TextStyle(
-                        color: AppTheme.textPrimary,
+                        color: isDark ? AppTheme.textPrimary : Colors.black,
+                        fontWeight: FontWeight.bold,
                         fontSize: 13,
                         fontFamily: 'Cairo')),
                 value: 'weight',
@@ -766,9 +1541,10 @@ class _LotFormPageState extends State<LotFormPage> {
             ),
             Expanded(
               child: RadioListTile<String>(
-                title: const Text('بالكرتون',
+                title: Text('بالكرتون',
                     style: TextStyle(
-                        color: AppTheme.textPrimary,
+                        color: isDark ? AppTheme.textPrimary : Colors.black,
+                        fontWeight: FontWeight.bold,
                         fontSize: 13,
                         fontFamily: 'Cairo')),
                 value: 'carton',
@@ -801,9 +1577,7 @@ class _LotFormPageState extends State<LotFormPage> {
       inputFormatters: [
         FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
       ],
-      style: const TextStyle(
-          color: Colors.white,
-          fontFamily: 'Cairo'),
+      style: _inputTextStyle,
       onChanged: (_) { _updateExpectedAmount(); setState(() {}); },
       validator: (v) {
         if (_purchaseMode != 'carton') return null;
@@ -823,9 +1597,7 @@ class _LotFormPageState extends State<LotFormPage> {
       inputFormatters: [
         FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
       ],
-      style: const TextStyle(
-          color: Colors.white,
-          fontFamily: 'Cairo'),
+      style: _inputTextStyle,
       onChanged: (_) => _updateExpectedAmount(),
       validator: (v) {
         if (_purchaseMode != 'carton') return null;
@@ -845,9 +1617,7 @@ class _LotFormPageState extends State<LotFormPage> {
       inputFormatters: [
         FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
       ],
-      style: const TextStyle(
-          color: Colors.white,
-          fontFamily: 'Cairo'),
+      style: _inputTextStyle,
       onChanged: (_) => _updateExpectedAmount(),
       validator: (v) {
         if (_purchaseMode != 'carton') return null;
@@ -867,9 +1637,7 @@ class _LotFormPageState extends State<LotFormPage> {
       inputFormatters: [
         FilteringTextInputFormatter.digitsOnly,
       ],
-      style: const TextStyle(
-          color: Colors.white,
-          fontFamily: 'Cairo'),
+      style: _inputTextStyle,
       onChanged: (_) { _updateExpectedAmount(); setState(() {}); },
       validator: (v) {
         if (_purchaseMode != 'carton') return null;
@@ -883,6 +1651,7 @@ class _LotFormPageState extends State<LotFormPage> {
   }
 
   Widget _buildPricePerCartonField() {
+    final isDark = AppTheme.isDark(context);
     return TextFormField(
       controller: _pricePerCartonCtrl,
       decoration: _inputDecoration('سعر الكرتونة الواحدة ($_currency) *',
@@ -890,8 +1659,9 @@ class _LotFormPageState extends State<LotFormPage> {
           suffix: Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Text(_currency,
-                style: const TextStyle(
-                    color: AppTheme.textSecondary,
+                style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                    fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo',
                     fontSize: 13)),
           )),
@@ -899,9 +1669,7 @@ class _LotFormPageState extends State<LotFormPage> {
       inputFormatters: [
         FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
       ],
-      style: const TextStyle(
-          color: Colors.white,
-          fontFamily: 'Cairo'),
+      style: _inputTextStyle,
       onChanged: (_) => _updateExpectedAmount(),
       validator: (v) {
         if (_purchaseMode != 'carton') return null;
@@ -923,10 +1691,7 @@ class _LotFormPageState extends State<LotFormPage> {
       inputFormatters: [
         FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
       ],
-      style: TextStyle(
-        color: readOnly ? AppTheme.textSecondary : Colors.white,
-        fontFamily: 'Cairo',
-      ),
+      style: readOnly ? _readOnlyTextStyle : _inputTextStyle,
       onChanged: readOnly ? null : (_) => setState(() {}),
       validator: (v) {
         if (readOnly) return null;
@@ -950,9 +1715,7 @@ class _LotFormPageState extends State<LotFormPage> {
       inputFormatters: [
         FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*')),
       ],
-      style: const TextStyle(
-          color: Colors.white,
-          fontFamily: 'Cairo'),
+      style: _inputTextStyle,
       onChanged: (_) => setState(() {}),
       validator: (v) {
         final val = double.tryParse(v ?? '') ?? 0;
@@ -963,54 +1726,309 @@ class _LotFormPageState extends State<LotFormPage> {
   }
 
   Widget _buildExpectedAmountField() {
+    final isDark = AppTheme.isDark(context);
     final isCarton = _purchaseMode == 'carton';
     final expectedAmount = double.tryParse(_expectedSupplierAmountCtrl.text) ?? 0;
     final expectedAmountEgp = expectedAmount * _exchangeRate;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        TextFormField(
-          controller: _expectedSupplierAmountCtrl,
-          decoration: _inputDecoration(
-            'المبلغ المتوقع للمورد ($_currency)',
-            hint: isCarton ? 'عدد الكراتين × سعر الكرتونة' : 'الوزن الإجمالي × سعر الشراء',
-            suffix: Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: Text(_currency,
-                  style: TextStyle(
-                      color: AppTheme.textSecondary,
-                      fontFamily: 'Cairo',
-                      fontSize: 13)),
-            ),
-          ),
-          readOnly: true,
-          style: const TextStyle(
-              color: AppTheme.primary,
-              fontFamily: 'Cairo',
-              fontWeight: FontWeight.bold,
-              fontSize: 14),
-          enabled: false,
-          textAlign: TextAlign.left,
+    final currencySymbol = CropPurchaseCalculationService.formatCurrencySymbol(_currency);
+
+    // Derived values for gross vs net comparison
+    final double grossWt;
+    final double netWt;
+    final double effectiveUnitCost;
+    final String formulaText;
+
+    if (isCarton) {
+      final cartonCount = (double.tryParse(_cartonCountCtrl.text) ?? 0).toInt();
+      final pricePerCarton = double.tryParse(_pricePerCartonCtrl.text) ?? 0;
+      final weightPerCarton = double.tryParse(_weightPerCartonCtrl.text) ?? 0;
+      final netCartons = int.tryParse(_netWeightCtrl.text) ?? cartonCount;
+      grossWt = cartonCount * weightPerCarton;
+      netWt = netCartons * weightPerCarton;
+      effectiveUnitCost = netWt > 0 ? (expectedAmount / netWt) : 0.0;
+      formulaText = '$cartonCount كرتونة (إجمالي) × ${pricePerCarton.toStringAsFixed(2)} $currencySymbol';
+    } else {
+      grossWt = double.tryParse(_grossWeightCtrl.text) ?? 0;
+      netWt = double.tryParse(_netWeightCtrl.text) ?? grossWt;
+      final unitCost = double.tryParse(_unitCostCtrl.text) ?? 0;
+      effectiveUnitCost = netWt > 0 ? (expectedAmount / netWt) : unitCost;
+      formulaText = '${grossWt.toStringAsFixed(2)} كجم (إجمالي) × ${unitCost.toStringAsFixed(2)} $currencySymbol';
+    }
+
+    final hasTareWaste = grossWt > 0 && netWt > 0 && (grossWt - netWt) > 0.001;
+    final tareAmount = (grossWt - netWt).clamp(0.0, double.infinity);
+    final tarePercent = grossWt > 0 ? (tareAmount / grossWt) * 100 : 0.0;
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: isDark
+            ? const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: [
+                  Color(0xFF0F2642),
+                  Color(0xFF08182B),
+                ],
+              )
+            : null,
+        color: isDark ? null : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? AppTheme.primary.withValues(alpha: 0.35) : const Color(0xFFCBD5E1),
+          width: 1.5,
         ),
-        if (_currency.toUpperCase() != 'EGP' && _exchangeRate > 0) ...[
-          const SizedBox(height: 4),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.35 : 0.06),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Section 1: Financial Liability to Supplier (Gross Basis) ──
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.primary.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppTheme.primary.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.receipt_long,
+                  color: AppTheme.primary,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'المبلغ المستحق للمورد (حساب على الإجمالي)',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppTheme.success.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: AppTheme.success.withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: const Text(
+                            'دائن للمورد',
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.success,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${expectedAmount.toStringAsFixed(2)} $_currency',
+                      style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.w900,
+                        fontSize: 22,
+                        color: isDark ? AppTheme.primary : Colors.black,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    // Formula preview pill
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isDark
+                            ? Colors.white.withValues(alpha: 0.06)
+                            : const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'معادلة الحساب: $formulaText',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 12,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : Colors.black,
+                        ),
+                      ),
+                    ),
+                    if (_currency.toUpperCase() != 'EGP' && _exchangeRate > 0) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'المعادل بالجنيه المصري: ${expectedAmountEgp.toStringAsFixed(2)} ج.م (سعر صرف ${_exchangeRate.toStringAsFixed(2)})',
+                        style: TextStyle(
+                          color: isDark ? AppTheme.cyan : const Color(0xFF0369A1),
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
+          ),
+
           Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Text(
-              'بالجنيه المصري: ${expectedAmountEgp.toStringAsFixed(2)} ج.م',
-              style: const TextStyle(
+            padding: const EdgeInsets.symmetric(vertical: 12),
+            child: Divider(
+                color: isDark ? const Color(0x22FFFFFF) : const Color(0xFFCBD5E1),
+                height: 1),
+          ),
+
+          // ── Section 2: Physical Inventory Tracking (Net Basis) ──
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: AppTheme.cyan.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: AppTheme.cyan.withValues(alpha: 0.3),
+                  ),
+                ),
+                child: const Icon(
+                  Icons.inventory_2_outlined,
                   color: AppTheme.cyan,
-                  fontFamily: 'Cairo',
-                  fontWeight: FontWeight.bold,
-                  fontSize: 13),
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          'المخزون الفعلي بالمستودع (تتبع على الصافي)',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
+                            fontSize: 13,
+                            color: isDark ? Colors.white : Colors.black,
+                          ),
+                        ),
+                        const Spacer(),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: AppTheme.cyan.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: AppTheme.cyan.withValues(alpha: 0.35),
+                            ),
+                          ),
+                          child: const Text(
+                            'مدين مخزون',
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                              color: AppTheme.cyan,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        _buildSummaryBadge(
+                          icon: Icons.scale,
+                          label: 'الوزن الصافي: ${netWt.toStringAsFixed(2)} كجم',
+                          color: AppTheme.cyan,
+                        ),
+                        if (effectiveUnitCost > 0)
+                          _buildSummaryBadge(
+                            icon: Icons.calculate_outlined,
+                            label: 'التكلفة المستوعبة: ${effectiveUnitCost.toStringAsFixed(2)} $currencySymbol/كجم صافي',
+                            color: isDark ? Colors.amberAccent : const Color(0xFFB45309),
+                          ),
+                        if (hasTareWaste)
+                          _buildSummaryBadge(
+                            icon: Icons.remove_circle_outline,
+                            label: 'فوارغ وشوائب: ${tareAmount.toStringAsFixed(2)} كجم (${tarePercent.toStringAsFixed(1)}%)',
+                            color: AppTheme.warning,
+                          ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSummaryBadge({
+    required IconData icon,
+    required String label,
+    required Color color,
+  }) {
+    final isDark = AppTheme.isDark(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: isDark ? 0.12 : 0.08),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: color.withValues(alpha: isDark ? 0.25 : 0.4),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 13, color: color),
+          const SizedBox(width: 5),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.bold,
+              color: isDark ? color : Colors.black,
+              fontFamily: 'Cairo',
             ),
           ),
         ],
-      ],
+      ),
     );
   }
 
   Widget _buildPaidAmountField() {
+    final isDark = AppTheme.isDark(context);
     final expectedAmount = double.tryParse(_expectedSupplierAmountCtrl.text) ?? 0;
     final paidAmount = double.tryParse(_paidAmountCtrl.text) ?? 0;
     final remaining = expectedAmount - paidAmount;
@@ -1026,7 +2044,8 @@ class _LotFormPageState extends State<LotFormPage> {
               padding: const EdgeInsets.only(right: 8),
               child: Text(_currency,
                   style: TextStyle(
-                      color: AppTheme.textSecondary,
+                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',
                       fontSize: 13)),
             ),
@@ -1035,10 +2054,7 @@ class _LotFormPageState extends State<LotFormPage> {
           inputFormatters: [
             FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}')),
           ],
-          style: const TextStyle(
-              color: Colors.white,
-              fontFamily: 'Cairo',
-              fontSize: 14),
+          style: _inputTextStyle,
           textAlign: TextAlign.left,
           onChanged: (_) => setState(() {}),
         ),
@@ -1048,8 +2064,8 @@ class _LotFormPageState extends State<LotFormPage> {
             padding: const EdgeInsets.only(right: 4),
             child: Text(
               'المتبقي للمورد: ${remaining.toStringAsFixed(2)} $_currency',
-              style: const TextStyle(
-                  color: AppTheme.warning,
+              style: TextStyle(
+                  color: isDark ? AppTheme.warning : const Color(0xFFB45309),
                   fontFamily: 'Cairo',
                   fontWeight: FontWeight.bold,
                   fontSize: 12),
@@ -1062,9 +2078,10 @@ class _LotFormPageState extends State<LotFormPage> {
             padding: const EdgeInsets.only(right: 4),
             child: Text(
               'بالجنيه المصري: ${(paidAmount * _exchangeRate).toStringAsFixed(2)} ج.م',
-              style: const TextStyle(
-                  color: AppTheme.textSecondary,
+              style: TextStyle(
+                  color: isDark ? AppTheme.textSecondary : Colors.black,
                   fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
                   fontSize: 12),
             ),
           ),
@@ -1074,16 +2091,23 @@ class _LotFormPageState extends State<LotFormPage> {
   }
 
   Widget _buildStationDropdown() {
+    final isDark = AppTheme.isDark(context);
     return DropdownButtonFormField<int>(
       value: _selectedStationId,
       decoration: _inputDecoration('المحطة *'),
-      dropdownColor: const Color(0xFF05192D),
-      style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+      dropdownColor: isDark ? const Color(0xFF05192D) : Colors.white,
+      style: TextStyle(
+          color: isDark ? Colors.white : Colors.black,
+          fontWeight: FontWeight.bold,
+          fontFamily: 'Cairo'),
       items: _stations
           .map((s) => DropdownMenuItem<int>(
                 value: int.parse(s.id ?? '0'),
-                child:
-                    Text(s.name, style: const TextStyle(fontFamily: 'Cairo')),
+                child: Text(s.name,
+                    style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo')),
               ))
           .toList(),
       onChanged: !_canEdit ? null : (v) => setState(() => _selectedStationId = v),
@@ -1092,6 +2116,7 @@ class _LotFormPageState extends State<LotFormPage> {
   }
 
   Widget _buildPaymentSourceDropdown() {
+    final isDark = AppTheme.isDark(context);
     final paid = double.tryParse(_paidAmountCtrl.text) ?? 0.0;
     if (paid <= 0) return const SizedBox.shrink();
     if (_treasuries.isEmpty && _bankAccounts.isEmpty) {
@@ -1144,8 +2169,8 @@ class _LotFormPageState extends State<LotFormPage> {
         children: [
           Text('الخزينة/البنك *:',
               style: TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontWeight: FontWeight.w600,
+                  color: isDark ? AppTheme.textSecondary : Colors.black,
+                  fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo',
                   fontSize: 14)),
           const SizedBox(width: 12),
@@ -1153,14 +2178,28 @@ class _LotFormPageState extends State<LotFormPage> {
             child: DropdownButtonFormField<String>(
               value: dropdownValue,
               isExpanded: true,
-              dropdownColor: const Color(0xFF0A2A4A),
-              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+              dropdownColor: isDark ? const Color(0xFF0A2A4A) : Colors.white,
+              style: TextStyle(
+                  color: isDark ? Colors.white : Colors.black,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo',
+                  fontSize: 13),
               decoration: InputDecoration(
                 labelText: 'اختر الخزينة أو الحساب البنكي',
-                labelStyle: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+                labelStyle: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo'),
                 filled: true,
-                fillColor: const Color(0x3805192D),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.glassBorder)),
+                fillColor: isDark ? const Color(0x3805192D) : const Color(0xFFF8FAFC),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(
+                        color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(
+                        color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
               ),
               items: [
@@ -1184,7 +2223,10 @@ class _LotFormPageState extends State<LotFormPage> {
                             Expanded(
                               child: Text(
                                 'خزينة - $tName ($currency) — ${balance.toStringAsFixed(2)}',
-                                style: const TextStyle(fontSize: 12),
+                                style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark ? Colors.white : Colors.black),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -1209,7 +2251,10 @@ class _LotFormPageState extends State<LotFormPage> {
                         Expanded(
                           child: Text(
                             'بنك - ${b['name']} (${(b['currency']?.toString() ?? '').toUpperCase()}) — ${balance.toStringAsFixed(2)}',
-                            style: const TextStyle(fontSize: 12),
+                            style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -1263,7 +2308,7 @@ class _LotFormPageState extends State<LotFormPage> {
       controller: _notesCtrl,
       decoration: _inputDecoration('ملاحظات', hint: 'ملاحظات إضافية...'),
       maxLines: 3,
-      style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+      style: _inputTextStyle,
     );
   }
 
@@ -1347,18 +2392,36 @@ class _LotFormPageState extends State<LotFormPage> {
 
   InputDecoration _inputDecoration(String label,
       {String? hint, Widget? suffix}) {
+    final isDark = AppTheme.isDark(context);
     return InputDecoration(
       labelText: label,
       hintText: hint,
-      hintStyle: const TextStyle(
-          color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo'),
-      labelStyle: const TextStyle(
-          color: AppTheme.textSecondary, fontSize: 14, fontFamily: 'Cairo'),
+      hintStyle: TextStyle(
+          color: isDark ? AppTheme.textSecondary : Colors.black54,
+          fontSize: 13,
+          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+          fontFamily: 'Cairo'),
+      labelStyle: TextStyle(
+          color: isDark ? AppTheme.textSecondary : Colors.black,
+          fontSize: 14,
+          fontWeight: FontWeight.bold,
+          fontFamily: 'Cairo'),
       suffixIcon: suffix,
       filled: true,
-      fillColor: const Color(0x1AFFFFFF),
+      fillColor: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF8FAFC),
       border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+              color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+      enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+              color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+      focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(
+              color: isDark ? AppTheme.primary : AppTheme.primary,
+              width: 1.5)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
     );
   }
@@ -1404,14 +2467,25 @@ class _LotFormPageState extends State<LotFormPage> {
 
       grossWt = cartonCount * weightPerCarton;
       netWt = netCartons * weightPerCarton;
-      totalProductCost = cartonCount * pricePerCarton;
+      totalProductCost = CropPurchaseCalculationService.calculateTotalAmount(
+        purchaseMethod: 'carton',
+        cartonCount: cartonCount,
+        pricePerCarton: pricePerCarton,
+      );
       unitCostKg = netWt > 0 ? totalProductCost / netWt : 0;
     } else {
       grossWt = double.tryParse(_grossWeightCtrl.text) ?? 0;
       netWt = double.tryParse(_netWeightCtrl.text) ?? grossWt;
       final enteredPrice = double.tryParse(_unitCostCtrl.text) ?? 0;
-      totalProductCost = grossWt * enteredPrice;
-      unitCostKg = netWt > 0 ? totalProductCost / netWt : 0;
+      // Weight mode: Financial liability to supplier = Gross Weight (الوزن الإجمالي) × Price per Kg
+      totalProductCost = CropPurchaseCalculationService.calculateTotalAmount(
+        purchaseMethod: 'weight',
+        grossWeightKg: grossWt > 0 ? grossWt : netWt,
+        netWeightKg: netWt,
+        pricePerKg: enteredPrice,
+      );
+      // Absorbed inventory unit cost per net kg (keeps double-entry inventory value balanced with supplier credit)
+      unitCostKg = netWt > 0 ? (totalProductCost / netWt) : enteredPrice;
     }
 
     setState(() => _saving = true);
@@ -1548,6 +2622,44 @@ class _LotFormPageState extends State<LotFormPage> {
           }
         }
 
+        // Record / update cost center transaction
+        try {
+          final supplierName = await _resolveSupplierName(lot.supplierId);
+          final isCarton = _purchaseMode == 'carton';
+          final cartonCount = (double.tryParse(_cartonCountCtrl.text) ?? 0).toInt();
+          final pricePerCarton = double.tryParse(_pricePerCartonCtrl.text) ?? 0;
+          final double qty = isCarton ? cartonCount.toDouble() : netWt;
+          final double unitPrice = isCarton ? pricePerCarton : (double.tryParse(_unitCostCtrl.text) ?? 0);
+          final formulaDesc = CropPurchaseCalculationService.buildFormulaDescription(
+            purchaseMethod: _purchaseMode,
+            cartonCount: cartonCount,
+            pricePerCarton: pricePerCarton,
+            grossWeightKg: grossWt,
+            netWeightKg: netWt,
+            pricePerKg: unitPrice,
+            totalAmount: totalProductCost,
+            currency: _currency,
+          );
+
+          await ProductCostCenterSyncService.instance.recordCropPurchaseTransaction(
+            sourceId: widget.lot!.id!,
+            fruitTypeId: _selectedProductId ?? lot.fruitTypeId,
+            cropName: productName,
+            supplierId: _selectedSupplierId ?? lot.supplierId,
+            supplierName: supplierName,
+            quantity: qty,
+            unitPrice: unitPrice,
+            totalCost: totalProductCost,
+            currency: _currency,
+            exchangeRate: _currency.toUpperCase() == 'EGP' ? 1.0 : (_exchangeRate > 0 ? _exchangeRate : 1.0),
+            date: _receiptDate,
+            notes: _notesCtrl.text.isNotEmpty ? '${_notesCtrl.text} ($formulaDesc)' : formulaDesc,
+            sourceType: 'lot_receipt',
+          );
+        } catch (e) {
+          debugPrint('⚠️ Cost center transaction recording notice: $e');
+        }
+
       } else {
         // ── INSERT new lot (draft) ──
         final result = await _dao.insert(lot);
@@ -1555,6 +2667,43 @@ class _LotFormPageState extends State<LotFormPage> {
         final lotNumber = result['lot_number']?.toString() ?? '';
         debugPrint('✅ Draft lot created: id=$lotId, lot_number=$lotNumber');
 
+        // Automatically record cost center transaction for this new crop purchase
+        try {
+          final supplierName = await _resolveSupplierName(_selectedSupplierId);
+          final isCarton = _purchaseMode == 'carton';
+          final cartonCount = (double.tryParse(_cartonCountCtrl.text) ?? 0).toInt();
+          final pricePerCarton = double.tryParse(_pricePerCartonCtrl.text) ?? 0;
+          final double qty = isCarton ? cartonCount.toDouble() : netWt;
+          final double unitPrice = isCarton ? pricePerCarton : (double.tryParse(_unitCostCtrl.text) ?? 0);
+          final formulaDesc = CropPurchaseCalculationService.buildFormulaDescription(
+            purchaseMethod: _purchaseMode,
+            cartonCount: cartonCount,
+            pricePerCarton: pricePerCarton,
+            grossWeightKg: grossWt,
+            netWeightKg: netWt,
+            pricePerKg: unitPrice,
+            totalAmount: totalProductCost,
+            currency: _currency,
+          );
+
+          await ProductCostCenterSyncService.instance.recordCropPurchaseTransaction(
+            sourceId: lotId,
+            fruitTypeId: _selectedProductId ?? '',
+            cropName: productName,
+            supplierId: _selectedSupplierId,
+            supplierName: supplierName,
+            quantity: qty,
+            unitPrice: unitPrice,
+            totalCost: totalProductCost,
+            currency: _currency,
+            exchangeRate: _currency.toUpperCase() == 'EGP' ? 1.0 : (_exchangeRate > 0 ? _exchangeRate : 1.0),
+            date: _receiptDate,
+            notes: _notesCtrl.text.isNotEmpty ? '${_notesCtrl.text} ($formulaDesc)' : formulaDesc,
+            sourceType: 'lot_receipt',
+          );
+        } catch (e) {
+          debugPrint('⚠️ Cost center transaction recording notice: $e');
+        }
       }
 
 

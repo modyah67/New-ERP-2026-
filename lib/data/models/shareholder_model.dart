@@ -1,4 +1,25 @@
 class ShareholderModel {
+  // ── Scalable 5-Digit Category Range Constants ──
+  static const int minCode = 30000;
+  static const int maxCode = 39999;
+  static const int capacity = 10000;
+  static const String codeHint = 'مثال: 30000 (نطاق 30000 - 39999)';
+
+  static String? validateShareholderCode(String? code) {
+    if (code == null || code.trim().isEmpty) {
+      return 'كود المساهم مطلوب';
+    }
+    final cleanCode = code.trim().replaceAll(RegExp(r'[^0-9]'), '');
+    final num = int.tryParse(cleanCode);
+    if (num == null) {
+      return 'يجب أن يحتوي الكود على أرقام فقط';
+    }
+    if (num < minCode || num > maxCode) {
+      return 'كود المساهم يجب أن يكون بين $minCode و $maxCode (السعة: $capacity مساهم)';
+    }
+    return null;
+  }
+
   final String? id;
   final String code;
   final String name;

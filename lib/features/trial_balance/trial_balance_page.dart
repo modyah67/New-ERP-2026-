@@ -72,16 +72,19 @@ class TrialBalancePage extends StatelessWidget {
       headerCountLabel: 'حساب',
       headerActions: [
         // Fullscreen button
-        IconButton(
-          onPressed: () => cubit.toggleFullscreen(),
-          icon: Icon(
-            state.isFullscreen
-                ? Icons.fullscreen_exit
-                : Icons.fullscreen,
-            color: AppTheme.textSecondary,
-          ),
-          tooltip: 'شاشة كاملة',
-        ),
+        Builder(builder: (ctx) {
+          final iconColor = AppTheme.getTextSecondary(ctx);
+          return IconButton(
+            onPressed: () => cubit.toggleFullscreen(),
+            icon: Icon(
+              state.isFullscreen
+                  ? Icons.fullscreen_exit
+                  : Icons.fullscreen,
+              color: iconColor,
+            ),
+            tooltip: 'شاشة كاملة',
+          );
+        }),
       ],
 
       // ── Filter ──
@@ -194,19 +197,25 @@ class TrialBalancePage extends StatelessWidget {
         ),
         const SizedBox(width: 12),
 
-        IconButton(
-          onPressed: () => cubit.expandAll(),
-          icon: Icon(Icons.unfold_more, size: 18, color: AppTheme.textSecondary),
-          tooltip: 'توسيع الكل',
-        ),
-        IconButton(
-          onPressed: () => cubit.collapseAll(),
-          icon: Icon(Icons.unfold_less, size: 18, color: AppTheme.textSecondary),
-          tooltip: 'طي الكل',
-        ),
+        Builder(builder: (ctx) {
+          final iconColor = AppTheme.getTextSecondary(ctx);
+          return Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              onPressed: () => cubit.expandAll(),
+              icon: Icon(Icons.unfold_more, size: 18, color: iconColor),
+              tooltip: 'توسيع الكل',
+            ),
+            IconButton(
+              onPressed: () => cubit.collapseAll(),
+              icon: Icon(Icons.unfold_less, size: 18, color: iconColor),
+              tooltip: 'طي الكل',
+            ),
+          ]);
+        }),
         const SizedBox(width: 12),
         // Date range chips
-        Text('من:', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Builder(builder: (ctx) => Text('من:',
+            style: TextStyle(fontSize: 12, color: AppTheme.getTextSecondary(ctx)))),
         const SizedBox(width: 6),
         ReportingDateChip(
           label: state.filter.fromDate != null
@@ -226,7 +235,8 @@ class TrialBalancePage extends StatelessWidget {
           },
         ),
         const SizedBox(width: 12),
-        Text('إلى:', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Builder(builder: (ctx) => Text('إلى:',
+            style: TextStyle(fontSize: 12, color: AppTheme.getTextSecondary(ctx)))),
         const SizedBox(width: 6),
         ReportingDateChip(
           label: state.filter.toDate != null
@@ -250,84 +260,94 @@ class TrialBalancePage extends StatelessWidget {
   }
 
   Widget _buildFooter(TrialBalanceReport report) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppTheme.primary.withAlpha(20),
-        border: Border(top: BorderSide(color: AppTheme.border.withAlpha(80), width: 1)),
-      ),
-      child: Row(
-        children: [
-          const SizedBox(width: 130),
-          const Expanded(
-            flex: 3,
-            child: Text(
-              'الإجمالي',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.textPrimary,
+    return Builder(builder: (context) {
+      final isDark = AppTheme.isDark(context);
+      final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+      final borderColor = AppTheme.getBorderColor(context);
+      final textPrimary = AppTheme.getTextPrimary(context);
+
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: primary.withAlpha(20),
+          border: Border(top: BorderSide(color: borderColor.withAlpha(80), width: 1)),
+        ),
+        child: Row(
+          children: [
+            const SizedBox(width: 130),
+            Expanded(
+              flex: 3,
+              child: Text(
+                'الإجمالي',
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: textPrimary,
+                ),
               ),
             ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              AppUtils.formatNumber(report.totalDebit),
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: AppTheme.success,
-                fontFamily: 'monospace',
+            Expanded(
+              flex: 2,
+              child: Text(
+                AppUtils.formatNumber(report.totalDebit),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: AppTheme.success,
+                  fontFamily: 'monospace',
+                ),
+                textAlign: TextAlign.right,
               ),
-              textAlign: TextAlign.right,
             ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              AppUtils.formatNumber(report.totalCredit),
-              style: const TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFFF4B400),
-                fontFamily: 'monospace',
+            Expanded(
+              flex: 2,
+              child: Text(
+                AppUtils.formatNumber(report.totalCredit),
+                style: const TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFFF4B400),
+                  fontFamily: 'monospace',
+                ),
+                textAlign: TextAlign.right,
               ),
-              textAlign: TextAlign.right,
             ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              AppUtils.formatNumber(report.difference),
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.bold,
-                color: report.isBalanced ? AppTheme.success : AppTheme.danger,
-                fontFamily: 'monospace',
+            Expanded(
+              flex: 2,
+              child: Text(
+                AppUtils.formatNumber(report.difference),
+                style: TextStyle(
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: report.isBalanced ? AppTheme.success : AppTheme.danger,
+                  fontFamily: 'monospace',
+                ),
+                textAlign: TextAlign.right,
               ),
-              textAlign: TextAlign.right,
             ),
-          ),
-          const SizedBox(width: 50),
-        ],
-      ),
-    );
+            const SizedBox(width: 50),
+          ],
+        ),
+      );
+    });
   }
 
   Widget _buildLoadingOrError(BuildContext context, TrialBalanceState state) {
     if (state is TrialBalanceLoading) {
-      return const Scaffold(
+      final isDark = AppTheme.isDark(context);
+      final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+      final textColor = AppTheme.getTextSecondary(context);
+      return Scaffold(
         backgroundColor: Colors.transparent,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(color: Color(0xFF16D5FF)),
-              SizedBox(height: 16),
+              CircularProgressIndicator(color: primary),
+              const SizedBox(height: 16),
               Text(
                 'جاري تحميل الميزان التجريبي...',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
+                style: TextStyle(color: textColor, fontSize: 14),
               ),
             ],
           ),
@@ -403,8 +423,11 @@ class TrialBalancePage extends StatelessWidget {
     }
 
     bool isLeafVisible(AccountHierarchy leaf) {
-      // Exclude 2100 branch and shadow accounts (2101, 2102, 2105, 5210)
-      if (['2100', '2101', '2102', '2105', '5210'].contains(leaf.code)) return false;
+      // Exclude 2100 branch, shadow accounts, and System Root 9000 intermediary branch
+      if (['2100', '2101', '2102', '2105', '2106', '2107', '5210', '9000', '9101', '9102', '9105', '9106', '9107', '9210'].contains(leaf.code) ||
+          leaf.code.startsWith('9')) {
+        return false;
+      }
       
       if (searchQuery.isNotEmpty && !matchedCodes.contains(leaf.code)) return false;
 
@@ -441,7 +464,10 @@ class TrialBalancePage extends StatelessWidget {
     final result = <ReportingRowData>[];
 
     void traverse(AccountHierarchy node) {
-      if (['2100', '2101', '2102', '2105', '5210'].contains(node.code)) return;
+      if (['2100', '2101', '2102', '2105', '2106', '2107', '5210', '9000', '9101', '9102', '9105', '9106', '9107', '9210'].contains(node.code) ||
+          node.code.startsWith('9')) {
+        return;
+      }
       if (!(hasVisibleLeafCache[node.id] ?? false)) return;
 
       if (!node.hasChildren) {

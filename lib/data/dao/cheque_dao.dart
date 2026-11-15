@@ -118,6 +118,8 @@ class ChequeDao {
     int? categoryId,
     int? expenseAccountId,
     int? treasuryId,
+    bool postLedger = true,
+    double? exchangeRate,
   }) async {
     final result = await _client.rpc('create_cheque', params: {
       'p_cheque_number': chequeNumber,
@@ -134,16 +136,25 @@ class ChequeDao {
       if (shippingCompanyId != null) 'p_shipping_company_id': shippingCompanyId,
       if (notes != null && notes.isNotEmpty) 'p_notes': notes,
       if (expenseAccountId != null) 'p_expense_account_id': expenseAccountId,
+      'p_post_ledger': postLedger,
     });
     final map = Map<String, dynamic>.from(result as Map);
     final id = (map['id'] as num).toInt();
 
-    // Store immutable currency snapshot + treasury_id + category_id
+    final rate = (exchangeRate != null && exchangeRate > 0)
+        ? exchangeRate
+        : await CurrencyConversionService.instance.getRate(currency);
+
+    final snapshot = CurrencyConversionService.instance.createSnapshot(
+      currency: currency,
+      amount: amount,
+      exchangeRate: rate,
+    );
+
     final updateData = <String, dynamic>{
-      'currency_snapshot': (await CurrencyConversionService.instance.createSnapshotFromDb(
-        currency: currency,
-        amount: amount,
-      )).toJson(),
+      'currency_snapshot': snapshot.toJson(),
+      'exchange_rate': rate,
+      'amount_in_base_currency': amount * rate,
     };
     if (categoryId != null) updateData['category_id'] = categoryId;
     if (treasuryId != null) updateData['treasury_id'] = treasuryId;
@@ -153,12 +164,14 @@ class ChequeDao {
     return id;
   }
 
-  Future<void> clearCheque(int id) async {
-    await _client.rpc('clear_cheque', params: {'p_cheque_id': id});
+  Future<Map<String, dynamic>> clearCheque(int id) async {
+    final result = await _client.rpc('clear_cheque', params: {'p_cheque_id': id});
+    return Map<String, dynamic>.from(result as Map);
   }
 
-  Future<void> cancelCheque(int id) async {
-    await _client.rpc('cancel_cheque', params: {'p_cheque_id': id});
+  Future<Map<String, dynamic>> cancelCheque(int id) async {
+    final result = await _client.rpc('cancel_cheque', params: {'p_cheque_id': id});
+    return Map<String, dynamic>.from(result as Map);
   }
 
   Future<void> receivePayment({

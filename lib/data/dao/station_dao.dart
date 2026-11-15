@@ -7,10 +7,36 @@ class StationDao {
 
   Future<String> generateNextCode() async {
     try {
-      final data = await _client.rpc('generate_next_station_code');
-      return data?.toString() ?? 'STA0001';
+      const minRange = 80000;
+      const maxRange = 85000; // 80000 to 84999
+      final response = await _client.from(_table).select('code');
+      int maxCode = minRange - 1;
+      for (var row in response) {
+        final codeStr = row['code']?.toString() ?? '';
+        final num = int.tryParse(codeStr.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        if (num >= minRange && num < maxRange && num > maxCode) maxCode = num;
+      }
+      if (maxCode < minRange) {
+        return minRange.toString();
+      }
+      return (maxCode + 1).toString();
     } catch (e) {
-      return 'STA0001';
+      return '80000';
+    }
+  }
+
+  /// Check if a station code already exists in the database to prevent collisions
+  Future<bool> checkCodeExists(String code, {String? excludeId}) async {
+    try {
+      final clean = code.trim();
+      var query = _client.from(_table).select('id').eq('code', clean);
+      if (excludeId != null && excludeId.isNotEmpty) {
+        query = query.neq('id', excludeId);
+      }
+      final res = await query.limit(1);
+      return res.isNotEmpty;
+    } catch (_) {
+      return false;
     }
   }
 

@@ -1,15 +1,16 @@
 import 'dart:async';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/data_change_event_bus.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../data/dao/fruit_type_dao.dart';
+import '../../data/models/fruit_type_group_model.dart';
 import '../../data/models/fruit_type_model.dart';
 import '../../data/services/inventory_export_service.dart';
 import 'fruit_type_form_dialog.dart';
 import 'fruit_type_detail_dialog.dart';
+import 'widgets/unified_fruit_card.dart';
 
 class FruitTypesPage extends StatefulWidget {
   const FruitTypesPage({super.key});
@@ -25,11 +26,12 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
 
   List<FruitTypeModel> _items = [];
   List<FruitTypeModel> _filteredItems = [];
+  List<FruitTypeGroupModel> _groups = [];
   Map<String, List<Map<String, dynamic>>> _warehouseDistribution = {};
   bool _loading = true;
   String _search = '';
-  String?
-      _selectedPurchaseMode; // null = الكل, 'weight' = الوزن, 'carton' = الكراتين
+  // null = الكل, 'weight' = الوزن, 'carton' = الكراتين, 'shared' = المشترك
+  String? _selectedPurchaseMode;
 
   StreamSubscription<void>? _stationsSub;
   StreamSubscription<void>? _cropPurchasesSub;
@@ -125,10 +127,17 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
     _filteredItems = _items.where((item) {
       if (_search.isNotEmpty) {
         final q = _search.toLowerCase();
+        final base = FruitTypeGroupModel.extractBaseName(item.name).toLowerCase();
         if (!item.name.toLowerCase().contains(q) &&
-            !item.code.toLowerCase().contains(q)) {
+            !item.code.toLowerCase().contains(q) &&
+            !base.contains(q)) {
           return false;
         }
+      }
+      if (_selectedPurchaseMode == 'shared') {
+        // Only include items whose base name appears in a dual-mode group
+        // We'll compute this during group building below
+        return true; // filtered further in group building
       }
       if (_selectedPurchaseMode != null) {
         final itemMode = item.purchaseMode ?? item.latestPurchaseMode;
@@ -136,6 +145,35 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
       }
       return true;
     }).toList();
+
+    // Build groups from all items (or filtered items for non-shared tabs)
+    final sourceForGroups = (_selectedPurchaseMode == null || _selectedPurchaseMode == 'shared')
+        ? _items
+        : _filteredItems;
+    final allGroups = FruitTypeGroupModel.groupFromItems(sourceForGroups);
+
+    // Apply search filter to groups
+    List<FruitTypeGroupModel> filtered = allGroups;
+    if (_search.isNotEmpty) {
+      final q = _search.toLowerCase();
+      filtered = allGroups.where((g) {
+        if (g.baseName.toLowerCase().contains(q)) return true;
+        return g.allItems.any((it) =>
+            it.name.toLowerCase().contains(q) ||
+            it.code.toLowerCase().contains(q));
+      }).toList();
+    }
+
+    // Filter by selected purchase mode
+    if (_selectedPurchaseMode == 'shared') {
+      filtered = filtered.where((g) => g.isDualMode).toList();
+    } else if (_selectedPurchaseMode == 'weight') {
+      filtered = filtered.where((g) => g.hasWeight && !g.isDualMode).toList();
+    } else if (_selectedPurchaseMode == 'carton') {
+      filtered = filtered.where((g) => g.hasCarton && !g.isDualMode).toList();
+    }
+
+    _groups = filtered;
   }
 
   void _onSearchChanged(String value) {
@@ -239,24 +277,25 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : AppTheme.lightBackground,
         body: Padding(
           padding: const EdgeInsets.all(24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(),
+              _buildHeader(isDark),
               const SizedBox(height: 16),
-              _buildSummaryStrip(),
+              _buildSummaryStrip(isDark),
               const SizedBox(height: 12),
-              _buildPurchaseModeTabs(),
+              _buildPurchaseModeTabs(isDark),
               const SizedBox(height: 12),
-              _buildSearchBar(),
+              _buildSearchBar(isDark),
               const SizedBox(height: 16),
-              Expanded(child: _buildGrid()),
+              Expanded(child: _buildGrid(isDark)),
             ],
           ),
         ),
@@ -266,7 +305,7 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
 
   // ── Header ──
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return LayoutBuilder(
       builder: (context, constraints) {
         final isNarrow = constraints.maxWidth < 700;
@@ -277,12 +316,13 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: AppTheme.primary.withValues(alpha: 0.12),
+                color: isDark ? AppTheme.primary.withValues(alpha: 0.12) : const Color(0xFFE0F2FE),
                 borderRadius: BorderRadius.circular(14),
-                border:
-                    Border.all(color: AppTheme.primary.withValues(alpha: 0.25)),
+                border: Border.all(
+                  color: isDark ? AppTheme.primary.withValues(alpha: 0.25) : const Color(0xFFBAE6FD),
+                ),
               ),
-              child: const Icon(Icons.eco, color: AppTheme.primary, size: 24),
+              child: Icon(Icons.eco, color: isDark ? AppTheme.primary : const Color(0xFF0284C7), size: 24),
             ),
             const SizedBox(width: 14),
             Flexible(
@@ -290,24 +330,27 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
+                  Text(
                     'أصناف الفاكهة',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        fontFamily: 'Cairo'),
+                      fontSize: 28,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black,
+                      fontFamily: 'Cairo',
+                    ),
                   ),
                   Text(
                     '${_items.length} صنف',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontFamily: 'Cairo',
-                        fontSize: 13),
+                    style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      fontFamily: 'Cairo',
+                      fontSize: 13,
+                    ),
                   ),
                 ],
               ),
@@ -322,13 +365,16 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
           children: [
             IconButton(
               icon: _loading
-                  ? const SizedBox(
+                  ? SizedBox(
                       width: 20,
                       height: 20,
                       child: CircularProgressIndicator(
-                          strokeWidth: 2, color: AppTheme.primary))
-                  : const Icon(Icons.refresh_outlined,
-                      color: AppTheme.textSecondary),
+                        strokeWidth: 2,
+                        color: isDark ? AppTheme.primary : AppTheme.lightPrimary,
+                      ),
+                    )
+                  : Icon(Icons.refresh_outlined,
+                      color: isDark ? AppTheme.textSecondary : Colors.black),
               tooltip: 'تحديث',
               onPressed: _loading ? null : _load,
             ),
@@ -340,7 +386,14 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
             ),
             ElevatedButton.icon(
               icon: const Icon(Icons.add, size: 18),
-              label: const Text('إضافة صنف'),
+              label: const Text('إضافة صنف',
+                  style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0284C7),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
               onPressed: () => _showForm(),
             ),
           ],
@@ -370,9 +423,9 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
 
   // ── شريط الإحصائيات العلوي ──
 
-  Widget _buildSummaryStrip() {
+  Widget _buildSummaryStrip(bool isDark) {
     return SizedBox(
-      height: 52,
+      height: 58,
       child: ListView(
         scrollDirection: Axis.horizontal,
         children: [
@@ -381,6 +434,7 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
             label: 'إجمالي الأصناف',
             value: '${_items.length}',
             color: AppTheme.primary,
+            isDark: isDark,
           ),
           const SizedBox(width: 10),
           _buildSummaryChip(
@@ -388,9 +442,10 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
             label: 'إجمالي الكمية',
             value: '${_formatQty(_totalQuantityAll)} كجم',
             color: AppTheme.warning,
+            isDark: isDark,
           ),
           const SizedBox(width: 10),
-          ..._buildValueChips(),
+          ..._buildValueChips(isDark),
           const SizedBox(width: 10),
           _buildSummaryChip(
             icon: Icons.warehouse_outlined,
@@ -405,6 +460,7 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
               return s;
             }).length}',
             color: AppTheme.info,
+            isDark: isDark,
           ),
         ],
       ),
@@ -416,13 +472,26 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
     required String label,
     required String value,
     required Color color,
+    required bool isDark,
   }) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
+        color: isDark ? color.withValues(alpha: 0.08) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(
+          color: isDark ? color.withValues(alpha: 0.2) : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -430,20 +499,30 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
           Icon(icon, size: 18, color: color),
           const SizedBox(width: 8),
           Column(
+            mainAxisSize: MainAxisSize.min,
             mainAxisAlignment: MainAxisAlignment.center,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(value,
-                  style: TextStyle(
-                      color: color,
-                      fontFamily: 'Cairo',
-                      fontWeight: FontWeight.bold,
-                      fontSize: 14)),
-              Text(label,
-                  style: TextStyle(
-                      color: AppTheme.textSecondary.withValues(alpha: 0.8),
-                      fontFamily: 'Cairo',
-                      fontSize: 10)),
+              Text(
+                value,
+                style: TextStyle(
+                  color: isDark ? color : Colors.black,
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  fontSize: 14,
+                  height: 1.15,
+                ),
+              ),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.8) : Colors.black,
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                  fontFamily: 'Cairo',
+                  fontSize: 10,
+                  height: 1.15,
+                ),
+              ),
             ],
           ),
         ],
@@ -458,7 +537,7 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
     'GBP': Color(0xFFE91E63),
   };
 
-  List<Widget> _buildValueChips() {
+  List<Widget> _buildValueChips(bool isDark) {
     final vbc = _totalValueByCurrency;
     if (vbc.isEmpty) {
       return [
@@ -467,6 +546,7 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
           label: 'قيمة المخزون',
           value: '—',
           color: AppTheme.accent,
+          isDark: isDark,
         )
       ];
     }
@@ -480,6 +560,7 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
         label: 'قيمة ${e.key}',
         value: '${AppUtils.formatNumber(e.value)} ${e.key}',
         color: color,
+        isDark: isDark,
       ));
       if (i < entries.length - 1) {
         widgets.add(const SizedBox(width: 10));
@@ -490,15 +571,11 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
 
   // ── فلتر طريقة الشراء ──
 
-  Widget _buildPurchaseModeTabs() {
-    final weightCount = _items.where((item) {
-      final mode = item.purchaseMode ?? item.latestPurchaseMode;
-      return mode == 'weight';
-    }).length;
-    final cartonCount = _items.where((item) {
-      final mode = item.purchaseMode ?? item.latestPurchaseMode;
-      return mode == 'carton';
-    }).length;
+  Widget _buildPurchaseModeTabs(bool isDark) {
+    final allGroups = FruitTypeGroupModel.groupFromItems(_items);
+    final weightCount = allGroups.where((g) => g.hasWeight && !g.isDualMode).length;
+    final cartonCount = allGroups.where((g) => g.hasCarton && !g.isDualMode).length;
+    final sharedCount = allGroups.where((g) => g.isDualMode).length;
 
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
@@ -508,9 +585,11 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
         children: [
           _buildModeTab(
             label: 'الكل',
-            count: _items.length,
+            count: allGroups.length,
             isSelected: _selectedPurchaseMode == null,
             color: AppTheme.primary,
+            icon: Icons.apps_outlined,
+            isDark: isDark,
             onTap: () {
               setState(() => _selectedPurchaseMode = null);
               _applyFilter();
@@ -522,6 +601,8 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
             count: weightCount,
             isSelected: _selectedPurchaseMode == 'weight',
             color: AppTheme.success,
+            icon: Icons.scale_outlined,
+            isDark: isDark,
             onTap: () {
               setState(() => _selectedPurchaseMode = 'weight');
               _applyFilter();
@@ -533,8 +614,23 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
             count: cartonCount,
             isSelected: _selectedPurchaseMode == 'carton',
             color: AppTheme.accent,
+            icon: Icons.inventory_2_outlined,
+            isDark: isDark,
             onTap: () {
               setState(() => _selectedPurchaseMode = 'carton');
+              _applyFilter();
+            },
+          ),
+          const SizedBox(width: 8),
+          _buildModeTab(
+            label: 'مشترك',
+            count: sharedCount,
+            isSelected: _selectedPurchaseMode == 'shared',
+            color: AppTheme.warning,
+            icon: Icons.alt_route,
+            isDark: isDark,
+            onTap: () {
+              setState(() => _selectedPurchaseMode = 'shared');
               _applyFilter();
             },
           ),
@@ -548,31 +644,45 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
     required int count,
     required bool isSelected,
     required Color color,
+    required IconData icon,
+    required bool isDark,
     required VoidCallback onTap,
   }) {
+    final activeBg = isDark ? color.withValues(alpha: 0.15) : const Color(0xFFE0F2FE);
+    final activeBorder = isDark ? color : const Color(0xFF0284C7);
+    final inactiveBorder = isDark ? AppTheme.border : const Color(0xFFCBD5E1);
+
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
-          color:
-              isSelected ? color.withValues(alpha: 0.15) : Colors.transparent,
+          color: isSelected ? activeBg : (isDark ? Colors.transparent : Colors.white),
           borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: isSelected ? color : AppTheme.border,
+            color: isSelected ? activeBorder : inactiveBorder,
             width: isSelected ? 1.5 : 1,
           ),
+          boxShadow: !isDark && !isSelected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xFF0F172A).withValues(alpha: 0.03),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              label == 'الكراتين'
-                  ? Icons.inventory_2_outlined
-                  : Icons.scale_outlined,
+              icon,
               size: 16,
-              color: isSelected ? color : AppTheme.textSecondary,
+              color: isDark
+                  ? (isSelected ? color : AppTheme.textSecondary)
+                  : (isSelected ? const Color(0xFF0284C7) : Colors.black),
             ),
             const SizedBox(width: 6),
             Text(
@@ -580,18 +690,19 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
               style: TextStyle(
                 fontFamily: 'Cairo',
                 fontSize: 13,
-                fontWeight: isSelected ? FontWeight.bold : FontWeight.w500,
-                color: isSelected ? color : AppTheme.textSecondary,
+                fontWeight: isDark ? (isSelected ? FontWeight.bold : FontWeight.w500) : FontWeight.bold,
+                color: isDark ? (isSelected ? color : AppTheme.textSecondary) : Colors.black,
               ),
             ),
             const SizedBox(width: 4),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: isSelected
-                    ? color.withValues(alpha: 0.2)
-                    : AppTheme.border.withValues(alpha: 0.3),
+                color: isDark
+                    ? (isSelected ? color.withValues(alpha: 0.2) : AppTheme.border.withValues(alpha: 0.3))
+                    : (isSelected ? const Color(0xFFBAE6FD) : const Color(0xFFF1F5F9)),
                 borderRadius: BorderRadius.circular(8),
+                border: isDark ? null : Border.all(color: const Color(0xFFCBD5E1)),
               ),
               child: Text(
                 '$count',
@@ -599,7 +710,7 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
                   fontFamily: 'Cairo',
                   fontSize: 11,
                   fontWeight: FontWeight.bold,
-                  color: isSelected ? color : AppTheme.textSecondary,
+                  color: isDark ? (isSelected ? color : AppTheme.textSecondary) : Colors.black,
                 ),
               ),
             ),
@@ -611,60 +722,95 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
 
   // ── Search Bar ──
 
-  Widget _buildSearchBar() {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(16),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: Container(
-          height: 48,
-          decoration: BoxDecoration(
-            color: const Color(0x3805192D),
-            borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.glassBorder),
-          ),
-          child: TextField(
-            controller: _searchController,
-            focusNode: _searchFocusNode,
-            onChanged: _onSearchChanged,
-            textDirection: TextDirection.rtl,
-            style: const TextStyle(
-                color: Colors.white, fontSize: 14, fontFamily: 'Cairo'),
-            decoration: InputDecoration(
-              hintText: 'بحث بالاسم أو الكود...',
-              hintStyle: const TextStyle(
-                  color: AppTheme.textSecondary, fontFamily: 'Cairo'),
-              prefixIcon: const Icon(Icons.search,
-                  size: 20, color: AppTheme.textSecondary),
-              suffixIcon: _search.isNotEmpty
-                  ? IconButton(
-                      icon: const Icon(Icons.clear,
-                          size: 18, color: AppTheme.textSecondary),
-                      onPressed: () {
-                        _searchController.clear();
-                        _onSearchChanged('');
-                      },
-                    )
-                  : null,
-              border: InputBorder.none,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+  Widget _buildSearchBar(bool isDark) {
+    if (isDark) {
+      return ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            height: 48,
+            decoration: BoxDecoration(
+              color: const Color(0x3805192D),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: AppTheme.glassBorder),
             ),
+            child: _buildSearchTextField(isDark),
           ),
         ),
+      );
+    }
+    return Container(
+      height: 48,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: const Color(0xFFCBD5E1), width: 1.2),
+        boxShadow: [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: _buildSearchTextField(isDark),
+    );
+  }
+
+  Widget _buildSearchTextField(bool isDark) {
+    return TextField(
+      controller: _searchController,
+      focusNode: _searchFocusNode,
+      onChanged: _onSearchChanged,
+      textDirection: TextDirection.rtl,
+      style: TextStyle(
+        color: isDark ? Colors.white : Colors.black,
+        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+        fontSize: 14,
+        fontFamily: 'Cairo',
+      ),
+      decoration: InputDecoration(
+        hintText: 'بحث بالاسم أو الكود...',
+        hintStyle: TextStyle(
+          color: isDark ? AppTheme.textSecondary : const Color(0xFF94A3B8),
+          fontFamily: 'Cairo',
+          fontSize: 13,
+        ),
+        prefixIcon: Icon(
+          Icons.search,
+          size: 20,
+          color: isDark ? AppTheme.textSecondary : Colors.black54,
+        ),
+        suffixIcon: _search.isNotEmpty
+            ? IconButton(
+                icon: Icon(
+                  Icons.clear,
+                  size: 18,
+                  color: isDark ? AppTheme.textSecondary : Colors.black54,
+                ),
+                onPressed: () {
+                  _searchController.clear();
+                  _onSearchChanged('');
+                },
+              )
+            : null,
+        border: InputBorder.none,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       ),
     );
   }
 
   // ── Grid ──
 
-  Widget _buildGrid() {
+  Widget _buildGrid(bool isDark) {
     if (_loading) {
-      return const Center(
-          child: CircularProgressIndicator(color: AppTheme.primary));
+      return Center(
+        child: CircularProgressIndicator(color: isDark ? AppTheme.primary : AppTheme.lightPrimary),
+      );
     }
 
-    if (_filteredItems.isEmpty) {
+    if (_groups.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -672,32 +818,44 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
             Icon(
               _search.isNotEmpty ? Icons.search_off_outlined : Icons.eco,
               size: 72,
-              color: AppTheme.textSecondary.withValues(alpha: 0.3),
+              color: isDark
+                  ? AppTheme.textSecondary.withValues(alpha: 0.3)
+                  : const Color(0xFF94A3B8).withValues(alpha: 0.4),
             ),
             const SizedBox(height: 16),
             Text(
               _search.isNotEmpty ? 'لا توجد نتائج' : 'لا توجد أصناف فاكهة بعد',
-              style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: AppTheme.textSecondary,
-                  fontFamily: 'Cairo'),
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.bold,
+                color: isDark ? AppTheme.textSecondary : Colors.black,
+                fontFamily: 'Cairo',
+              ),
             ),
             const SizedBox(height: 8),
             Text(
               _search.isNotEmpty
                   ? 'جرب كلمة بحث مختلفة'
                   : 'اضغط "+" لإضافة أول صنف',
-              style: const TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontFamily: 'Cairo',
-                  fontSize: 13),
+              style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : Colors.black,
+                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                fontFamily: 'Cairo',
+                fontSize: 13,
+              ),
             ),
             if (_search.isEmpty) ...[
               const SizedBox(height: 20),
               ElevatedButton.icon(
                 icon: const Icon(Icons.add, size: 18),
-                label: const Text('إضافة صنف'),
+                label: const Text('إضافة صنف',
+                    style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0284C7),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
                 onPressed: () => _showForm(),
               ),
             ],
@@ -706,21 +864,45 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
       );
     }
 
+
+    final screenW = MediaQuery.of(context).size.width;
+    final isMobile = screenW < 750;
+
+    // Dual-mode cards need more vertical space
+    final hasDual = _groups.any((g) => g.isDualMode);
+    final double aspectRatio;
+    if (isMobile) {
+      aspectRatio = hasDual ? 0.82 : 1.25;
+    } else {
+      aspectRatio = hasDual ? 0.75 : 0.90;
+    }
+
     return GridView.builder(
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 290,
-        childAspectRatio: 0.65,
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: isMobile ? 800 : 380,
+        childAspectRatio: aspectRatio,
         crossAxisSpacing: 14,
         mainAxisSpacing: 14,
       ),
-      itemCount: _filteredItems.length,
-      itemBuilder: (context, index) =>
-          _buildFruitCard(_filteredItems[index], index),
+      itemCount: _groups.length,
+      itemBuilder: (context, index) => _buildGroupCard(_groups[index], index),
     );
   }
 
-  // ── Fruit Card ──
+  // ── Unified Group Card ──
 
+  Widget _buildGroupCard(FruitTypeGroupModel group, int index) {
+    return UnifiedFruitCard(
+      group: group,
+      index: index,
+      getTotalQuantity: _totalQuantityForItem,
+      getWarehouseCount: _warehouseCountForItem,
+      onTapItem: _showDetail,
+    );
+  }
+
+  // ── KEPT for backward compat (Excel export still uses _items) ──
+  // ignore: unused_element
   Widget _buildFruitCard(FruitTypeModel item, int index) {
     final totalQty = _totalQuantityForItem(item);
     final hasStock = totalQty > 0;
@@ -737,7 +919,6 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
         (item.purchaseMode ?? item.latestPurchaseMode) == 'carton';
     final unitLabel = isCartonMode ? 'كرتونة' : 'كجم';
 
-    // لون حالة المخزون
     final stockColor = !hasStock
         ? AppTheme.danger
         : (totalQty < 1000 ? AppTheme.warning : AppTheme.success);
@@ -784,7 +965,6 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // شريط لون الحالة أعلى الكارت
               Container(
                 height: 4,
                 decoration: BoxDecoration(
@@ -796,7 +976,6 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
                 ),
               ),
 
-              // الجزء العلوي: كود الصنف + أيقونة
               Padding(
                 padding: const EdgeInsets.fromLTRB(14, 12, 14, 0),
                 child: Row(
@@ -1036,6 +1215,7 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildCartonInfoRow(FruitTypeModel item, int whCount) {
     final netWt = item.latestWeightPerCartonKg!;
     final grossWt = item.latestGrossWeightPerCartonKg;
@@ -1138,6 +1318,7 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
     );
   }
 
+  // ignore: unused_element
   Widget _buildWeightInfoRow(FruitTypeModel item, bool hasPrice, int whCount) {
     return Row(
       children: [
@@ -1246,6 +1427,8 @@ class _FruitTypesPageState extends State<FruitTypesPage> {
     ];
     return colors[name.hashCode.abs() % colors.length];
   }
+
+
 
   Future<void> _exportExcel() async {
     if (_items.isEmpty) {

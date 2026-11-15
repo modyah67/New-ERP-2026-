@@ -26,10 +26,17 @@ class DataChangeEventBus {
   final _transfersController = StreamController<void>.broadcast();
   final _clearingAgentsController = StreamController<void>.broadcast();
   final _shippingCompaniesController = StreamController<void>.broadcast();
+  final _transportSuppliersController = StreamController<void>.broadcast();
   final _cropPurchasesController = StreamController<void>.broadcast();
   final _shareholdersController = StreamController<void>.broadcast();
   final _journalEntriesController = StreamController<void>.broadcast();
   final _packingWastesController = StreamController<void>.broadcast();
+  final _costCentersController = StreamController<void>.broadcast();
+  final _costCategoriesController = StreamController<void>.broadcast();
+  final _packingOrdersController = StreamController<void>.broadcast();
+  final _sortingController = StreamController<void>.broadcast();
+  final _exportsController = StreamController<void>.broadcast();
+  final _treasuriesController = StreamController<void>.broadcast();
 
   // ── Public Streams ──
 
@@ -43,10 +50,17 @@ class DataChangeEventBus {
   Stream<void> get transfersStream => _transfersController.stream;
   Stream<void> get clearingAgentsStream => _clearingAgentsController.stream;
   Stream<void> get shippingCompaniesStream => _shippingCompaniesController.stream;
+  Stream<void> get transportSuppliersStream => _transportSuppliersController.stream;
   Stream<void> get cropPurchasesStream => _cropPurchasesController.stream;
   Stream<void> get shareholdersStream => _shareholdersController.stream;
   Stream<void> get journalEntriesStream => _journalEntriesController.stream;
   Stream<void> get packingWastesStream => _packingWastesController.stream;
+  Stream<void> get costCentersStream => _costCentersController.stream;
+  Stream<void> get costCategoriesStream => _costCategoriesController.stream;
+  Stream<void> get packingOrdersStream => _packingOrdersController.stream;
+  Stream<void> get sortingStream => _sortingController.stream;
+  Stream<void> get exportsStream => _exportsController.stream;
+  Stream<void> get treasuriesStream => _treasuriesController.stream;
 
   // ── Emitters ──
 
@@ -100,6 +114,11 @@ class DataChangeEventBus {
     debugPrint('[EventBus] shipping companies changed');
   }
 
+  void notifyTransportSuppliersChanged() {
+    _transportSuppliersController.add(null);
+    debugPrint('[EventBus] transport suppliers changed');
+  }
+
   void notifyCropPurchasesChanged() {
     _cropPurchasesController.add(null);
     debugPrint('[EventBus] crop purchases changed');
@@ -120,6 +139,36 @@ class DataChangeEventBus {
     debugPrint('[EventBus] packing wastes changed');
   }
 
+  void notifyCostCentersChanged() {
+    _costCentersController.add(null);
+    debugPrint('[EventBus] cost centers changed');
+  }
+
+  void notifyCostCategoriesChanged() {
+    _costCategoriesController.add(null);
+    debugPrint('[EventBus] cost categories changed');
+  }
+
+  void notifyPackingOrdersChanged() {
+    _packingOrdersController.add(null);
+    debugPrint('[EventBus] packing orders changed');
+  }
+
+  void notifySortingChanged() {
+    _sortingController.add(null);
+    debugPrint('[EventBus] sorting changed');
+  }
+
+  void notifyExportsChanged() {
+    _exportsController.add(null);
+    debugPrint('[EventBus] exports changed');
+  }
+
+  void notifyTreasuryChanged() {
+    _treasuriesController.add(null);
+    debugPrint('[EventBus] treasuries changed');
+  }
+
   // ── Cleanup ──
 
   void dispose() {
@@ -133,9 +182,16 @@ class DataChangeEventBus {
     _transfersController.close();
     _clearingAgentsController.close();
     _shippingCompaniesController.close();
+    _transportSuppliersController.close();
     _cropPurchasesController.close();
     _shareholdersController.close();
     _journalEntriesController.close();
     _packingWastesController.close();
+    _costCentersController.close();
+    _costCategoriesController.close();
+    _packingOrdersController.close();
+    _sortingController.close();
+    _exportsController.close();
+    _treasuriesController.close();
   }
 }

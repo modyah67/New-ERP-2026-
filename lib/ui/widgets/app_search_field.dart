@@ -47,17 +47,27 @@ class AppSearchField<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryTextColor = isDark ? Colors.white : AppTheme.lightTextPrimary;
+    final secondaryTextColor = isDark ? AppTheme.textSecondary : AppTheme.lightTextSecondary;
+    final mutedTextColor = isDark ? Colors.white.withValues(alpha: 0.35) : AppTheme.lightTextMuted;
+    final fieldBg = isDark ? Colors.white.withValues(alpha: 0.06) : Colors.white;
+    final fieldBorder = isDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1);
+    final popupBg = isDark ? const Color(0xFF0A1E38) : Colors.white;
+    final popupBorder = isDark ? AppTheme.glassBorder : AppTheme.lightBorder;
+    final activeColor = isDark ? AppTheme.primary : AppTheme.lightPrimary;
     final hl = highlightColor;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         RichText(
           text: TextSpan(
             text: label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textSecondary,
+              fontWeight: isDark ? FontWeight.w600 : FontWeight.bold,
+              color: isDark ? secondaryTextColor : Colors.black,
               fontFamily: 'Cairo',
             ),
             children: isRequired
@@ -77,21 +87,21 @@ class AppSearchField<T> extends StatelessWidget {
           autoFlipDirection: true,
           hideOnEmpty: false,
           hideOnError: false,
-          loadingBuilder: (context) => const Padding(
-            padding: EdgeInsets.all(8.0),
+          loadingBuilder: (context) => Padding(
+            padding: const EdgeInsets.all(8.0),
             child: Center(
               child: CircularProgressIndicator(
                 strokeWidth: 2,
-                color: AppTheme.primary,
+                color: activeColor,
               ),
             ),
           ),
           emptyBuilder: emptyBuilder ??
-              (context) => const Padding(
-                    padding: EdgeInsets.all(12.0),
+              (context) => Padding(
+                    padding: const EdgeInsets.all(12.0),
                     child: Text('لا توجد نتائج',
                         style: TextStyle(
-                            color: AppTheme.textMuted, fontFamily: 'Cairo')),
+                            color: mutedTextColor, fontFamily: 'Cairo')),
                   ),
           suggestionsCallback: suggestionsCallback,
           itemBuilder: hl == null
@@ -115,11 +125,11 @@ class AppSearchField<T> extends StatelessWidget {
           },
           builder: (context, controller, focusNode) {
             return Shortcuts(
-              shortcuts: <ShortcutActivator, Intent>{
+              shortcuts: const <ShortcutActivator, Intent>{
                 SingleActivator(LogicalKeyboardKey.arrowDown):
-                    const DirectionalFocusIntent(TraversalDirection.down),
+                    DirectionalFocusIntent(TraversalDirection.down),
                 SingleActivator(LogicalKeyboardKey.arrowUp):
-                    const DirectionalFocusIntent(TraversalDirection.up),
+                    DirectionalFocusIntent(TraversalDirection.up),
               },
               child: TextField(
                 controller: controller,
@@ -127,40 +137,40 @@ class AppSearchField<T> extends StatelessWidget {
                 autofocus: autoFocus,
                 textInputAction: textInputAction,
                 onSubmitted: onSubmitted,
-                style: const TextStyle(
-                  color: Colors.white,
+                style: TextStyle(
+                  color: primaryTextColor,
                   fontSize: 15,
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                   fontFamily: 'Cairo',
                 ),
                 decoration: InputDecoration(
                   hintText: hint,
                   hintStyle: TextStyle(
                     fontFamily: 'Cairo',
-                    color: Colors.white.withValues(alpha: 0.35),
+                    color: mutedTextColor,
+                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                   ),
                   prefixIcon: prefixIcon,
                   suffixIcon: prefixIcon == null
-                      ? const Icon(Icons.search,
-                          size: 20, color: AppTheme.primary)
+                      ? Icon(Icons.search,
+                          size: 20, color: activeColor)
                       : null,
                   filled: true,
-                  fillColor: Colors.white.withValues(alpha: 0.06),
+                  fillColor: fieldBg,
                   contentPadding:
                       const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide:
-                        BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                    borderSide: BorderSide(color: fieldBorder),
                   ),
                   enabledBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
-                    borderSide:
-                        BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                    borderSide: BorderSide(color: fieldBorder),
                   ),
                   focusedBorder: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(14),
                     borderSide:
-                        const BorderSide(color: AppTheme.primary, width: 1.5),
+                        BorderSide(color: activeColor, width: 1.5),
                   ),
                 ),
               ),
@@ -169,10 +179,13 @@ class AppSearchField<T> extends StatelessWidget {
           decorationBuilder: (context, child) {
             return Material(
               type: MaterialType.card,
-              elevation: 8,
-              borderRadius: BorderRadius.circular(14),
-              color: const Color(0xFF0A1E38),
-              shadowColor: Colors.black.withValues(alpha: 0.4),
+              elevation: isDark ? 8 : 4,
+              color: popupBg,
+              shadowColor: Colors.black.withValues(alpha: isDark ? 0.4 : 0.1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+                side: BorderSide(color: popupBorder),
+              ),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(14),
                 child: child,

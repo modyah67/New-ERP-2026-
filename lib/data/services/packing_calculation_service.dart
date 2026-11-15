@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'packing_cost_allocation_engine.dart';
 import '../models/packing_order_line_model.dart';
 
@@ -126,12 +127,18 @@ class MaterialCostSummary {
   final double wastePercent;
   final double wasteCost;
   final double totalMaterialsWithWaste;
+  final double settledWasteCost;
+  final double unsettledWasteCost;
+  final String wasteSettlementStatus;
 
   const MaterialCostSummary({
     required this.materialCost,
     required this.wastePercent,
     required this.wasteCost,
     required this.totalMaterialsWithWaste,
+    this.settledWasteCost = 0.0,
+    this.unsettledWasteCost = 0.0,
+    this.wasteSettlementStatus = 'no_waste',
   });
 }
 
@@ -305,6 +312,138 @@ class PackingCalculationService {
   /// Percent: 1 decimal place
   static String fmtPercent(double v) => v.toStringAsFixed(1);
 
+  /// Compute authoritative cost per carton from raw DB map or PackingOrderModel
+  /// taking into account all discounts applied to materials, fruitBase, waste, sorting, and additional costs.
+  static double computeEffectiveCostPerCarton(Map<String, dynamic> row) {
+    Map<String, dynamic> notes = {};
+    if (row['notes'] != null) {
+      if (row['notes'] is Map) {
+        notes = Map<String, dynamic>.from(row['notes'] as Map);
+      } else if (row['notes'] is String && (row['notes'] as String).isNotEmpty) {
+        try {
+          notes = Map<String, dynamic>.from(jsonDecode(row['notes'] as String) as Map);
+        } catch (_) {}
+      }
+    }
+
+    final cartons = (row['carton_count'] as num?)?.toInt() ?? 0;
+    if (cartons <= 0) return 0.0;
+
+    final fruitBase = (row['fruit_cost_base'] as num?)?.toDouble() ??
+        (row['fruit_cost_allocated'] as num?)?.toDouble() ?? 0.0;
+    final rawWeight = (notes['partial_weight_kg'] as num?)?.toDouble() ??
+        (notes['total_raw_weight_kg'] as num?)?.toDouble() ??
+        (row['total_gross_weight'] as num?)?.toDouble() ?? 0.0;
+    final sortedWeight = (notes['sorted_weight_kg'] as num?)?.toDouble() ?? 0.0;
+    final wasteWeight = (notes['waste_weight_kg'] as num?)?.toDouble() ?? 0.0;
+
+    double fruitCostPerKg = rawWeight > 0 ? (fruitBase / rawWeight) : 0.0;
+    double sortingCost = (notes['sorting_cost'] as num?)?.toDouble() ?? (sortedWeight * fruitCostPerKg);
+    double wasteCost = (notes['waste_cost'] as num?)?.toDouble() ?? (wasteWeight * fruitCostPerKg);
+
+    // If fruitBase was updated by debit note, recalculate sortingCost & wasteCost using new fruitCostPerKg
+    if (fruitBase > 0 && rawWeight > 0) {
+      sortingCost = sortedWeight * fruitCostPerKg;
+      wasteCost = wasteWeight * fruitCostPerKg;
+    }
+
+    final fruitCostAfterSort = fruitBase - sortingCost;
+
+    // Materials
+    double matsCost = 0.0;
+    if (notes['materials'] is List && (notes['materials'] as List).isNotEmpty) {
+      for (var m in notes['materials']) {
+        final q = (m['used_qty'] as num?)?.toDouble() ?? (m['quantity'] as num?)?.toDouble() ?? 0.0;
+        final u = (m['unit_cost'] as num?)?.toDouble() ?? (m['cost'] as num?)?.toDouble() ?? 0.0;
+        final t = (m['total'] as num?)?.toDouble() ?? (m['total_cost'] as num?)?.toDouble() ?? (q * u);
+        matsCost += t;
+      }
+    } else {
+      matsCost = (row['actual_material_cost'] as num?)?.toDouble() ??
+          (row['material_cost_base'] as num?)?.toDouble() ?? 0.0;
+    }
+    final matWastePct = (notes['material_waste_percent'] as num?)?.toDouble() ?? 0.0;
+    final matWasteCost = matsCost * (matWastePct / 100.0);
+
+    // Cost items
+    double costItemsCost = 0.0;
+    if (notes['cost_items'] is List && (notes['cost_items'] as List).isNotEmpty) {
+      for (var c in notes['cost_items']) {
+        costItemsCost += (c['total_egp'] as num?)?.toDouble() ?? (c['total'] as num?)?.toDouble() ?? 0.0;
+      }
+    } else {
+      costItemsCost = (row['other_cost_base'] as num?)?.toDouble() ?? 0.0;
+    }
+
+    if (matsCost > 0 || fruitBase > 0 || costItemsCost > 0) {
+      final total = fruitCostAfterSort + wasteCost + matsCost + matWasteCost + costItemsCost;
+      return total / cartons;
+    }
+
+    final headerCost = (row['packing_cost_per_carton'] as num?)?.toDouble() ?? 0.0;
+    if (headerCost > 0) return headerCost;
+    final totalPkg = (row['total_packing_cost'] as num?)?.toDouble() ?? 0.0;
+    return totalPkg > 0 ? totalPkg / cartons : 0.0;
+  }
+
+  /// Computes the exact "ملخص تكلفة المنتجات" (Product Cost Summary lines)
+  /// directly from packing_orders header and packing_order_lines data.
+  static List<ProductCostLine> calculateProductCostLinesFromDb({
+    required Map<String, dynamic> poData,
+    required List<Map<String, dynamic>> dbLines,
+  }) {
+    Map<String, dynamic> notes = {};
+    if (poData['notes'] != null) {
+      if (poData['notes'] is Map) {
+        notes = Map<String, dynamic>.from(poData['notes'] as Map);
+      } else if (poData['notes'] is String && (poData['notes'] as String).isNotEmpty) {
+        try {
+          notes = Map<String, dynamic>.from(jsonDecode(poData['notes'] as String) as Map);
+        } catch (_) {}
+      }
+    }
+
+    final materials = notes['materials'] is List
+        ? List<Map<String, dynamic>>.from(notes['materials'])
+        : <Map<String, dynamic>>[];
+    final costItems = notes['cost_items'] is List
+        ? List<Map<String, dynamic>>.from(notes['cost_items'])
+        : <Map<String, dynamic>>[];
+    final matWastePct = (notes['material_waste_percent'] as num?)?.toDouble() ?? 0.0;
+
+    final linesInput = <PackingLineInput>[];
+    for (final l in dbLines) {
+      final rawCost = (l['raw_material_cost'] as num?)?.toDouble() ?? 0.0;
+      final qty = (l['quantity'] as num?)?.toDouble() ?? 0.0;
+      final costPerKg = qty > 0 ? (rawCost / qty) : ((l['unit_cost'] as num?)?.toDouble() ?? 0.0);
+
+      linesInput.add(PackingLineInput(
+        productName: (l['product_name'] ?? '').toString(),
+        cartonCount: (l['carton_count'] as num?)?.toInt() ?? 0,
+        netWeightPerCarton: (l['net_weight_per_carton'] as num?)?.toDouble() ?? 0.0,
+        grossWeightPerCarton: (l['gross_weight_per_carton'] as num?)?.toDouble() ?? 0.0,
+        effectiveWeight: qty,
+        sortedWeight: (l['sorted_weight_kg'] as num?)?.toDouble() ?? 0.0,
+        productCostPerKg: costPerKg,
+        wasteWeight: (l['waste_weight_kg'] as num?)?.toDouble() ?? 0.0,
+        totalPurchaseCost: rawCost,
+        precomputedWasteCost: (l['waste_cost'] as num?)?.toDouble() ?? 0.0,
+        precomputedSortingCost: (l['sorting_cost'] as num?)?.toDouble() ?? 0.0,
+      ));
+    }
+
+    if (linesInput.isEmpty) return const [];
+
+    final calcResult = calculateAll(
+      lines: linesInput,
+      materialItems: materials,
+      costItems: costItems,
+      materialWastePercent: matWastePct,
+    );
+
+    return calcResult.productLines;
+  }
+
   // ═══════════════════════════════════════════════════════════════════════════
   // 1. calculateSummary() — weights and cartons
   // ═══════════════════════════════════════════════════════════════════════════
@@ -341,8 +480,10 @@ class PackingCalculationService {
   // ═══════════════════════════════════════════════════════════════════════════
   static MaterialCostSummary calculatePackaging(
     List<Map<String, dynamic>> materialItems,
-    double wastePercent,
-  ) {
+    double wastePercent, {
+    double settledWasteCost = 0.0,
+    double? overrideWasteCost,
+  }) {
     double total = 0;
     for (final m in materialItems) {
       final qty = ((m['used_qty'] ?? 0) as num).toDouble();
@@ -354,12 +495,30 @@ class PackingCalculationService {
         total += ((m['total'] ?? 0) as num).toDouble();
       }
     }
-    final wasteCost = total * wastePercent / 100;
+    final wasteCost = (overrideWasteCost != null && overrideWasteCost > 0)
+        ? overrideWasteCost
+        : (total * wastePercent / 100);
+    final effectivePercent = total > 0 ? (wasteCost / total) * 100 : wastePercent;
+    final unsettled = (wasteCost - settledWasteCost).clamp(0.0, double.infinity);
+    String status;
+    if (wasteCost <= 0.001) {
+      status = 'no_waste';
+    } else if (settledWasteCost <= 0.001) {
+      status = 'unsettled';
+    } else if (unsettled <= 0.001) {
+      status = 'fully_settled';
+    } else {
+      status = 'partially_settled';
+    }
+
     return MaterialCostSummary(
       materialCost: total,
-      wastePercent: wastePercent,
+      wastePercent: effectivePercent,
       wasteCost: wasteCost,
       totalMaterialsWithWaste: total + wasteCost,
+      settledWasteCost: settledWasteCost,
+      unsettledWasteCost: unsettled,
+      wasteSettlementStatus: status,
     );
   }
 
@@ -446,6 +605,8 @@ class PackingCalculationService {
     required List<Map<String, dynamic>> costItems,
     required double materialWastePercent,
     double? totalSortingCost,
+    double settledMaterialWasteCost = 0.0,
+    double? overrideWasteCost,
   }) {
     if (lines.isEmpty) {
       return const PackingCalcResult(
@@ -461,7 +622,10 @@ class PackingCalculationService {
             materialCost: 0,
             wastePercent: 0,
             wasteCost: 0,
-            totalMaterialsWithWaste: 0),
+            totalMaterialsWithWaste: 0,
+            settledWasteCost: 0,
+            unsettledWasteCost: 0,
+            wasteSettlementStatus: 'no_waste'),
         costItems: CostItemsSummary(totalCostItems: 0, itemCount: 0),
         finalCost: FinalCostSummary(
             totalRawCost: 0,
@@ -480,7 +644,12 @@ class PackingCalculationService {
     }
 
     final weights = calculateSummary(lines);
-    final materials = calculatePackaging(materialItems, materialWastePercent);
+    final materials = calculatePackaging(
+      materialItems,
+      materialWastePercent,
+      settledWasteCost: settledMaterialWasteCost,
+      overrideWasteCost: overrideWasteCost,
+    );
     final costItemsSummary = calculateCostItems(costItems);
     final lineResults = calculateDistribution(lines);
 

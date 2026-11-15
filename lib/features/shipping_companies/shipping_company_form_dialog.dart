@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
 import '../../core/widgets/read_only_guard.dart';
+import '../../data/dao/shipping_company_dao.dart';
 import '../../data/models/shipping_company_model.dart';
 import 'shipping_company_cubit.dart';
 import 'shipping_company_state.dart';
@@ -38,6 +39,65 @@ class _ShippingCompanyFormDialogState
 
   Future<void> _save() async {
     if (!ReadOnlyGuard.check(context)) return;
+
+    // ── Form Validation Guard: Strict Numerical Boundary Check ──
+    final codeText = _cubit.codeController.text.trim();
+    final codeValidationError =
+        ShippingCompanyModel.validateShippingCompanyCode(codeText);
+    if (codeValidationError != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Row(
+            children: [
+              const Icon(Icons.warning_amber_rounded,
+                  color: Colors.white, size: 20),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  codeValidationError,
+                  style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+          backgroundColor: AppTheme.danger,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          duration: const Duration(seconds: 4),
+        ),
+      );
+      return;
+    }
+
+    // ── Collision Check Guard ──
+    if (widget.company == null || widget.company!.code != codeText) {
+      final exists = await ShippingCompanyDao().checkCodeExists(codeText, excludeId: widget.company?.id);
+      if (exists) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error_outline, color: Colors.white, size: 20),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'كود شركة الشحن ($codeText) مستخدم بالفعل، يرجى اختيار كود آخر',
+                    style: const TextStyle(fontFamily: 'Cairo', fontSize: 13),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: AppTheme.danger,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            duration: const Duration(seconds: 4),
+          ),
+        );
+        return;
+      }
+    }
+
     final success = await _cubit.save();
     if (!mounted) return;
     if (success) {
@@ -87,14 +147,15 @@ class _ShippingCompanyFormDialogState
   @override
   Widget build(BuildContext context) {
     final isEditing = widget.company != null;
+    final isDark = ThemeCubit.isCurrentDark;
     final screenWidth = MediaQuery.of(context).size.width;
 
     return Dialog(
       clipBehavior: Clip.antiAlias,
-      backgroundColor: const Color(0xCC05192D),
+      backgroundColor: isDark ? const Color(0xCC05192D) : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: AppTheme.glassBorder),
+        side: BorderSide(color: isDark ? AppTheme.glassBorder : AppTheme.lightBorder),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(24),
@@ -104,9 +165,9 @@ class _ShippingCompanyFormDialogState
             width: screenWidth < 500 ? screenWidth * 0.95 : 500,
             constraints: BoxConstraints(
                 maxHeight: MediaQuery.of(context).size.height * 0.85),
-            decoration: const BoxDecoration(
-              color: Color(0xB305192D),
-              borderRadius: BorderRadius.all(Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xB305192D) : Colors.white,
+              borderRadius: const BorderRadius.all(Radius.circular(24)),
             ),
             child: Form(
               key: _cubit.formKey,
@@ -125,13 +186,12 @@ class _ShippingCompanyFormDialogState
                               child: AppTextField(
                                 label: 'كود الشركة',
                                 controller: _cubit.codeController,
-                                hint: '0001',
+                                hint: ShippingCompanyModel.codeHint,
                                 readOnly: widget.company != null,
                                 isRequired: true,
-                                validator: (v) {
-                                  if (v == null || v.trim().isEmpty) return 'كود الشركة مطلوب';
-                                  return null;
-                                },
+                                keyboardType: TextInputType.number,
+                                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                                validator: (v) => ShippingCompanyModel.validateShippingCompanyCode(v),
                               ),
                             ),
                             const SizedBox(width: 12),
@@ -184,7 +244,9 @@ class _ShippingCompanyFormDialogState
                             FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*')),
                           ],
                           validator: (v) {
-                            if (v == null || v.trim().isEmpty) return 'الرصيد المبدئي مطلوب';
+                            if (v != null && v.trim().isNotEmpty && double.tryParse(v.trim()) == null) {
+                              return 'يرجى إدخال رقم صحيح';
+                            }
                             return null;
                           },
                         ),
@@ -270,11 +332,17 @@ class _ShippingCompanyFormDialogState
   }
 
   Widget _buildHeader(bool isEditing) {
+    final isDark = ThemeCubit.isCurrentDark;
+    final accentColor = isDark ? AppTheme.accent : AppTheme.lightAccent;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 18),
       decoration: BoxDecoration(
         border: Border(
-            bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
+          bottom: BorderSide(
+            color: isDark ? Colors.white.withValues(alpha: 0.08) : AppTheme.lightBorder,
+          ),
+        ),
       ),
       child: Row(
         children: [
@@ -282,12 +350,12 @@ class _ShippingCompanyFormDialogState
             width: 40,
             height: 40,
             decoration: BoxDecoration(
-              color: AppTheme.accent.withValues(alpha: 0.1),
+              color: accentColor.withValues(alpha: isDark ? 0.1 : 0.12),
               borderRadius: BorderRadius.circular(10),
             ),
             child: Icon(
               isEditing ? Icons.edit_outlined : Icons.local_shipping_outlined,
-              color: AppTheme.accent,
+              color: accentColor,
               size: 20,
             ),
           ),
@@ -295,15 +363,16 @@ class _ShippingCompanyFormDialogState
           Expanded(
             child: Text(
               isEditing ? 'تعديل شركة شحن' : 'إضافة شركة شحن جديدة',
-              style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                  fontFamily: 'Cairo'),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                fontFamily: 'Cairo',
+              ),
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white70, size: 22),
+            icon: Icon(Icons.close, color: isDark ? Colors.white70 : const Color(0xFF475569), size: 22),
             onPressed: () => Navigator.pop(context),
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
@@ -314,6 +383,9 @@ class _ShippingCompanyFormDialogState
   }
 
   Widget _buildButtons(bool isEditing) {
+    final isDark = ThemeCubit.isCurrentDark;
+    final accentColor = isDark ? AppTheme.accent : AppTheme.lightAccent;
+
     return BlocBuilder<ShippingCompanyCubit, ShippingCompanyState>(
       builder: (context, state) {
         final isSaving = _cubit.formState.isSaving;
@@ -321,8 +393,10 @@ class _ShippingCompanyFormDialogState
           padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
           decoration: BoxDecoration(
             border: Border(
-                top: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.08))),
+              top: BorderSide(
+                color: isDark ? Colors.white.withValues(alpha: 0.08) : AppTheme.lightBorder,
+              ),
+            ),
           ),
           child: OverflowBar(
             alignment: MainAxisAlignment.end,
@@ -331,9 +405,10 @@ class _ShippingCompanyFormDialogState
             children: [
               OutlinedButton(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.textSecondary,
+                  foregroundColor: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                   side: BorderSide(
-                      color: Colors.white.withValues(alpha: 0.15)),
+                    color: isDark ? Colors.white.withValues(alpha: 0.15) : AppTheme.lightBorder,
+                  ),
                   padding: const EdgeInsets.symmetric(
                       horizontal: 24, vertical: 14),
                   shape: RoundedRectangleBorder(
@@ -345,14 +420,14 @@ class _ShippingCompanyFormDialogState
               ),
               ElevatedButton.icon(
                 style: ElevatedButton.styleFrom(
-                  backgroundColor: AppTheme.accent,
+                  backgroundColor: accentColor,
                   foregroundColor: Colors.white,
                   padding: const EdgeInsets.symmetric(
                       horizontal: 28, vertical: 14),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                   elevation: 4,
-                  shadowColor: AppTheme.accent.withValues(alpha: 0.3),
+                  shadowColor: accentColor.withValues(alpha: 0.3),
                 ),
                 icon: isSaving
                     ? const SizedBox(

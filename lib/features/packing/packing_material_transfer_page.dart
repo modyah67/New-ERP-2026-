@@ -23,20 +23,23 @@ class _PackingMaterialTransferPageState extends State<PackingMaterialTransferPag
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
         body: Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
+              colors: isDark
+                  ? [AppTheme.background, const Color(0xFF0D2137), AppTheme.background]
+                  : [const Color(0xFFF8FAFC), const Color(0xFFEDF2F7), const Color(0xFFF8FAFC)],
             ),
           ),
           child: Column(children: [
-            _buildHeader(),
-            _buildTabBar(),
+            _buildHeader(isDark),
+            _buildTabBar(isDark),
             Expanded(child: _isReturn ? _MaterialReturnForm() : _MaterialSendForm()),
           ]),
         ),
@@ -44,34 +47,39 @@ class _PackingMaterialTransferPageState extends State<PackingMaterialTransferPag
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 12, bottom: 12, left: 8, right: 8),
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
-            border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+            color: isDark ? const Color(0x3805192D) : Colors.white,
+            border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(50) : const Color(0xFFCBD5E1))),
           ),
           child: Row(children: [
             IconButton(
-              icon: const Icon(Icons.arrow_forward, color: Colors.white),
+              icon: Icon(Icons.arrow_forward, color: isDark ? Colors.white : Colors.black87),
               onPressed: () => context.pop(),
             ),
-            const Text('مواد التعبئة',
-                style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+            Text('مواد التعبئة',
+                style: TextStyle(
+                  color: isDark ? AppTheme.textPrimary : Colors.black,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo',
+                )),
           ]),
         ),
       ),
     );
   }
 
-  Widget _buildTabBar() {
+  Widget _buildTabBar(bool isDark) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0x1AFFFFFF),
+        color: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFE2E8F0),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Row(children: [
@@ -84,8 +92,13 @@ class _PackingMaterialTransferPageState extends State<PackingMaterialTransferPag
                 color: !_isReturn ? AppTheme.primary : Colors.transparent,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text('إرسال مواد', textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+              child: Text('إرسال مواد',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: !_isReturn ? Colors.white : (isDark ? AppTheme.textSecondary : Colors.black87),
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.bold,
+                  )),
             ),
           ),
         ),
@@ -98,8 +111,13 @@ class _PackingMaterialTransferPageState extends State<PackingMaterialTransferPag
                 color: _isReturn ? AppTheme.primary : Colors.transparent,
                 borderRadius: BorderRadius.circular(12),
               ),
-              child: const Text('مرتجع مواد', textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+              child: Text('مرتجع مواد',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: _isReturn ? Colors.white : (isDark ? AppTheme.textSecondary : Colors.black87),
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.bold,
+                  )),
             ),
           ),
         ),
@@ -164,6 +182,7 @@ class _MaterialSendFormState extends State<_MaterialSendForm> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -174,9 +193,12 @@ class _MaterialSendFormState extends State<_MaterialSendForm> {
           child: Container(
             width: double.infinity,
             decoration: BoxDecoration(
-              color: const Color(0x3805192D),
+              color: isDark ? const Color(0x3805192D) : Colors.white,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              boxShadow: isDark ? null : [
+                BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
+              ],
             ),
             padding: const EdgeInsets.all(16),
             child: Form(
@@ -184,16 +206,31 @@ class _MaterialSendFormState extends State<_MaterialSendForm> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('إرسال مواد تعبئة', style: TextStyle(color: AppTheme.primary, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                  Text('إرسال مواد تعبئة',
+                      style: TextStyle(
+                        color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      )),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<String>(
                     value: _selectedProductId,
-                    decoration: _inputDecoration('المادة'),
-                    dropdownColor: const Color(0xFF05192D),
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                    decoration: _inputDecoration('المادة', isDark: isDark),
+                    dropdownColor: isDark ? const Color(0xFF05192D) : Colors.white,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
                     items: _rawMaterials.map((p) => DropdownMenuItem<String>(
                       value: p.id,
-                      child: Text('${p.name} (المخزون: ${p.quantity})', style: const TextStyle(fontFamily: 'Cairo')),
+                      child: Text('${p.name} (المخزون: ${p.quantity})',
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          )),
                     )).toList(),
                     onChanged: (v) => setState(() => _selectedProductId = v),
                     validator: (v) => v == null ? 'اختر المادة' : null,
@@ -201,12 +238,21 @@ class _MaterialSendFormState extends State<_MaterialSendForm> {
                   const SizedBox(height: 12),
                   DropdownButtonFormField<int>(
                     value: _selectedPackingStationId,
-                    decoration: _inputDecoration('مخزن التعبئة الوجهة'),
-                    dropdownColor: const Color(0xFF05192D),
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                    decoration: _inputDecoration('مخزن التعبئة الوجهة', isDark: isDark),
+                    dropdownColor: isDark ? const Color(0xFF05192D) : Colors.white,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
                     items: _packingStations.map((s) => DropdownMenuItem<int>(
                       value: int.parse(s.id!),
-                      child: Text(s.name, style: const TextStyle(fontFamily: 'Cairo')),
+                      child: Text(s.name,
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          )),
                     )).toList(),
                     onChanged: (v) => setState(() => _selectedPackingStationId = v),
                     validator: (v) => v == null ? 'اختر المخزن' : null,
@@ -214,9 +260,13 @@ class _MaterialSendFormState extends State<_MaterialSendForm> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _quantityCtrl,
-                    decoration: _inputDecoration('الكمية'),
+                    decoration: _inputDecoration('الكمية', isDark: isDark),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
                     onChanged: (v) => _quantity = double.tryParse(v) ?? 0,
                     validator: (v) {
                       final n = double.tryParse(v ?? '');
@@ -306,13 +356,29 @@ class _MaterialSendFormState extends State<_MaterialSendForm> {
     }
   }
 
-  InputDecoration _inputDecoration(String label) {
+  InputDecoration _inputDecoration(String label, {bool isDark = true}) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 14, fontFamily: 'Cairo'),
+      labelStyle: TextStyle(
+        color: isDark ? AppTheme.textSecondary : Colors.black87,
+        fontSize: 14,
+        fontWeight: FontWeight.bold,
+        fontFamily: 'Cairo',
+      ),
       filled: true,
-      fillColor: const Color(0x1AFFFFFF),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      fillColor: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF8FAFC),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: isDark ? AppTheme.primary : const Color(0xFF0284C7), width: 1.5),
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
     );
   }
@@ -369,6 +435,7 @@ class _MaterialReturnFormState extends State<_MaterialReturnForm> {
   @override
   Widget build(BuildContext context) {
     if (_loading) return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
@@ -379,9 +446,12 @@ class _MaterialReturnFormState extends State<_MaterialReturnForm> {
           child: Container(
             width: double.infinity,
             decoration: BoxDecoration(
-              color: const Color(0x3805192D),
+              color: isDark ? const Color(0x3805192D) : Colors.white,
               borderRadius: BorderRadius.circular(20),
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              boxShadow: isDark ? null : [
+                BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 8, offset: const Offset(0, 2)),
+              ],
             ),
             padding: const EdgeInsets.all(16),
             child: Form(
@@ -389,16 +459,31 @@ class _MaterialReturnFormState extends State<_MaterialReturnForm> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('مرتجع مواد تعبئة', style: TextStyle(color: AppTheme.primary, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                  Text('مرتجع مواد تعبئة',
+                      style: TextStyle(
+                        color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      )),
                   const SizedBox(height: 16),
                   DropdownButtonFormField<int>(
                     value: _selectedPackingStationId,
-                    decoration: _inputDecoration('من مخزن التعبئة'),
-                    dropdownColor: const Color(0xFF05192D),
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                    decoration: _inputDecoration('من مخزن التعبئة', isDark: isDark),
+                    dropdownColor: isDark ? const Color(0xFF05192D) : Colors.white,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
                     items: _packingStations.map((s) => DropdownMenuItem<int>(
                       value: int.parse(s.id!),
-                      child: Text(s.name, style: const TextStyle(fontFamily: 'Cairo')),
+                      child: Text(s.name,
+                          style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black87,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          )),
                     )).toList(),
                     onChanged: (v) {
                       setState(() {
@@ -413,15 +498,23 @@ class _MaterialReturnFormState extends State<_MaterialReturnForm> {
                   const SizedBox(height: 12),
                   DropdownButtonFormField<int>(
                     value: _selectedStationProductId,
-                    decoration: _inputDecoration('المادة'),
-                    dropdownColor: const Color(0xFF05192D),
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                    decoration: _inputDecoration('المادة', isDark: isDark),
+                    dropdownColor: isDark ? const Color(0xFF05192D) : Colors.white,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
                     items: _stationProducts
                         .where((sp) => sp.quantity > 0)
                         .map((sp) => DropdownMenuItem(
                               value: sp.id,
                               child: Text('${sp.productName} (${sp.quantity.toStringAsFixed(1)})',
-                                  style: const TextStyle(fontFamily: 'Cairo')),
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white : Colors.black87,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                  )),
                             ))
                         .toList(),
                     onChanged: (v) => setState(() => _selectedStationProductId = v),
@@ -430,9 +523,13 @@ class _MaterialReturnFormState extends State<_MaterialReturnForm> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: _quantityCtrl,
-                    decoration: _inputDecoration('الكمية'),
+                    decoration: _inputDecoration('الكمية', isDark: isDark),
                     keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                    style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
                     onChanged: (v) => _quantity = double.tryParse(v) ?? 0,
                     validator: (v) {
                       final n = double.tryParse(v ?? '');
@@ -513,13 +610,29 @@ class _MaterialReturnFormState extends State<_MaterialReturnForm> {
     }
   }
 
-  InputDecoration _inputDecoration(String label) {
+  InputDecoration _inputDecoration(String label, {bool isDark = true}) {
     return InputDecoration(
       labelText: label,
-      labelStyle: const TextStyle(color: AppTheme.textSecondary, fontSize: 14, fontFamily: 'Cairo'),
+      labelStyle: TextStyle(
+        color: isDark ? AppTheme.textSecondary : Colors.black87,
+        fontSize: 14,
+        fontWeight: FontWeight.bold,
+        fontFamily: 'Cairo',
+      ),
       filled: true,
-      fillColor: const Color(0x1AFFFFFF),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+      fillColor: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF8FAFC),
+      border: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+      ),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(10),
+        borderSide: BorderSide(color: isDark ? AppTheme.primary : const Color(0xFF0284C7), width: 1.5),
+      ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
     );
   }

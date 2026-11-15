@@ -46,6 +46,12 @@ class CashReceiptCubit extends Cubit<CashReceiptState> {
     _init();
   }
 
+  @override
+  void emit(CashReceiptState state) {
+    if (isClosed) return;
+    super.emit(state);
+  }
+
   Future<void> _init() async {
     final receiptNumber = await _generateReceiptNumber();
     emit(CashReceiptLoaded(
@@ -172,7 +178,7 @@ class CashReceiptCubit extends Cubit<CashReceiptState> {
     }
   }
 
-  void selectSupplier(SupplierModel s) {
+  Future<void> selectSupplier(SupplierModel s) async {
     final currentState = state;
     if (currentState is CashReceiptLoaded) {
       supplierCtrl.text = s.name;
@@ -180,6 +186,19 @@ class CashReceiptCubit extends Cubit<CashReceiptState> {
         selectedSupplier: s,
         supplierResults: [],
       ));
+
+      if (s.id != null) {
+        try {
+          final liveBalances = await _supplierDao.getSupplierBalancesByCurrency(s.id!);
+          if (liveBalances.isNotEmpty && state is CashReceiptLoaded) {
+            final latestState = state as CashReceiptLoaded;
+            if (latestState.selectedSupplier?.id == s.id) {
+              final updated = s.copyWith(currentBalancesByCurrency: liveBalances);
+              emit(latestState.copyWith(selectedSupplier: updated));
+            }
+          }
+        } catch (_) {}
+      }
     }
   }
 

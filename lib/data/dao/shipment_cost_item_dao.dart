@@ -1,7 +1,9 @@
 
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/shipment_cost_item_model.dart';
 import '../services/currency_conversion_service.dart';
+import 'export_shipment_dao.dart';
 
 class ShipmentCostItemDao {
   final SupabaseClient _client = Supabase.instance.client;
@@ -42,6 +44,18 @@ class ShipmentCostItemDao {
     for (final row in dbUnpaidItems) {
       final id = row['id'] as int;
       if (!existingIds.contains(id)) {
+        try {
+          final existingJe = await _client.from('journal_entries')
+              .select('id')
+              .eq('source_type', 'shipment_cost_accrual')
+              .eq('source_id', id.toString())
+              .maybeSingle();
+          if (existingJe != null) {
+            final jeId = existingJe['id'];
+            await _client.from('account_ledger_entries').delete().eq('journal_entry_id', jeId);
+            await _client.from('journal_entries').delete().eq('id', jeId);
+          }
+        } catch (_) {}
         await _client.from('shipment_cost_items').delete().eq('id', id);
       }
     }
@@ -62,12 +76,12 @@ class ShipmentCostItemDao {
         'report_category_id': item.reportCategoryId,
         'sort_order': item.sortOrder,
         'exchange_rate': item.exchangeRate,
-        if (item.supplierId != null) 'supplier_id': item.supplierId,
+        'supplier_id': item.supplierId,
         if (item.supplierCurrency != null) 'supplier_currency': item.supplierCurrency,
         if (item.supplierCurrency != null) 'original_currency': item.supplierCurrency,
         if (item.vendorType != null) 'vendor_type': item.vendorType,
         if (item.vendorId != null) 'vendor_id': item.vendorId,
-        if (item.expenseAccountId != null) 'expense_account_id': item.expenseAccountId,
+        'expense_account_id': item.expenseAccountId,
         if (shippingId != null) 'shipping_company_id': shippingId,
         if (clearingId != null) 'clearing_agent_id': clearingId,
         if (item.paymentSourceType != null) 'payment_source_type': item.paymentSourceType,
@@ -124,12 +138,126 @@ class ShipmentCostItemDao {
     }
 
     // 5. Ensure all accrual journal entries are synced atomically
-    try {
-      await _client.rpc('rpc_sync_shipment_cost_accruals', params: {'p_shipment_id': shipmentId});
-    } catch (_) {}
+    final allCurrentItems = await getForShipment(shipmentId);
+    await _syncAccrualJournalEntries(shipmentId, allCurrentItems);
 
     // 6. Return all items for this shipment (paid + updated + newly inserted)
-    return getForShipment(shipmentId);
+    return allCurrentItems;
+  }
+
+  Future<void> _syncAccrualJournalEntries(int shipmentId, List<ShipmentCostItemModel> items) async {
+    try {
+      final shipment = await _client
+          .from('export_shipments')
+          .select('id, shipment_no, shipment_date, company_id')
+          .eq('id', shipmentId)
+          .maybeSingle();
+      if (shipment == null) return;
+
+      final shipmentNo = shipment['shipment_no']?.toString() ?? '$shipmentId';
+      final entryDate = shipment['shipment_date']?.toString() ?? DateTime.now().toIso8601String().split('T').first;
+      final companyId = shipment['company_id'];
+      final userId = _client.auth.currentUser?.id;
+
+      for (final item in items) {
+        if (item.id == null) continue;
+
+        // If already paid through treasury or bank, accrual lifecycle is complete
+        if (item.isPaid || (item.paymentSourceType != null && item.paymentSourceType != 'none')) {
+          continue;
+        }
+
+        // Accrual requires an expense account, a supplier, and a positive amount
+        if (item.expenseAccountId == null || item.supplierId == null || item.supplierId!.isEmpty || item.totalPrice <= 0) {
+          // If had an accrual previously but supplier/account removed, clean it up
+          try {
+            final existing = await _client.from('journal_entries')
+                .select('id')
+                .eq('source_type', 'shipment_cost_accrual')
+                .eq('source_id', item.id.toString())
+                .maybeSingle();
+            if (existing != null) {
+              final jeId = existing['id'];
+              await _client.from('account_ledger_entries').delete().eq('journal_entry_id', jeId);
+              await _client.from('journal_entries').delete().eq('id', jeId);
+              await _client.from('shipment_cost_items').update({'journal_entry_id': null}).eq('id', item.id!);
+            }
+          } catch (_) {}
+          continue;
+        }
+
+        // Resolve supplier's control account (liability side)
+        int? supplierAccountId;
+        try {
+          final sup = await _client
+              .from('suppliers')
+              .select('account_id')
+              .eq('id', item.supplierId!)
+              .maybeSingle();
+          if (sup != null && sup['account_id'] != null) {
+            supplierAccountId = (sup['account_id'] as num).toInt();
+          }
+        } catch (_) {}
+
+        if (supplierAccountId == null) {
+          final fallbackAcc = await _client
+              .from('accounts')
+              .select('id')
+              .eq('account_code', '21114')
+              .maybeSingle();
+          supplierAccountId = (fallbackAcc?['id'] as num?)?.toInt() ?? 5105;
+        }
+
+        final desc = 'استحقاق تكلفة شحنة $shipmentNo - ${item.description}';
+        final currency = item.supplierCurrency ?? 'EGP';
+
+        // Check if JE already exists and remove old lines to recreate cleanly
+        final existingJe = await _client.from('journal_entries')
+            .select('id')
+            .eq('source_type', 'shipment_cost_accrual')
+            .eq('source_id', item.id.toString())
+            .maybeSingle();
+
+        if (existingJe != null) {
+          final jeId = existingJe['id'];
+          await _client.from('account_ledger_entries').delete().eq('journal_entry_id', jeId);
+          await _client.from('journal_entries').delete().eq('id', jeId);
+        }
+
+        final jeId = await _client.rpc('post_journal_entry', params: {
+          'p_source_type': 'shipment_cost_accrual',
+          'p_description': desc,
+          'p_entry_date': entryDate,
+          'p_company_id': companyId,
+          'p_created_by': userId,
+          'p_lines': [
+            {
+              'account_id': item.expenseAccountId,
+              'debit': item.totalPrice,
+              'credit': 0,
+              'currency': currency,
+              'description': desc,
+              'cost_center_id': shipmentNo,
+            },
+            {
+              'account_id': supplierAccountId,
+              'debit': 0,
+              'credit': item.totalPrice,
+              'currency': currency,
+              'description': desc,
+              'cost_center_id': shipmentNo,
+            }
+          ],
+          'p_source_id': item.id.toString(),
+        });
+
+        if (jeId != null) {
+          await _client.from('shipment_cost_items').update({'journal_entry_id': jeId}).eq('id', item.id!);
+        }
+      }
+    } catch (e) {
+      debugPrint('Error syncing shipment cost accruals: $e');
+    }
   }
 
   /// Pays a single cost item atomically via treasury or bank.
@@ -176,17 +304,10 @@ class ShipmentCostItemDao {
         0.0, (sum, row) => sum + ((row['total_price'] as num?)?.toDouble() ?? 0));
   }
 
-  /// Fetches all journal entries related to a shipment's cost items (profitability).
-  /// Returns entries ordered newest-first with cost item metadata.
+  /// Fetches all journal entries related to a shipment's cost items and profitability.
+  /// Returns entries ordered chronologically with enriched lines and cost classification.
   Future<List<Map<String, dynamic>>> getJournalEntriesForShipment(int shipmentId) async {
-    final data = await _client.rpc(
-      'rpc_get_profitability_journal_entries',
-      params: {'p_shipment_id': shipmentId},
-    );
-    if (data is List) {
-      return List<Map<String, dynamic>>.from(data);
-    }
-    return [];
+    return ExportShipmentDao().getJournalEntriesForShipment(shipmentId);
   }
 
   /// Edits a paid cost item atomically: reversals old GL + financial tx,

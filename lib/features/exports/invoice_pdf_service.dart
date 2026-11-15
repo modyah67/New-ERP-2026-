@@ -565,6 +565,45 @@ class InvoicePdfService {
           ])
         ],
       ),
+      if (s.discountAmount > 0) ...[
+        pw.Table(
+          border: pw.TableBorder(
+            bottom: const pw.BorderSide(width: 0.5),
+            left: const pw.BorderSide(width: 0.5),
+            right: const pw.BorderSide(width: 0.5),
+            verticalInside: const pw.BorderSide(width: 0.5),
+          ),
+          columnWidths: cw,
+          children: [
+            pw.TableRow(children: [
+              _tableCell('Discount',
+                  bold: true,
+                  fontSize: 9,
+                  align: pw.TextAlign.left,
+                  paddingLeft: 6),
+              _tableCell(''),
+              _tableCell(''),
+              _tableCell(''),
+              _tableCell(''),
+              _tableCellUnderline('- $symbol ${_fmt(s.discountAmount.toStringAsFixed(2))}',
+                  bold: true, fontSize: 9),
+            ]),
+            pw.TableRow(children: [
+              _tableCell('Net Total',
+                  bold: true,
+                  fontSize: 10,
+                  align: pw.TextAlign.left,
+                  paddingLeft: 6),
+              _tableCell(''),
+              _tableCell(''),
+              _tableCell(''),
+              _tableCell(''),
+              _tableCellUnderline('$symbol ${_fmt(((double.tryParse(_tot(items)) ?? 0) - s.discountAmount).clamp(0.0, double.infinity).toStringAsFixed(2))}',
+                  bold: true, fontSize: 10),
+            ]),
+          ],
+        ),
+      ],
     ]);
   }
 

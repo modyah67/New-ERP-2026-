@@ -13,6 +13,9 @@ class PackingOrderSortingModel {
   final int? stationId;
   final DateTime? createdAt;
   final String? treasuryNames;
+  final String? exportShipmentNo;
+  final String? customerName;
+  final int? customerId;
 
   const PackingOrderSortingModel({
     this.id,
@@ -29,6 +32,9 @@ class PackingOrderSortingModel {
     this.stationId,
     this.createdAt,
     this.treasuryNames,
+    this.exportShipmentNo,
+    this.customerName,
+    this.customerId,
   });
 
   factory PackingOrderSortingModel.fromMap(Map<String, dynamic> map) {
@@ -49,6 +55,9 @@ class PackingOrderSortingModel {
       stationId: map['station_id'] as int?,
       createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at'] as String) : null,
       treasuryNames: map['treasury_names'] as String?,
+      exportShipmentNo: map['export_shipment_no'] as String?,
+      customerName: map['customer_name'] as String?,
+      customerId: (map['customer_id'] as num?)?.toInt(),
     );
   }
 
@@ -67,6 +76,9 @@ class PackingOrderSortingModel {
       if (soldAt != null) 'sold_at': soldAt!.toIso8601String(),
       if (stationId != null) 'station_id': stationId,
       if (treasuryNames != null) 'treasury_names': treasuryNames,
+      if (exportShipmentNo != null) 'export_shipment_no': exportShipmentNo,
+      if (customerName != null) 'customer_name': customerName,
+      if (customerId != null) 'customer_id': customerId,
     };
   }
 
@@ -85,6 +97,9 @@ class PackingOrderSortingModel {
     int? stationId,
     DateTime? createdAt,
     String? treasuryNames,
+    String? exportShipmentNo,
+    String? customerName,
+    int? customerId,
   }) {
     return PackingOrderSortingModel(
       id: id ?? this.id,
@@ -101,6 +116,9 @@ class PackingOrderSortingModel {
       stationId: stationId ?? this.stationId,
       createdAt: createdAt ?? this.createdAt,
       treasuryNames: treasuryNames ?? this.treasuryNames,
+      exportShipmentNo: exportShipmentNo ?? this.exportShipmentNo,
+      customerName: customerName ?? this.customerName,
+      customerId: customerId ?? this.customerId,
     );
   }
 

@@ -55,9 +55,52 @@ class StationProductBatch {
   double get batchTotalCost => remainingQuantity * unitCost;
 
   /// Base cost (EGP) of remaining quantity.
-  double get batchTotalCostBase => remainingQuantity * unitCost * exchangeRate;
+  StationProductBatch copyWith({
+    int? id,
+    int? stationId,
+    String? productName,
+    String? productCode,
+    double? quantity,
+    double? remainingQuantity,
+    double? unitCost,
+    String? currency,
+    double? exchangeRate,
+    String? sourceType,
+    String? sourceDate,
+    String? supplierName,
+    String? sourceStationName,
+    int? purchaseInvoiceId,
+    String? invoiceNumber,
+    String? itemType,
+    String? rawMaterialId,
+    int? fruitTypeId,
+    String? createdAt,
+  }) {
+    return StationProductBatch(
+      id: id ?? this.id,
+      stationId: stationId ?? this.stationId,
+      productName: productName ?? this.productName,
+      productCode: productCode ?? this.productCode,
+      quantity: quantity ?? this.quantity,
+      remainingQuantity: remainingQuantity ?? this.remainingQuantity,
+      unitCost: unitCost ?? this.unitCost,
+      currency: currency ?? this.currency,
+      exchangeRate: exchangeRate ?? this.exchangeRate,
+      sourceType: sourceType ?? this.sourceType,
+      sourceDate: sourceDate ?? this.sourceDate,
+      supplierName: supplierName ?? this.supplierName,
+      sourceStationName: sourceStationName ?? this.sourceStationName,
+      purchaseInvoiceId: purchaseInvoiceId ?? this.purchaseInvoiceId,
+      invoiceNumber: invoiceNumber ?? this.invoiceNumber,
+      itemType: itemType ?? this.itemType,
+      rawMaterialId: rawMaterialId ?? this.rawMaterialId,
+      fruitTypeId: fruitTypeId ?? this.fruitTypeId,
+      createdAt: createdAt ?? this.createdAt,
+    );
+  }
 
   /// Per-kg cost in original currency.
+
   double get costPerKg => quantity > 0 ? unitCost : 0;
 
   /// Per-kg cost in base currency (EGP).

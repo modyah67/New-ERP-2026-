@@ -64,52 +64,62 @@ class _LotsPageState extends State<LotsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : AppTheme.lightBackground,
         body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
-            ),
-          ),
+          decoration: isDark
+              ? const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                    colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
+                  ),
+                )
+              : null,
           child: Column(children: [
-            _buildHeader(),
-            _buildSearchBar(),
-            Expanded(child: _buildBody()),
+            _buildHeader(isDark),
+            _buildSearchBar(isDark),
+            Expanded(child: _buildBody(isDark)),
           ]),
         ),
         floatingActionButton: FloatingActionButton.extended(
           onPressed: () => _openForm(null),
           backgroundColor: AppTheme.primary,
           icon: const Icon(Icons.add, color: Colors.white),
-          label: const Text('محصول جديد', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+          label: const Text('محصول جديد', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 16, bottom: 16, left: 20, right: 20),
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
-            border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+            color: isDark ? const Color(0x3805192D) : Colors.white,
+            border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(50) : const Color(0xFFCBD5E1))),
           ),
           child: Row(children: [
             Container(
               padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(color: AppTheme.primary.withAlpha(30), borderRadius: BorderRadius.circular(12)),
-              child: const Icon(Icons.eco_outlined, color: AppTheme.primary, size: 24),
+              decoration: BoxDecoration(
+                color: isDark ? AppTheme.primary.withAlpha(30) : const Color(0xFFE0F2FE),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Icon(Icons.eco_outlined, color: isDark ? AppTheme.primary : const Color(0xFF0284C7), size: 24),
             ),
             const SizedBox(width: 12),
-            const Text('شراء المحاصيل',
-                style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+            Text('شراء المحاصيل',
+                style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : Colors.black,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo')),
             const SizedBox(width: 12),
             Expanded(
               child: SingleChildScrollView(
@@ -124,7 +134,7 @@ class _LotsPageState extends State<LotsPage> {
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.glassBorder),
+                          border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                         ),
                         child: const Icon(Icons.picture_as_pdf_outlined, color: AppTheme.danger, size: 20),
                       ),
@@ -136,7 +146,7 @@ class _LotsPageState extends State<LotsPage> {
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.glassBorder),
+                          border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                         ),
                         child: const Icon(Icons.table_chart_outlined, color: AppTheme.success, size: 20),
                       ),
@@ -147,15 +157,20 @@ class _LotsPageState extends State<LotsPage> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                         decoration: BoxDecoration(
-                          color: AppTheme.danger.withAlpha(30),
+                          color: isDark ? AppTheme.danger.withAlpha(30) : const Color(0xFFFEE2E2),
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.danger.withAlpha(80)),
+                          border: Border.all(color: isDark ? AppTheme.danger.withAlpha(80) : const Color(0xFFFCA5A5)),
                         ),
-                        child: const Row(
+                        child: Row(
                           children: [
-                            Icon(Icons.assignment_return_outlined, color: AppTheme.danger, size: 18),
-                            SizedBox(width: 6),
-                            Text('المرتجعات', style: TextStyle(color: AppTheme.danger, fontWeight: FontWeight.bold, fontSize: 13, fontFamily: 'Cairo')),
+                            Icon(Icons.assignment_return_outlined, color: isDark ? AppTheme.danger : const Color(0xFFB91C1C), size: 18),
+                            const SizedBox(width: 6),
+                            Text('المرتجعات',
+                                style: TextStyle(
+                                    color: isDark ? AppTheme.danger : const Color(0xFFB91C1C),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 13,
+                                    fontFamily: 'Cairo')),
                           ],
                         ),
                       ),
@@ -167,9 +182,9 @@ class _LotsPageState extends State<LotsPage> {
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(12),
-                          border: Border.all(color: AppTheme.glassBorder),
+                          border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                         ),
-                        child: const Icon(Icons.refresh_rounded, color: AppTheme.textSecondary, size: 20),
+                        child: Icon(Icons.refresh_rounded, color: isDark ? AppTheme.textSecondary : Colors.black87, size: 20),
                       ),
                     ),
                   ],
@@ -182,7 +197,7 @@ class _LotsPageState extends State<LotsPage> {
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
@@ -197,14 +212,25 @@ class _LotsPageState extends State<LotsPage> {
                   _searchQuery = v;
                   _applyFilter();
                 },
-                style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+                style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                    fontSize: 13),
                 decoration: InputDecoration(
                   hintText: 'بحث باسم المنتج أو المورد...',
-                  hintStyle: TextStyle(color: AppTheme.textSecondary.withAlpha(120), fontFamily: 'Cairo', fontSize: 12),
-                  prefixIcon: Icon(Icons.search, color: AppTheme.textSecondary.withAlpha(120), size: 18),
+                  hintStyle: TextStyle(
+                      color: isDark ? AppTheme.textSecondary.withAlpha(120) : Colors.black45,
+                      fontFamily: 'Cairo',
+                      fontSize: 12),
+                  prefixIcon: Icon(Icons.search,
+                      color: isDark ? AppTheme.textSecondary.withAlpha(120) : Colors.black54,
+                      size: 18),
                   suffixIcon: _searchQuery.isNotEmpty
                       ? IconButton(
-                          icon: const Icon(Icons.clear, size: 16),
+                          icon: Icon(Icons.clear,
+                              size: 16,
+                              color: isDark ? Colors.white70 : Colors.black87),
                           onPressed: () {
                             _searchController.clear();
                             _searchQuery = '';
@@ -213,10 +239,18 @@ class _LotsPageState extends State<LotsPage> {
                         )
                       : null,
                   filled: true,
-                  fillColor: const Color(0x3805192D),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: AppTheme.glassBorder.withAlpha(40))),
-                  enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: AppTheme.glassBorder.withAlpha(40))),
-                  focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary)),
+                  fillColor: isDark ? const Color(0x3805192D) : Colors.white,
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                          color: isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1))),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: BorderSide(
+                          color: isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1))),
+                  focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(10),
+                      borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
                   contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 ),
               ),
@@ -231,19 +265,27 @@ class _LotsPageState extends State<LotsPage> {
                 height: 42,
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 decoration: BoxDecoration(
-                  color: const Color(0x3805192D),
+                  color: isDark ? const Color(0x3805192D) : Colors.white,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: _fromDate != null ? AppTheme.primary.withAlpha(80) : AppTheme.glassBorder.withAlpha(40)),
+                  border: Border.all(
+                      color: _fromDate != null
+                          ? AppTheme.primary.withAlpha(80)
+                          : (isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1))),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.date_range, color: AppTheme.textSecondary, size: 16),
+                    Icon(Icons.date_range,
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
+                        size: 16),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         _fromDate != null ? '${_fromDate!.day}/${_fromDate!.month}/${_fromDate!.year}' : 'من تاريخ',
                         style: TextStyle(
-                          color: _fromDate != null ? Colors.white : AppTheme.textSecondary,
+                          color: _fromDate != null
+                              ? (isDark ? Colors.white : Colors.black)
+                              : (isDark ? AppTheme.textSecondary : Colors.black54),
+                          fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo',
                           fontSize: 11,
                         ),
@@ -256,7 +298,9 @@ class _LotsPageState extends State<LotsPage> {
                           setState(() => _fromDate = null);
                           _applyFilter();
                         },
-                        child: const Icon(Icons.close, size: 14, color: AppTheme.textSecondary),
+                        child: Icon(Icons.close,
+                            size: 14,
+                            color: isDark ? AppTheme.textSecondary : Colors.black87),
                       ),
                   ],
                 ),
@@ -272,19 +316,27 @@ class _LotsPageState extends State<LotsPage> {
                 height: 42,
                 padding: const EdgeInsets.symmetric(horizontal: 10),
                 decoration: BoxDecoration(
-                  color: const Color(0x3805192D),
+                  color: isDark ? const Color(0x3805192D) : Colors.white,
                   borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: _toDate != null ? AppTheme.primary.withAlpha(80) : AppTheme.glassBorder.withAlpha(40)),
+                  border: Border.all(
+                      color: _toDate != null
+                          ? AppTheme.primary.withAlpha(80)
+                          : (isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1))),
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.date_range, color: AppTheme.textSecondary, size: 16),
+                    Icon(Icons.date_range,
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
+                        size: 16),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         _toDate != null ? '${_toDate!.day}/${_toDate!.month}/${_toDate!.year}' : 'إلى تاريخ',
                         style: TextStyle(
-                          color: _toDate != null ? Colors.white : AppTheme.textSecondary,
+                          color: _toDate != null
+                              ? (isDark ? Colors.white : Colors.black)
+                              : (isDark ? AppTheme.textSecondary : Colors.black54),
+                          fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo',
                           fontSize: 11,
                         ),
@@ -297,7 +349,9 @@ class _LotsPageState extends State<LotsPage> {
                           setState(() => _toDate = null);
                           _applyFilter();
                         },
-                        child: const Icon(Icons.close, size: 14, color: AppTheme.textSecondary),
+                        child: Icon(Icons.close,
+                            size: 14,
+                            color: isDark ? AppTheme.textSecondary : Colors.black87),
                       ),
                   ],
                 ),
@@ -343,24 +397,22 @@ class _LotsPageState extends State<LotsPage> {
     }
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(bool isDark) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
     }
-    if (_filteredLots.isEmpty) return _buildEmptyState();
+    if (_filteredLots.isEmpty) return _buildEmptyState(isDark);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
-        children: _filteredLots.map((lot) => _buildLotCard(lot)).toList(),
+        children: _filteredLots.map((lot) => _buildLotCard(lot, isDark)).toList(),
       ),
     );
   }
 
-  Widget _buildLotCard(LotReceiptModel lot) {
+  Widget _buildLotCard(LotReceiptModel lot, bool isDark) {
     final productName = lot.productName ?? '—';
     final supplierName = lot.supplierName ?? '—';
-    final authState = context.read<AuthCubit>().state;
-    final isAdmin = authState is AuthAuthenticated && authState.isAdmin;
     final title = 'شراء $productName من $supplierName';
     final isDraft = !lot.isConfirmed;
 
@@ -372,13 +424,22 @@ class _LotsPageState extends State<LotsPage> {
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0x3805192D),
+              color: isDark ? const Color(0x3805192D) : Colors.white,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: isDraft
                     ? const Color(0x55FFB300) // amber border for drafts
-                    : AppTheme.glassBorder,
+                    : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                width: 1.2,
               ),
+              boxShadow: [
+                if (!isDark)
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 10,
+                    offset: const Offset(0, 2),
+                  ),
+              ],
             ),
             child: Material(
               color: Colors.transparent,
@@ -395,11 +456,16 @@ class _LotsPageState extends State<LotsPage> {
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
-                            color: AppTheme.primary.withAlpha(15),
+                            color: isDark ? AppTheme.primary.withAlpha(15) : const Color(0xFFF1F5F9),
                             borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
                           ),
                           child: Text(lot.lotNumber,
-                              style: const TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                              style: TextStyle(
+                                  color: isDark ? AppTheme.primary : Colors.black,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cairo')),
                         ),
                         const SizedBox(width: 8),
                         // Draft / Confirmed badge
@@ -435,20 +501,30 @@ class _LotsPageState extends State<LotsPage> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(title,
-                              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                              style: TextStyle(
+                                  color: isDark ? AppTheme.textPrimary : Colors.black,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cairo'),
                               overflow: TextOverflow.ellipsis),
                         ),
                       ]),
                       const SizedBox(height: 8),
                       Row(children: [
-                        const Icon(Icons.shopping_bag_outlined, color: AppTheme.textSecondary, size: 14),
+                        Icon(Icons.shopping_bag_outlined,
+                            color: isDark ? AppTheme.textSecondary : Colors.black87,
+                            size: 14),
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
                             lot.purchaseMode == 'carton'
                                 ? '${lot.cartonCount} كرتونة'
                                 : '${lot.grossWeightKg.toStringAsFixed(1)} كجم',
-                            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, fontFamily: 'Cairo'),
+                            style: TextStyle(
+                                color: isDark ? AppTheme.textPrimary : Colors.black,
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Cairo'),
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
@@ -509,7 +585,11 @@ class _LotsPageState extends State<LotsPage> {
                         ),
                         const SizedBox(width: 12),
                         Text(lot.receiptDate.toString().split(' ')[0],
-                            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                            style: TextStyle(
+                                color: isDark ? AppTheme.textSecondary : Colors.black,
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Cairo')),
                       ]),
                     ],
                   ),
@@ -522,21 +602,35 @@ class _LotsPageState extends State<LotsPage> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool isDark) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: AppTheme.primary.withAlpha(15), shape: BoxShape.circle),
-            child: const Icon(Icons.eco_outlined, size: 48, color: AppTheme.primary),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.primary.withAlpha(15) : const Color(0xFFE0F2FE),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(Icons.eco_outlined,
+                size: 48,
+                color: isDark ? AppTheme.primary : const Color(0xFF0284C7)),
           ),
           const SizedBox(height: 20),
-          const Text('لا توجد محاصيل', style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+          Text('لا توجد محاصيل',
+              style: TextStyle(
+                  color: isDark ? AppTheme.textPrimary : Colors.black,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo')),
           const SizedBox(height: 8),
           Text('اضغط على "محصول جديد" لتسجيل أول شراء محصول',
-              style: TextStyle(color: AppTheme.textSecondary.withAlpha(180), fontSize: 14, fontFamily: 'Cairo')),
+              style: TextStyle(
+                  color: isDark ? AppTheme.textSecondary.withAlpha(180) : Colors.black87,
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo')),
         ],
       ),
     );
@@ -686,6 +780,7 @@ class _LotsPageState extends State<LotsPage> {
   }
 
 
+  // ignore: unused_element
   Future<void> _showEditPriceDialog(LotReceiptModel lot) async {
     if (lot.id == null) return;
     

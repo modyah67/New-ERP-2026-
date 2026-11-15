@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import '../../../core/theme.dart';
 
@@ -9,17 +8,22 @@ class TopCustomersBarChart extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryTextColor = isDark ? Colors.white : Colors.black;
+    final mutedTextColor = isDark ? AppTheme.textMuted : Colors.black;
+    final progressBg = isDark ? Colors.white.withAlpha(8) : const Color(0xFFE2E8F0);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Row(
           children: [
-            Icon(Icons.people, color: AppTheme.primary, size: 16),
+            const Icon(Icons.people, color: AppTheme.primary, size: 16),
             const SizedBox(width: 6),
-            const Text(
+            Text(
               'أفضل العملاء',
               style: TextStyle(
-                color: Colors.white,
+                color: primaryTextColor,
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
@@ -34,10 +38,14 @@ class TopCustomersBarChart extends StatelessWidget {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.people_outline, color: AppTheme.textMuted, size: 32),
+                      Icon(Icons.people_outline, color: isDark ? mutedTextColor : Colors.black87, size: 32),
                       const SizedBox(height: 8),
                       Text('لا يوجد عملاء بعد',
-                          style: TextStyle(color: AppTheme.textMuted, fontFamily: 'Cairo')),
+                          style: TextStyle(
+                            color: isDark ? mutedTextColor : Colors.black,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          )),
                     ],
                   ),
                 )
@@ -55,15 +63,27 @@ class TopCustomersBarChart extends StatelessWidget {
                         children: [
                           Row(
                             children: [
-                              Text(
-                                c['name']?.toString() ?? '—',
-                                style: const TextStyle(color: Colors.white, fontSize: 11, fontFamily: 'Cairo'),
-                                overflow: TextOverflow.ellipsis,
+                              Expanded(
+                                child: Text(
+                                  c['name']?.toString() ?? '—',
+                                  style: TextStyle(
+                                    color: primaryTextColor,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
-                              const Spacer(),
+                              const SizedBox(width: 8),
                               Text(
                                 _formatCurrency(total),
-                                style: TextStyle(color: AppTheme.primary, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                                style: TextStyle(
+                                  color: isDark ? AppTheme.primary : Colors.black,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cairo',
+                                ),
                               ),
                             ],
                           ),
@@ -72,7 +92,7 @@ class TopCustomersBarChart extends StatelessWidget {
                             borderRadius: BorderRadius.circular(4),
                             child: LinearProgressIndicator(
                               value: pct,
-                              backgroundColor: Colors.white.withAlpha(8),
+                              backgroundColor: progressBg,
                               valueColor: AlwaysStoppedAnimation<Color>(
                                 _barColor(i),
                               ),

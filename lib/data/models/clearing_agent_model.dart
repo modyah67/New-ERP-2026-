@@ -1,4 +1,41 @@
 class ClearingAgentModel {
+  // ── Scalable 5-Digit Category Range Constants ──
+  static const int maritimeMinCode = 20000;
+  static const int maritimeMaxCode = 24999;
+  static const int maritimeCapacity = 5000;
+  static const String maritimeCodeHint = 'مثال: 20000 (نطاق 20000 - 24999)';
+
+  static const int airMinCode = 25000;
+  static const int airMaxCode = 29999;
+  static const int airCapacity = 5000;
+  static const String airCodeHint = 'مثال: 25000 (نطاق 25000 - 29999)';
+
+  static bool isMaritime(String? type) =>
+      type == null || type.trim().isEmpty || type.trim() == 'بحري' || type.trim().toLowerCase() == 'maritime' || type.trim().toLowerCase() == 'sea';
+
+  static int getMinCode(String? type) => isMaritime(type) ? maritimeMinCode : airMinCode;
+  static int getMaxCode(String? type) => isMaritime(type) ? maritimeMaxCode : airMaxCode;
+  static String getHint(String? type) => isMaritime(type) ? maritimeCodeHint : airCodeHint;
+  static String getLabel(String? type) => isMaritime(type) ? 'المخلص الجمركي (بحري)' : 'المخلص الجمركي (جوي)';
+
+  static String? validateClearingAgentCode(String? code, String? brokerType) {
+    if (code == null || code.trim().isEmpty) {
+      return 'كود المخلص مطلوب';
+    }
+    final cleanCode = code.trim().replaceAll(RegExp(r'[^0-9]'), '');
+    final num = int.tryParse(cleanCode);
+    if (num == null) {
+      return 'يجب أن يحتوي الكود على أرقام فقط';
+    }
+    final min = getMinCode(brokerType);
+    final max = getMaxCode(brokerType);
+    final label = getLabel(brokerType);
+    if (num < min || num > max) {
+      return 'كود $label يجب أن يكون بين $min و $max';
+    }
+    return null;
+  }
+
   final String? id;
   final String code;
   final String name;
@@ -37,6 +74,22 @@ class ClearingAgentModel {
     required this.createdAt,
   });
 
+  double get currentBalance => balance;
+
+  String get currencySymbol {
+    switch (currency.toUpperCase()) {
+      case 'USD':
+        return '\$';
+      case 'EUR':
+        return '€';
+      case 'GBP':
+        return '£';
+      case 'EGP':
+      default:
+        return 'ج.م';
+    }
+  }
+
   factory ClearingAgentModel.fromMap(Map<String, dynamic> map) {
     String? str(dynamic v) => v?.toString();
     num? numVal(dynamic v) => v is num ? v : num.tryParse('$v');
@@ -56,7 +109,7 @@ class ClearingAgentModel {
       addresses: map['addresses'] is List
           ? (map['addresses'] as List).map((a) => Map<String, dynamic>.from(a as Map)).toList()
           : [],
-      balance: numVal(map['balance'])?.toDouble() ?? 0.0,
+      balance: (numVal(map['current_balance']) ?? numVal(map['balance']))?.toDouble() ?? 0.0,
       initialBalance: numVal(map['initial_balance'])?.toDouble() ?? 0.0,
       initialBalanceDirection: str(map['initial_balance_direction']) ?? 'CREDIT',
       currency: str(map['currency']) ?? 'EGP',
@@ -77,6 +130,7 @@ class ClearingAgentModel {
       'contact_person_phone': contactPersonPhone,
       'contact_person_email': contactPersonEmail,
       'balance': balance,
+      'current_balance': balance,
       'initial_balance': initialBalance,
       'initial_balance_direction': initialBalanceDirection,
       'currency': currency,

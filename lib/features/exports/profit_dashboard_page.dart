@@ -39,8 +39,17 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final allShipments = await _dao.getAll(limit: 200, excludeStatus: 'cancelled');
-      final shipments = allShipments.where((s) => s.isConfirmed).toList();
+      final allShipments = await _dao.getAll(
+        limit: 200,
+        excludeStatuses: ['cancelled', 'returned_from_airport', 'returned', 'rejected'],
+      );
+      final shipments = allShipments.where((s) => 
+        s.isConfirmed &&
+        s.status != 'cancelled' &&
+        s.status != 'returned_from_airport' &&
+        s.status != 'returned' &&
+        s.status != 'rejected'
+      ).toList();
       // Use profitability snapshot DAO for summary if available
       final summary = await _dao.getProfitSummary();
       
@@ -63,8 +72,10 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
     bool updated = false;
     for (int i = 0; i < _shipments.length; i++) {
       if (!mounted) break;
+      final s = _shipments[i];
+      if (s.status == 'cancelled' || s.status == 'returned_from_airport' || s.status == 'returned' || s.status == 'rejected') continue;
       // If total landed cost is 0 or net profit is not recorded
-      if (_shipments[i].totalLandedCost > 0 && _shipments[i].netProfitEgp != 0) continue;
+      if (s.totalLandedCost > 0 && s.netProfitEgp != 0) continue;
       try {
         final result = await _profitabilityService.calculateShipment(_shipments[i].id!.toString());
         if (mounted) {
@@ -123,24 +134,30 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
         } else {
           hideProfit = false;
         }
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         return Directionality(
           textDirection: TextDirection.rtl,
           child: Scaffold(
-            backgroundColor: AppTheme.background,
+            backgroundColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
             body: Container(
-              decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft, end: Alignment.bottomRight,
-                  colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
-                ),
+              decoration: BoxDecoration(
+                gradient: isDark
+                    ? const LinearGradient(
+                        begin: Alignment.topLeft, end: Alignment.bottomRight,
+                        colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
+                      )
+                    : const LinearGradient(
+                        begin: Alignment.topLeft, end: Alignment.bottomRight,
+                        colors: [Color(0xFFF8FAFC), Color(0xFFF1F5F9), Color(0xFFE2E8F0)],
+                      ),
               ),
               child: Column(
                 children: [
-                  _buildHeader(),
+                  _buildHeader(isDark),
                   Expanded(
                     child: _loading
                       ? const Center(child: CircularProgressIndicator(color: AppTheme.primary))
-                      : _buildContent(hideProfit),
+                      : _buildContent(hideProfit, isDark),
                   ),
                 ],
               ),
@@ -151,27 +168,32 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 16, bottom: 16, left: 20, right: 20),
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
-            border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+            color: isDark ? const Color(0x3805192D) : Colors.white.withValues(alpha: 0.85),
+            border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(50) : const Color(0xFFCBD5E1))),
           ),
           child: Row(
             children: [
               Container(
                 padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(color: AppTheme.primary.withAlpha(30), borderRadius: BorderRadius.circular(12)),
+                decoration: BoxDecoration(color: AppTheme.primary.withAlpha(isDark ? 30 : 25), borderRadius: BorderRadius.circular(12)),
                 child: const Icon(Icons.trending_up, color: AppTheme.primary, size: 24),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Text('لوحة الربحية',
-                    style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                    style: TextStyle(
+                      color: isDark ? AppTheme.textPrimary : Colors.black,
+                      fontSize: 20,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    )),
               ),
               GestureDetector(
                 onTap: _load,
@@ -179,9 +201,9 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.glassBorder),
+                    border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                   ),
-                  child: const Icon(Icons.refresh_rounded, color: AppTheme.textSecondary, size: 22),
+                  child: Icon(Icons.refresh_rounded, color: isDark ? AppTheme.textSecondary : Colors.black, size: 22),
                 ),
               ),
             ],
@@ -191,22 +213,22 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
     );
   }
 
-  Widget _buildContent(bool hideProfit) {
+  Widget _buildContent(bool hideProfit, bool isDark) {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         children: [
           if (!hideProfit) ...[
-            _buildSummaryCards(),
+            _buildSummaryCards(isDark),
             const SizedBox(height: 20),
           ],
-          _buildShipmentList(hideProfit),
+          _buildShipmentList(hideProfit, isDark),
         ],
       ),
     );
   }
 
-  Widget _buildSummaryCards() {
+  Widget _buildSummaryCards(bool isDark) {
     final rev = (_summary?['total_revenue_egp'] as num?)?.toDouble() ?? 0;
     final cost = (_summary?['total_cost_egp'] as num?)?.toDouble() ?? 0;
     final profit = (_summary?['net_profit_egp'] as num?)?.toDouble() ?? 0;
@@ -217,10 +239,10 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
       builder: (context, constraints) {
         final isMobile = constraints.maxWidth < 600;
         final cards = [
-          _summaryCard('إجمالي الإيرادات', 'EGP ${_fmt(rev)}', AppTheme.success, Icons.arrow_upward),
-          _summaryCard('إجمالي التكاليف', 'EGP ${_fmt(cost)}', AppTheme.warning, Icons.arrow_downward),
-          _summaryCard('صافي الأرباح', 'EGP ${_fmt(profit)}', isProfit ? AppTheme.success : AppTheme.danger, isProfit ? Icons.trending_up : Icons.trending_down),
-          _summaryCard('عدد الشحنات', '$count', AppTheme.primary, Icons.flight_outlined),
+          _summaryCard('إجمالي الإيرادات', 'EGP ${_fmt(rev)}', AppTheme.success, Icons.arrow_upward, isDark),
+          _summaryCard('إجمالي التكاليف', 'EGP ${_fmt(cost)}', AppTheme.warning, Icons.arrow_downward, isDark),
+          _summaryCard('صافي الأرباح', 'EGP ${_fmt(profit)}', isProfit ? AppTheme.success : AppTheme.danger, isProfit ? Icons.trending_up : Icons.trending_down, isDark),
+          _summaryCard('عدد الشحنات', '$count', AppTheme.primary, Icons.flight_outlined, isDark),
         ];
 
         if (isMobile) {
@@ -255,7 +277,7 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
     );
   }
 
-  Widget _summaryCard(String label, String value, Color color, IconData icon) {
+  Widget _summaryCard(String label, String value, Color color, IconData icon, bool isDark) {
     return AppTheme.glassCardWidget(
       padding: const EdgeInsets.all(14),
       child: Column(
@@ -263,31 +285,45 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
         children: [
           Container(
             padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: color.withAlpha(20), borderRadius: BorderRadius.circular(10)),
-            child: Icon(icon, color: color, size: 20),
+            decoration: BoxDecoration(color: color.withAlpha(isDark ? 20 : 30), borderRadius: BorderRadius.circular(10)),
+            child: Icon(icon, color: isDark ? color : (color == AppTheme.warning ? const Color(0xFFD97706) : color), size: 20),
           ),
           const SizedBox(height: 10),
           Text(label,
-              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontFamily: 'Cairo'),
+              style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : Colors.black,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Cairo',
+              ),
               overflow: TextOverflow.ellipsis),
           const SizedBox(height: 4),
           Text(value,
-              style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+              style: TextStyle(
+                color: isDark ? color : Colors.black,
+                fontSize: 17,
+                fontWeight: FontWeight.w900,
+                fontFamily: 'Cairo',
+              ),
               overflow: TextOverflow.ellipsis),
         ],
       ),
     );
   }
 
-  Widget _buildShipmentList(bool hideProfit) {
+  Widget _buildShipmentList(bool hideProfit, bool isDark) {
     if (_shipments.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           children: [
-            SizedBox(height: 40),
-            Icon(Icons.inbox_outlined, color: AppTheme.textSecondary, size: 48),
-            SizedBox(height: 12),
-            Text('لا توجد شحنات', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+            const SizedBox(height: 40),
+            Icon(Icons.inbox_outlined, color: isDark ? AppTheme.textSecondary : Colors.black54, size: 48),
+            const SizedBox(height: 12),
+            Text('لا توجد شحنات', style: TextStyle(
+              color: isDark ? AppTheme.textSecondary : Colors.black,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo',
+            )),
           ],
         ),
       );
@@ -308,19 +344,24 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
                   child: const Icon(Icons.list_alt, color: AppTheme.primary, size: 16),
                 ),
                 const SizedBox(width: 8),
-                const Text('قائمة الشحنات',
-                    style: TextStyle(color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                Text('قائمة الشحنات',
+                    style: TextStyle(
+                      color: isDark ? AppTheme.textPrimary : Colors.black,
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    )),
               ],
             ),
           ),
-          const Divider(color: AppTheme.glassBorder, height: 1),
-          ..._shipments.map((s) => _shipmentTile(s, hideProfit)),
+          Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1), height: 1),
+          ..._shipments.map((s) => _shipmentTile(s, hideProfit, isDark)),
         ],
       ),
     );
   }
 
-  Widget _shipmentTile(ExportShipmentModel s, bool hideP) {
+  Widget _shipmentTile(ExportShipmentModel s, bool hideP, bool isDark) {
     final profit = s.netProfitEgp;
     final isProfit = profit >= 0;
     final color = isProfit ? AppTheme.success : AppTheme.danger;
@@ -336,7 +377,7 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(30))),
+          border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(30) : const Color(0xFFE2E8F0))),
         ),
         child: Row(
           children: [
@@ -346,9 +387,19 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   UIUtils.shipmentNoText(s.shipmentNo,
-                      style: const TextStyle(color: AppTheme.primary, fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
+                      style: TextStyle(
+                        color: isDark ? AppTheme.primary : Colors.black,
+                        fontSize: 13,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      )),
                   Text(s.country ?? '—',
-                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                      style: TextStyle(
+                        color: isDark ? AppTheme.textSecondary : Colors.black,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      )),
                 ],
               ),
             ),
@@ -356,8 +407,18 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
               flex: 2,
               child: Column(
                 children: [
-                  const Text('كراتين', style: TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontFamily: 'Cairo')),
-                  Text('${s.cartonsCount}', style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, fontFamily: 'Cairo')),
+                  Text('كراتين', style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                  )),
+                  Text('${s.cartonsCount}', style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : Colors.black,
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                  )),
                 ],
               ),
             ),
@@ -366,9 +427,19 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
                 flex: 2,
                 child: Column(
                   children: [
-                    const Text('الربح', style: TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontFamily: 'Cairo')),
+                    Text('الربح', style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    )),
                     Text('EGP ${_fmt(profit)}',
-                        style: TextStyle(color: color, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                        style: TextStyle(
+                          color: isDark ? color : Colors.black,
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo',
+                        )),
                   ],
                 ),
               ),
@@ -377,18 +448,23 @@ class _ProfitDashboardPageState extends State<ProfitDashboardPage> {
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: color.withAlpha(15),
+                    color: color.withAlpha(isDark ? 15 : 25),
                     borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: color.withAlpha(40)),
+                    border: Border.all(color: color.withAlpha(isDark ? 40 : 80)),
                   ),
                   child: Text('${margin.toStringAsFixed(1)}%',
-                      style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                      style: TextStyle(
+                        color: isDark ? color : Colors.black,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo',
+                      ),
                       textAlign: TextAlign.center),
                 ),
               ),
             ],
             const SizedBox(width: 4),
-            Icon(Icons.chevron_left, color: AppTheme.textSecondary.withAlpha(100), size: 20),
+            Icon(Icons.chevron_left, color: isDark ? AppTheme.textSecondary.withAlpha(100) : Colors.black54, size: 20),
           ],
         ),
       ),

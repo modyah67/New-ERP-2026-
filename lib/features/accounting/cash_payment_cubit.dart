@@ -46,6 +46,12 @@ class CashPaymentCubit extends Cubit<CashPaymentState> {
     _init();
   }
 
+  @override
+  void emit(CashPaymentState state) {
+    if (isClosed) return;
+    super.emit(state);
+  }
+
   Future<void> _init() async {
     final paymentNumber = await _generatePaymentNumber();
     emit(CashPaymentLoaded(

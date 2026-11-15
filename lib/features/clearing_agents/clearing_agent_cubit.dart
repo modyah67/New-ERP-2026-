@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../data/dao/clearing_agent_dao.dart';
 import '../../data/dao/shipment_cost_item_dao.dart';
 import '../../data/models/clearing_agent_model.dart';
+import '../../data/services/currency_conversion_service.dart';
 import '../../core/data_change_event_bus.dart';
 import 'clearing_agent_state.dart';
 
@@ -28,7 +29,7 @@ class ClearingAgentCubit extends Cubit<ClearingAgentState> {
   final contactNameController = TextEditingController();
   final contactPhoneController = TextEditingController();
   final contactEmailController = TextEditingController();
-  final initialBalanceController = TextEditingController();
+  final initialBalanceController = TextEditingController(text: '0.00');
 
   String brokerType = 'بحري';
   String? selectedCurrency;
@@ -55,11 +56,47 @@ class ClearingAgentCubit extends Cubit<ClearingAgentState> {
 
   Future<void> init() async => await loadAll(reset: true);
 
-  Future<void> prepareAddForm() async {
+  /// Fetch current exchange rates (EGP = 1.0 baseline).
+  Future<Map<String, double>> _fetchRates() async {
+    try {
+      final svc = CurrencyConversionService.instance;
+      final usd = await svc.getRate('USD');
+      final eur = await svc.getRate('EUR');
+      final gbp = await svc.getRate('GBP');
+      return {'EGP': 1.0, 'USD': usd, 'EUR': eur, 'GBP': gbp};
+    } catch (_) {
+      return {'EGP': 1.0, 'USD': 50.0, 'EUR': 55.0, 'GBP': 65.0};
+    }
+  }
+
+  Future<void> prepareAddForm({String defaultBrokerType = 'بحري'}) async {
     _formState = const ClearingAgentFormState(isEditing: false);
     _clearForm();
+    brokerType = defaultBrokerType;
+    initialBalanceController.text = '0.00';
     initialBalanceDirection = 'CREDIT';
-    codeController.text = await _dao.generateNextCode();
+    codeController.text = ClearingAgentModel.getMinCode(defaultBrokerType).toString();
+    await _generateCode();
+  }
+
+  Future<void> onBrokerTypeChanged(String newType) async {
+    brokerType = newType;
+    if (!_formState.isEditing) {
+      codeController.text = ClearingAgentModel.getMinCode(newType).toString();
+      await _generateCode();
+    }
+  }
+
+  Future<void> _generateCode() async {
+    try {
+      final code = await _dao.generateNextCode(brokerType: brokerType);
+      if (isClosed) return;
+      codeController.text = code;
+    } catch (e) {
+      if (!isClosed) {
+        codeController.text = ClearingAgentModel.getMinCode(brokerType).toString();
+      }
+    }
   }
 
   Future<void> prepareEditForm(ClearingAgentModel agent) async {
@@ -76,7 +113,7 @@ class ClearingAgentCubit extends Cubit<ClearingAgentState> {
     contactPhoneController.text = agent.contactPersonPhone;
     contactEmailController.text = agent.contactPersonEmail;
     initialBalanceDirection = agent.initialBalanceDirection;
-    initialBalanceController.text = agent.initialBalance == 0.0 ? '' : agent.initialBalance.toString();
+    initialBalanceController.text = agent.initialBalance == 0.0 ? '0.00' : agent.initialBalance.toString();
     _addresses = agent.addresses.map((a) => Map<String, dynamic>.from(a)).toList();
   }
 
@@ -94,20 +131,33 @@ class ClearingAgentCubit extends Cubit<ClearingAgentState> {
     if (currentState is ClearingAgentLoaded && !currentState.hasMore && !reset) return;
 
     try {
-      final newItems = await _dao.getAll(limit: _limit, offset: _offset);
+      final results = await Future.wait([
+        _dao.getAll(limit: _limit, offset: _offset),
+        _fetchRates(),
+      ]);
+      if (isClosed) return;
+      final newItems = results[0] as List<ClearingAgentModel>;
+      final rates = results[1] as Map<String, double>;
       final hasMore = newItems.length >= _limit;
       _offset += _limit;
 
       if (reset) {
-        emit(ClearingAgentLoaded(agents: newItems, hasMore: hasMore));
+        emit(ClearingAgentLoaded.fromList(
+          agents: newItems,
+          hasMore: hasMore,
+          rates: rates,
+        ));
       } else if (currentState is ClearingAgentLoaded) {
-        emit(currentState.copyWith(
+        final combinedRates = currentState.exchangeRates.isNotEmpty ? currentState.exchangeRates : rates;
+        emit(ClearingAgentLoaded.fromList(
           agents: [...currentState.agents, ...newItems],
           hasMore: hasMore,
           isFetchingMore: false,
+          rates: combinedRates,
         ));
       }
     } catch (e) {
+      if (isClosed) return;
       emit(ClearingAgentError(message: 'حدث خطأ أثناء تحميل البيانات: $e'));
     }
   }
@@ -140,27 +190,42 @@ class ClearingAgentCubit extends Cubit<ClearingAgentState> {
         return;
       }
 
-      final newItems = await _dao.search(
-        _currentQuery,
-        typeFilter: _currentTypeFilter == 'all' ? null : _currentTypeFilter,
-        limit: _limit,
-        offset: _offset,
-      );
+      final results = await Future.wait([
+        _dao.search(
+          _currentQuery,
+          typeFilter: _currentTypeFilter == 'all' ? null : _currentTypeFilter,
+          limit: _limit,
+          offset: _offset,
+        ),
+        _fetchRates(),
+      ]);
+      if (isClosed) return;
+      final newItems = results[0] as List<ClearingAgentModel>;
+      final rates = results[1] as Map<String, double>;
       final hasMore = newItems.length >= _limit;
       _offset += _limit;
 
       if (reset) {
-        emit(ClearingAgentLoaded(agents: newItems, searchQuery: _currentQuery, typeFilter: _currentTypeFilter, hasMore: hasMore));
+        emit(ClearingAgentLoaded.fromList(
+          agents: newItems,
+          searchQuery: _currentQuery,
+          typeFilter: _currentTypeFilter,
+          hasMore: hasMore,
+          rates: rates,
+        ));
       } else if (currentState is ClearingAgentLoaded) {
-        emit(currentState.copyWith(
+        final combinedRates = currentState.exchangeRates.isNotEmpty ? currentState.exchangeRates : rates;
+        emit(ClearingAgentLoaded.fromList(
           agents: [...currentState.agents, ...newItems],
           searchQuery: _currentQuery,
           typeFilter: _currentTypeFilter,
           hasMore: hasMore,
           isFetchingMore: false,
+          rates: combinedRates,
         ));
       }
     } catch (e) {
+      if (isClosed) return;
       emit(ClearingAgentError(message: 'حدث خطأ أثناء البحث: $e'));
     }
   }
@@ -276,7 +341,7 @@ class ClearingAgentCubit extends Cubit<ClearingAgentState> {
     contactNameController.clear();
     contactPhoneController.clear();
     contactEmailController.clear();
-    initialBalanceController.clear();
+    initialBalanceController.text = '0.00';
     brokerType = 'بحري';
     selectedCurrency = null;
     _addresses = [];

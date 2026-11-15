@@ -93,11 +93,12 @@ class ClosingValidationService {
         entries.add(ClosingEntry(
           id: null,
           fiscalYearId: fiscalYearId,
+          entryType: 'CLOSE_REVENUE',
           accountCode: account['account_code'] as String,
           accountName: account['name'] as String,
           accountType: 'revenue',
-          debit: balance,
-          credit: 0,
+          debit: balance > 0 ? balance : 0,
+          credit: balance < 0 ? balance.abs() : 0,
           description: 'إغلاق حساب الإيرادات - السنة المالية',
           createdAt: DateTime.now(),
         ));
@@ -116,11 +117,12 @@ class ClosingValidationService {
         entries.add(ClosingEntry(
           id: null,
           fiscalYearId: fiscalYearId,
+          entryType: 'CLOSE_EXPENSE',
           accountCode: account['account_code'] as String,
           accountName: account['name'] as String,
           accountType: 'expense',
-          debit: 0,
-          credit: balance,
+          debit: balance < 0 ? balance.abs() : 0,
+          credit: balance > 0 ? balance : 0,
           description: 'إغلاق حسابات المصروفات - السنة المالية',
           createdAt: DateTime.now(),
         ));
@@ -134,12 +136,48 @@ class ClosingValidationService {
         id: null,
         fiscalYearId: fiscalYearId,
         entryType: 'TRANSFER_RETAINED',
-        accountCode: '3100',
-        accountName: 'الأرباح المحتجزة',
+        accountCode: '23411',
+        accountName: 'أرباح وخسائر مرحلة',
         accountType: 'equity',
         debit: netIncome > 0 ? 0 : netIncome.abs(),
         credit: netIncome > 0 ? netIncome : 0,
-        description: 'تحويل صافي الدخل إلى الأرباح المحتجزة',
+        description: 'تحويل صافي الدخل إلى الأرباح المرحلة',
+        createdAt: DateTime.now(),
+      ));
+    }
+
+    // إقفال رصيد حساب فروق الأرصدة الافتتاحية (23421) في حساب الأرباح والخسائر المرحلة (23411)
+    final suspenseTotals = await _dao.getAccountTotals('23421', fiscalYearId);
+    final suspenseCredit = suspenseTotals['credit'] ?? 0.0;
+    final suspenseDebit = suspenseTotals['debit'] ?? 0.0;
+    final suspenseBalance = suspenseCredit - suspenseDebit;
+
+    if (suspenseBalance.abs() > 0.01) {
+      // 1. تصفير حساب فروق أرصدة افتتاحية 23421
+      entries.add(ClosingEntry(
+        id: null,
+        fiscalYearId: fiscalYearId,
+        entryType: 'TRANSFER_RETAINED',
+        accountCode: '23421',
+        accountName: 'رصيد افتتاحي',
+        accountType: 'equity',
+        debit: suspenseBalance > 0 ? suspenseBalance : 0,
+        credit: suspenseBalance < 0 ? suspenseBalance.abs() : 0,
+        description: 'تصفير حساب فروق الأرصدة الافتتاحية نهاية السنة المالية',
+        createdAt: DateTime.now(),
+      ));
+
+      // 2. ترحيل الرصيد إلى الأرباح والخسائر المرحلة 23411
+      entries.add(ClosingEntry(
+        id: null,
+        fiscalYearId: fiscalYearId,
+        entryType: 'TRANSFER_RETAINED',
+        accountCode: '23411',
+        accountName: 'أرباح وخسائر مرحلة',
+        accountType: 'equity',
+        debit: suspenseBalance < 0 ? suspenseBalance.abs() : 0,
+        credit: suspenseBalance > 0 ? suspenseBalance : 0,
+        description: 'ترحيل فروق الأرصدة الافتتاحية إلى الأرباح والخسائر المرحلة',
         createdAt: DateTime.now(),
       ));
     }
@@ -153,15 +191,21 @@ class ClosingValidationService {
     final accounts = await _dao.getPermanentAccounts();
 
     for (final account in accounts) {
-      final totals = await _dao.getAccountTotals(
-          account['account_code'] as String, closingFiscalYearId);
+      final code = account['account_code'] as String;
+      // عدم ترحيل حساب فروق أرصدة افتتاحية 23421 أو أرباح العام الحالي 23511 كأرصدة افتتاحية
+      // لأنها أقفلت بالكامل في الأرباح المرحلة 23411 بنهاية السنة
+      if (code == '23421' || code == '23511' || code == '2351' || code == '2342') {
+        continue;
+      }
+
+      final totals = await _dao.getAccountTotals(code, closingFiscalYearId);
       final balance = totals['debit']! - totals['credit']!;
       if (balance.abs() > 0.01) {
         entries.add(ClosingEntry(
           id: null,
           fiscalYearId: 0,
           entryType: 'OPENING_BALANCE',
-          accountCode: account['account_code'] as String,
+          accountCode: code,
           accountName: account['name'] as String,
           accountType: account['account_type'] as String,
           debit: balance > 0 ? balance : 0,

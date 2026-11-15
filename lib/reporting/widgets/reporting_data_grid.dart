@@ -24,8 +24,8 @@ class ReportingRowData {
 typedef CellRenderer = String Function(ReportingRowData row, ReportColumn column);
 
 /// Callback that returns a custom widget for a cell (colored text, badges, etc.).
-/// When provided, [CellRenderer] is used only as a fallback for plain text.
-typedef WidgetCellRenderer = Widget Function(ReportingRowData row, ReportColumn column);
+/// Return null to fall back to the default text [CellRenderer] for that cell.
+typedef WidgetCellRenderer = Widget? Function(ReportingRowData row, ReportColumn column);
 
 /// Enterprise data grid with sticky header, sortable columns,
 /// hierarchy indent, expand/collapse arrows, and footer totals.
@@ -95,7 +95,7 @@ class ReportingDataGrid extends StatelessWidget {
                 width: gridWidth,
                 child: Column(
                   children: [
-                    _buildHeader(),
+                    _buildHeader(context),
                     Expanded(
                       child: rows.isEmpty
                           ? const SizedBox.shrink()
@@ -104,7 +104,7 @@ class ReportingDataGrid extends StatelessWidget {
                               itemBuilder: (context, index) {
                                 final row = rows[index];
                                 final depth = depthMap[row.id] ?? 0;
-                                return _buildRow(row, depth, index);
+                                return _buildRow(context, row, depth, index);
                               },
                             ),
                     ),
@@ -119,13 +119,17 @@ class ReportingDataGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final borderColor = AppTheme.getBorderColor(context);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        color: AppTheme.primary.withAlpha(20),
+        color: primary.withAlpha(20),
         border: Border(
-          bottom: BorderSide(color: AppTheme.border.withAlpha(80), width: 1.5),
+          bottom: BorderSide(color: borderColor.withAlpha(80), width: 1.5),
         ),
       ),
       child: Row(
@@ -169,23 +173,27 @@ class ReportingDataGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildRow(ReportingRowData row, int depth, int index) {
+  Widget _buildRow(BuildContext context, ReportingRowData row, int depth, int index) {
     final indent = showHierarchy ? depth * 24.0 : 0.0;
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final borderColor = AppTheme.getBorderColor(context);
+    final evenBg = isDark ? Colors.white.withAlpha(6) : const Color(0xFFF8FAFC);
+    final oddBg = isDark ? Colors.white.withAlpha(12) : Colors.white;
+    final textSecondary = AppTheme.getTextSecondary(context);
 
     return RepaintBoundary(
       child: InkWell(
         onTap: onRowTap != null ? () => onRowTap!(row.id) : null,
-        hoverColor: AppTheme.primary.withAlpha(15),
+        hoverColor: primary.withAlpha(15),
         child: Container(
           height: 56,
           clipBehavior: Clip.hardEdge,
           decoration: BoxDecoration(
-            color: index.isEven
-                ? Colors.white.withAlpha(6)
-                : Colors.white.withAlpha(12),
+            color: index.isEven ? evenBg : oddBg,
             border: Border(
               bottom: BorderSide(
-                color: AppTheme.border.withAlpha(30),
+                color: borderColor.withAlpha(30),
                 width: 1,
               ),
             ),
@@ -213,7 +221,7 @@ class ReportingDataGrid extends StatelessWidget {
                                       ? Icons.keyboard_arrow_down
                                       : Icons.keyboard_arrow_right,
                                   size: 18,
-                                  color: AppTheme.textSecondary,
+                                  color: textSecondary,
                                 ),
                               )
                             else
@@ -221,7 +229,7 @@ class ReportingDataGrid extends StatelessWidget {
                             const SizedBox(width: 4),
                           ],
                           Expanded(
-                            child: _buildCellContent(row, col),
+                            child: _buildCellContent(context, row, col),
                           ),
                         ],
                       ),
@@ -232,7 +240,7 @@ class ReportingDataGrid extends StatelessWidget {
                     flex: col.flex,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 6),
-                      child: _buildCellContent(row, col),
+                      child: _buildCellContent(context, row, col),
                     ),
                   ),
               ],
@@ -243,25 +251,31 @@ class ReportingDataGrid extends StatelessWidget {
     );
   }
 
-  Widget _buildCellContent(ReportingRowData row, ReportColumn col) {
+  Widget _buildCellContent(BuildContext context, ReportingRowData row, ReportColumn col) {
+    // Try custom widget renderer first (returns null to fall back to default)
     if (widgetCellRenderer != null) {
-      return Container(
-        alignment: col.alignRight
-            ? AlignmentDirectional.centerEnd
-            : AlignmentDirectional.centerStart,
-        child: widgetCellRenderer!(row, col),
-      );
+      final customWidget = widgetCellRenderer!(row, col);
+      if (customWidget != null) {
+        return Container(
+          alignment: col.alignRight
+              ? AlignmentDirectional.centerEnd
+              : AlignmentDirectional.centerStart,
+          child: customWidget,
+        );
+      }
     }
 
     final rawValue = cellRenderer(row, col);
     final isParentRow = row.isParent;
     final cleanValue = rawValue.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+    final isDark = AppTheme.isDark(context);
+    final textPrimary = AppTheme.getTextPrimary(context);
 
     Widget textWidget = Text(
       cleanValue,
       style: TextStyle(
         fontSize: 13,
-        color: AppTheme.textPrimary,
+        color: textPrimary,
         fontFamily: col.currency != null ? 'monospace' : 'Cairo',
         fontWeight: isParentRow ? FontWeight.w600 : FontWeight.normal,
       ),
@@ -272,6 +286,9 @@ class ReportingDataGrid extends StatelessWidget {
     );
 
     if (cleanValue.isNotEmpty) {
+      final tooltipBg = isDark ? const Color(0xFF1E293B) : const Color(0xFF0F172A);
+      final tooltipBorder = AppTheme.getBorderColor(context);
+
       textWidget = Tooltip(
         message: cleanValue,
         waitDuration: const Duration(milliseconds: 350),
@@ -281,9 +298,9 @@ class ReportingDataGrid extends StatelessWidget {
           fontFamily: 'Cairo',
         ),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: tooltipBg,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.border.withAlpha(100)),
+          border: Border.all(color: tooltipBorder.withAlpha(100)),
           boxShadow: [
             BoxShadow(
               color: Colors.black.withAlpha(120),
@@ -332,13 +349,21 @@ class _SortableHeader extends StatelessWidget {
         : AlignmentDirectional.centerStart;
     final mainAxisAlignment =
         alignRight ? MainAxisAlignment.end : MainAxisAlignment.start;
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final textPrimary = AppTheme.getTextPrimary(context);
+    final headerStyle = TextStyle(
+      fontSize: 13,
+      fontWeight: FontWeight.bold,
+      color: textPrimary,
+    );
 
     if (!sortable) {
       return Container(
         alignment: alignment,
         child: Text(
           label,
-          style: _headerStyle,
+          style: headerStyle,
           maxLines: 1,
           softWrap: false,
           overflow: TextOverflow.ellipsis,
@@ -357,7 +382,7 @@ class _SortableHeader extends StatelessWidget {
             Flexible(
               child: Text(
                 label,
-                style: _headerStyle,
+                style: headerStyle,
                 maxLines: 1,
                 softWrap: false,
                 overflow: TextOverflow.ellipsis,
@@ -368,7 +393,7 @@ class _SortableHeader extends StatelessWidget {
               Icon(
                 ascending ? Icons.arrow_upward : Icons.arrow_downward,
                 size: 14,
-                color: AppTheme.primary,
+                color: primary,
               ),
             ],
           ],
@@ -376,10 +401,4 @@ class _SortableHeader extends StatelessWidget {
       ),
     );
   }
-
-  static const _headerStyle = TextStyle(
-    fontSize: 13,
-    fontWeight: FontWeight.bold,
-    color: AppTheme.textPrimary,
-  );
 }

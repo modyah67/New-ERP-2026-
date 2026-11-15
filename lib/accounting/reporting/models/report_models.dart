@@ -239,6 +239,8 @@ class LedgerRow {
   final String? entityName;
   final String? referenceType;
   final String? referenceId;
+  final String? costCenterId;
+  final String? costCenterName;
   final String? currency;
   final double? exchangeRate;
 
@@ -248,6 +250,8 @@ class LedgerRow {
     this.entryNumber,
     required this.accountCode,
     required this.accountName,
+    this.costCenterId,
+    this.costCenterName,
     this.description,
     this.debit = 0.0,
     this.credit = 0.0,

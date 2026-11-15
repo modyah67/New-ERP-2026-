@@ -113,77 +113,74 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
     final result = await showDialog<String>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => Dialog(
-          backgroundColor: const Color(0xCC05192D),
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          child: SizedBox(
-            width: 380,
-            child: Padding(
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('إضافة فئة',
-                      style: TextStyle(
-                          fontFamily: 'Cairo',
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 16),
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    style: const TextStyle(
-                        color: Colors.white, fontFamily: 'Cairo'),
-                    decoration: InputDecoration(
-                      hintText: 'مثال: مواد تعبئة',
-                      hintStyle: const TextStyle(color: AppTheme.textMuted),
-                      label: const Text('اسم الفئة',
-                          style: TextStyle(fontFamily: 'Cairo')),
-                      border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: AppTheme.glassBorder)),
-                      enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide:
-                              const BorderSide(color: AppTheme.glassBorder)),
-                      focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(12),
-                          borderSide: const BorderSide(color: AppTheme.accent)),
+        builder: (ctx, setDialogState) {
+          final dialogBg = AppTheme.getCardBg(ctx);
+          final borderColorCtx = AppTheme.getBorderColor(ctx);
+          final textPrimaryCtx = AppTheme.getTextPrimary(ctx);
+          return Dialog(
+            backgroundColor: dialogBg,
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+            child: SizedBox(
+              width: 380,
+              child: Padding(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('إضافة فئة',
+                        style: TextStyle(
+                            fontFamily: 'Cairo',
+                            color: textPrimaryCtx,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: controller,
+                      autofocus: true,
+                      style: TextStyle(color: textPrimaryCtx, fontFamily: 'Cairo'),
+                      decoration: InputDecoration(
+                        hintText: 'مثال: مواد تعبئة',
+                        hintStyle: TextStyle(color: AppTheme.getTextSecondary(ctx)),
+                        label: const Text('اسم الفئة', style: TextStyle(fontFamily: 'Cairo')),
+                        border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: borderColorCtx)),
+                        enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: BorderSide(color: borderColorCtx)),
+                        focusedBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(12),
+                            borderSide: const BorderSide(color: AppTheme.accent)),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 20),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextButton(
-                          onPressed: () => Navigator.pop(ctx),
-                          child: const Text('إلغاء',
-                              style: TextStyle(fontFamily: 'Cairo')),
+                    const SizedBox(height: 20),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo')),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: ElevatedButton(
-                          style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.accent,
-                              foregroundColor: Colors.white),
-                          onPressed: () =>
-                              Navigator.pop(ctx, controller.text.trim()),
-                          child: const Text('إضافة',
-                              style: TextStyle(fontFamily: 'Cairo')),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton(
+                            style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.accent,
+                                foregroundColor: Colors.white),
+                            onPressed: () => Navigator.pop(ctx, controller.text.trim()),
+                            child: const Text('إضافة', style: TextStyle(fontFamily: 'Cairo')),
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
 
@@ -205,10 +202,11 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
   }
 
   Future<void> _deleteCategory(String id, String name) async {
+
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xCC05192D),
+        backgroundColor: AppTheme.getCardBg(ctx),
         title: const Text('حذف فئة', style: TextStyle(fontFamily: 'Cairo')),
         content: Text('هل تريد حذف الفئة "$name"؟',
             style: const TextStyle(fontFamily: 'Cairo')),
@@ -319,12 +317,14 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
 
   Widget _buildCurrencyValueWidget(
       Map<String, double> valueByCurrency, bool isSelected) {
+    final isDark = AppTheme.isDark(context);
+    final regularColor = isDark ? AppTheme.accent : Colors.black;
     if (valueByCurrency.isEmpty) {
       return FittedBox(
         fit: BoxFit.scaleDown,
         child: Text('0',
             style: TextStyle(
-                color: isSelected ? const Color(0xFF333333) : AppTheme.accent,
+                color: isSelected ? Colors.black : regularColor,
                 fontFamily: 'Cairo',
                 fontSize: 12,
                 fontWeight: FontWeight.bold)),
@@ -333,8 +333,8 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
     final entries = valueByCurrency.entries.toList();
     if (entries.length == 1) {
       final color = isSelected
-          ? const Color(0xFF333333)
-          : (_currencyColors[entries.first.key] ?? AppTheme.accent);
+          ? Colors.black
+          : (isDark ? (_currencyColors[entries.first.key] ?? AppTheme.accent) : Colors.black);
       return FittedBox(
         fit: BoxFit.scaleDown,
         alignment: AlignmentDirectional.centerEnd,
@@ -344,7 +344,7 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
               color: color,
               fontFamily: 'Cairo',
               fontSize: 12,
-              fontWeight: FontWeight.bold),
+              fontWeight: FontWeight.w900),
         ),
       );
     }
@@ -353,8 +353,8 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
       mainAxisSize: MainAxisSize.min,
       children: entries.map((e) {
         final color = isSelected
-            ? const Color(0xFF333333)
-            : (_currencyColors[e.key] ?? AppTheme.accent);
+            ? Colors.black
+            : (isDark ? (_currencyColors[e.key] ?? AppTheme.accent) : Colors.black);
         return FittedBox(
           fit: BoxFit.scaleDown,
           alignment: AlignmentDirectional.centerEnd,
@@ -364,7 +364,7 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
                 color: color,
                 fontFamily: 'Cairo',
                 fontSize: 11,
-                fontWeight: FontWeight.bold),
+                fontWeight: FontWeight.w900),
           ),
         );
       }).toList(),
@@ -376,7 +376,7 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: AppTheme.getBackgroundColor(context),
         body: CustomScrollView(
           slivers: [
             SliverPadding(
@@ -424,13 +424,13 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('المستلزمات',
+                Text('المستلزمات',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                         fontSize: 28,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: AppTheme.getTextPrimary(context),
                         fontFamily: 'Cairo')),
                 Text(
                   widget.lowStockOnly
@@ -439,7 +439,10 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
                   style: TextStyle(
                       color: widget.lowStockOnly
                           ? AppTheme.warning
-                          : AppTheme.textSecondary,
+                          : (AppTheme.isDark(context)
+                              ? AppTheme.textSecondary
+                              : Colors.black),
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',
                       fontSize: 13),
                 ),
@@ -460,8 +463,10 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
                       height: 20,
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: AppTheme.primary))
-                  : const Icon(Icons.refresh_outlined,
-                      color: AppTheme.textSecondary),
+                  : Icon(Icons.refresh_outlined,
+                      color: AppTheme.isDark(context)
+                          ? AppTheme.textSecondary
+                          : Colors.black),
               tooltip: 'تحديث',
               onPressed: _loading ? null : _load,
             ),
@@ -475,14 +480,24 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
               icon: const Icon(Icons.category_outlined, size: 18),
               label: const Text('إضافة فئة'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary.withValues(alpha: 0.2),
-                foregroundColor: AppTheme.primary,
+                backgroundColor: AppTheme.isDark(context)
+                    ? AppTheme.primary.withValues(alpha: 0.2)
+                    : const Color(0xFFE0F2FE),
+                foregroundColor: AppTheme.isDark(context)
+                    ? AppTheme.primary
+                    : const Color(0xFF0369A1),
+                textStyle: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
               ),
               onPressed: _addCategory,
             ),
             ElevatedButton.icon(
               icon: const Icon(Icons.add, size: 18),
               label: const Text('إضافة مادة'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.accent,
+                foregroundColor: Colors.white,
+                textStyle: const TextStyle(fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+              ),
               onPressed: () => _showForm(),
             ),
           ],
@@ -567,10 +582,18 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
-            color: isSelected ? AppTheme.primary : const Color(0x66000000),
+            color: isSelected
+                ? AppTheme.primary
+                : (AppTheme.isDark(context)
+                    ? const Color(0x66000000)
+                    : Colors.white),
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-                color: isSelected ? AppTheme.primary : AppTheme.glassBorder),
+                color: isSelected
+                    ? AppTheme.primary
+                    : (AppTheme.isDark(context)
+                        ? AppTheme.getBorderColor(context)
+                        : const Color(0xFFCBD5E1))),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -584,8 +607,10 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
                       maxLines: 1,
                       style: TextStyle(
                           color: isSelected
-                              ? const Color(0xFF333333)
-                              : AppTheme.textSecondary,
+                              ? Colors.black
+                              : (AppTheme.isDark(context)
+                                  ? AppTheme.textSecondary
+                                  : Colors.black),
                           fontFamily: 'Cairo',
                           fontWeight: FontWeight.bold,
                           fontSize: 14)),
@@ -602,11 +627,13 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
                     child: Text(qtyText,
                         style: TextStyle(
                             color: isSelected
-                                ? const Color(0xFF4D4D4D)
-                                : AppTheme.textSecondary,
+                                ? Colors.black
+                                : (AppTheme.isDark(context)
+                                    ? AppTheme.textSecondary
+                                    : Colors.black),
                             fontFamily: 'Cairo',
                             fontSize: 11,
-                            fontWeight: FontWeight.w500)),
+                            fontWeight: FontWeight.bold)),
                   ),
                   valueWidget,
                 ],
@@ -626,26 +653,44 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
         child: Container(
           height: 48,
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
+            color: AppTheme.isDark(context)
+                ? const Color(0x3805192D)
+                : Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.glassBorder),
+            border: Border.all(
+                color: AppTheme.isDark(context)
+                    ? AppTheme.getBorderColor(context)
+                    : const Color(0xFFCBD5E1)),
           ),
           child: TextField(
             controller: _searchController,
             onChanged: _onSearchChanged,
             textDirection: TextDirection.rtl,
-            style: const TextStyle(
-                color: Colors.white, fontSize: 14, fontFamily: 'Cairo'),
+            style: TextStyle(
+                color: AppTheme.isDark(context) ? Colors.white : Colors.black,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                fontFamily: 'Cairo'),
             decoration: InputDecoration(
               hintText: 'بحث بالاسم أو الكود...',
-              hintStyle: const TextStyle(
-                  color: AppTheme.textSecondary, fontFamily: 'Cairo'),
-              prefixIcon: const Icon(Icons.search,
-                  size: 20, color: AppTheme.textSecondary),
+              hintStyle: TextStyle(
+                  color: AppTheme.isDark(context)
+                      ? AppTheme.textSecondary
+                      : const Color(0xFF64748B),
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo'),
+              prefixIcon: Icon(Icons.search,
+                  size: 20,
+                  color: AppTheme.isDark(context)
+                      ? AppTheme.textSecondary
+                      : Colors.black),
               suffixIcon: _search.isNotEmpty
                   ? IconButton(
-                      icon: const Icon(Icons.clear,
-                          size: 18, color: AppTheme.textSecondary),
+                      icon: Icon(Icons.clear,
+                          size: 18,
+                          color: AppTheme.isDark(context)
+                              ? AppTheme.textSecondary
+                              : Colors.black),
                       onPressed: () {
                         _searchController.clear();
                         _onSearchChanged('');
@@ -738,14 +783,17 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
       onTap: () => context.push('/raw-materials/${item.id}'),
       child: Container(
         decoration: BoxDecoration(
-          gradient: const LinearGradient(
-            begin: Alignment.topRight,
-            end: Alignment.bottomLeft,
-            colors: [
-              Color(0xFF0C345C),
-              Color(0xFF071E3A),
-            ],
-          ),
+          gradient: AppTheme.isDark(context)
+              ? const LinearGradient(
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                  colors: [Color(0xFF0C345C), Color(0xFF071E3A)],
+                )
+              : LinearGradient(
+                  begin: Alignment.topRight,
+                  end: Alignment.bottomLeft,
+                  colors: [Colors.white, const Color(0xFFF8FAFC)],
+                ),
           borderRadius: BorderRadius.circular(22),
           border: Border.all(
             color: stockColor.withValues(alpha: 0.3),
@@ -758,7 +806,7 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
               offset: const Offset(0, 8),
             ),
             BoxShadow(
-              color: Colors.black.withValues(alpha: 0.4),
+              color: Colors.black.withValues(alpha: AppTheme.isDark(context) ? 0.4 : 0.08),
               blurRadius: 12,
               offset: const Offset(0, 4),
             ),
@@ -847,10 +895,10 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
                       item.name,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: AppTheme.getTextPrimary(context),
                         fontFamily: 'Cairo',
                         height: 1.3,
                       ),
@@ -969,11 +1017,11 @@ class _RawMaterialsPageState extends State<RawMaterialsPage> {
                       const SizedBox(width: 6),
                       Text(
                         '${AppUtils.formatNumber(totalValue)} ${item.currency}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
                           fontFamily: 'Cairo',
-                          color: AppTheme.accent,
-                          fontWeight: FontWeight.w800,
+                          color: AppTheme.isDark(context) ? AppTheme.accent : Colors.black,
+                          fontWeight: FontWeight.w900,
                         ),
                       ),
                     ],

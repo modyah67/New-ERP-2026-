@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:ui';
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../data/models/packing_order_model.dart';
@@ -8,6 +9,8 @@ import '../../data/models/packing_order_line_model.dart';
 import '../../data/dao/packing_order_dao.dart';
 import '../../data/dao/lot_dao.dart';
 import '../../data/models/lot_model.dart';
+import '../../data/dao/supplier_dao.dart';
+import '../../data/models/supplier_model.dart';
 
 class PackingOrderCostAdjustmentDialog extends StatefulWidget {
   final PackingOrderModel order;
@@ -28,10 +31,12 @@ class _PackingOrderCostAdjustmentDialogState
     extends State<PackingOrderCostAdjustmentDialog> {
   final _dao = PackingOrderDao();
   final _lotDao = LotDao();
+  final _supplierDao = SupplierDao();
   late PackingOrderModel _order;
   LotReceiptModel? _lot;
   bool _loading = false;
   List<Map<String, dynamic>> _materials = [];
+  List<SupplierModel> _allSuppliers = [];
 
   final Map<String, LotReceiptModel> _lineLots = {};
 
@@ -45,6 +50,12 @@ class _PackingOrderCostAdjustmentDialogState
 
   Future<void> _loadLot() async {
     try {
+      try {
+        _allSuppliers = await _supplierDao.getAll(limit: 2000);
+      } catch (e) {
+        debugPrint('Error loading suppliers in adjustment dialog: $e');
+      }
+
       final orderId = int.tryParse(_order.id ?? '0') ?? 0;
       if (orderId > 0) {
         final dbLines = await _dao.getLines(orderId);
@@ -69,9 +80,228 @@ class _PackingOrderCostAdjustmentDialogState
           }
         }
       }
+
+      // Automatically enrich packaging materials with linked suppliers
+      await _enrichMaterialsWithSuppliers();
+
       if (mounted) setState(() {});
     } catch (e) {
       debugPrint('Error loading lot in adjustment dialog: $e');
+    }
+  }
+
+  Future<void> _enrichMaterialsWithSuppliers() async {
+    bool hasUpdates = false;
+
+    // 1. Determine the linked supplier of this packing order
+    String? orderSupplierName = _lot?.supplierName ?? _order.supplierName;
+    String? orderSupplierId = _lot?.supplierId;
+
+    if (orderSupplierName == null || orderSupplierName.isEmpty || orderSupplierName == 'غير محدد') {
+      for (final l in _lineLots.values) {
+        if (l.supplierName != null && l.supplierName!.trim().isNotEmpty && l.supplierName != 'غير محدد') {
+          orderSupplierName = l.supplierName!.trim();
+          orderSupplierId = l.supplierId;
+          break;
+        }
+      }
+    }
+
+    // Check notes for cost_items supplier
+    if ((orderSupplierName == null || orderSupplierName.isEmpty || orderSupplierName == 'غير محدد') && _order.notes != null) {
+      try {
+        final parsedNotes = jsonDecode(_order.notes!);
+        if (parsedNotes is Map && parsedNotes['cost_items'] is List) {
+          for (final ci in parsedNotes['cost_items']) {
+            if (ci is Map && ci['supplier_name'] != null) {
+              final s = ci['supplier_name'].toString().trim();
+              if (s.isNotEmpty && s != 'غير محدد') {
+                orderSupplierName = s;
+                orderSupplierId = ci['supplier_id']?.toString();
+                break;
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+
+    // If only 1 supplier exists in the system, default to it
+    if ((orderSupplierName == null || orderSupplierName.isEmpty || orderSupplierName == 'غير محدد') && _allSuppliers.length == 1) {
+      orderSupplierName = _allSuppliers.first.name.trim();
+      orderSupplierId = _allSuppliers.first.id;
+    }
+
+    // Resolve orderSupplierId if missing
+    if ((orderSupplierId == null || orderSupplierId.isEmpty) && orderSupplierName != null && orderSupplierName.isNotEmpty) {
+      for (final s in _allSuppliers) {
+        if (s.name.trim().toLowerCase() == orderSupplierName.trim().toLowerCase()) {
+          orderSupplierId = s.id;
+          break;
+        }
+      }
+    }
+
+    for (final mat in _materials) {
+      final sName = mat['supplier_name']?.toString().trim() ?? '';
+      if (sName.isEmpty || sName == 'غير محدد' || sName == 'null') {
+        final batchId = int.tryParse(mat['batch_id']?.toString() ?? '0') ?? 0;
+        if (batchId > 0) {
+          try {
+            final bRes = await Supabase.instance.client
+                .from('station_product_batches')
+                .select('id, supplier_name, supplier_id, purchase_invoice_id, raw_material_id')
+                .eq('id', batchId)
+                .maybeSingle();
+            if (bRes != null) {
+              final bSup = bRes['supplier_name']?.toString().trim();
+              final bSupId = bRes['supplier_id']?.toString().trim();
+              final invId = bRes['purchase_invoice_id'];
+              final rawId = bRes['raw_material_id'];
+
+              if (bSup != null && bSup.isNotEmpty && bSup != 'غير محدد' && bSup != 'null') {
+                mat['supplier_name'] = bSup;
+                if (bSupId != null && bSupId.isNotEmpty) {
+                  mat['supplier_id'] = bSupId;
+                }
+                hasUpdates = true;
+              } else if (bSupId != null && bSupId.isNotEmpty) {
+                final match = _allSuppliers
+                    .where((s) => s.id == bSupId)
+                    .firstOrNull;
+                if (match != null && match.name.isNotEmpty) {
+                  mat['supplier_name'] = match.name.trim();
+                  mat['supplier_id'] = bSupId;
+                  hasUpdates = true;
+                }
+              } else if (invId != null) {
+                final invRes = await Supabase.instance.client
+                    .from('purchase_invoices')
+                    .select('supplier_id, suppliers(name)')
+                    .eq('id', invId)
+                    .maybeSingle();
+                if (invRes != null) {
+                  final invSupId = invRes['supplier_id']?.toString();
+                  final invSupName = (invRes['suppliers'] is Map)
+                      ? invRes['suppliers']['name']?.toString().trim()
+                      : null;
+                  if (invSupName != null && invSupName.isNotEmpty) {
+                    mat['supplier_name'] = invSupName;
+                    mat['supplier_id'] = invSupId;
+                    hasUpdates = true;
+                  }
+                }
+              } else if (rawId != null) {
+                final rmRes = await Supabase.instance.client
+                    .from('raw_materials')
+                    .select('default_supplier_id')
+                    .eq('id', rawId)
+                    .maybeSingle();
+                if (rmRes != null && rmRes['default_supplier_id'] != null) {
+                  final dsId = rmRes['default_supplier_id'].toString();
+                  final match = _allSuppliers
+                      .where((s) => s.id == dsId)
+                      .firstOrNull;
+                  if (match != null && match.name.isNotEmpty) {
+                    mat['supplier_name'] = match.name.trim();
+                    mat['supplier_id'] = dsId;
+                    hasUpdates = true;
+                  }
+                }
+              }
+            }
+          } catch (e) {
+            debugPrint('Error enriching batch supplier: $e');
+          }
+        }
+
+        // 2. Lookup in raw_materials by code or name
+        final currentName = mat['supplier_name']?.toString().trim() ?? '';
+        if (currentName.isEmpty || currentName == 'غير محدد' || currentName == 'null') {
+          final prodCode = mat['product_code']?.toString().trim();
+          final prodName = (mat['product_name'] ?? mat['name'])?.toString().trim();
+          try {
+            var rmQuery = Supabase.instance.client
+                .from('raw_materials')
+                .select('default_supplier_id');
+            Map<String, dynamic>? rm;
+            if (prodCode != null && prodCode.isNotEmpty) {
+              rm = await rmQuery.eq('code', prodCode).maybeSingle();
+            }
+            if (rm == null && prodName != null && prodName.isNotEmpty) {
+              rm = await Supabase.instance.client
+                  .from('raw_materials')
+                  .select('default_supplier_id')
+                  .eq('name', prodName)
+                  .maybeSingle();
+            }
+            if (rm != null && rm['default_supplier_id'] != null) {
+              final dsId = rm['default_supplier_id'].toString();
+              final match = _allSuppliers
+                  .where((s) => s.id == dsId)
+                  .firstOrNull;
+              if (match != null && match.name.isNotEmpty) {
+                mat['supplier_name'] = match.name.trim();
+                mat['supplier_id'] = dsId;
+                hasUpdates = true;
+              }
+            }
+          } catch (_) {}
+        }
+
+        // 3. Fallback: Automatically link to packing order supplier (Crop / Material linked to Order)
+        final afterRm = mat['supplier_name']?.toString().trim() ?? '';
+        if ((afterRm.isEmpty || afterRm == 'غير محدد' || afterRm == 'null') &&
+            orderSupplierName != null &&
+            orderSupplierName.isNotEmpty &&
+            orderSupplierName != 'غير محدد') {
+          mat['supplier_name'] = orderSupplierName;
+          mat['supplier_id'] = orderSupplierId;
+          hasUpdates = true;
+        }
+      }
+    }
+
+    // Persist auto-resolved suppliers to packing_orders and station_product_batches
+    if (hasUpdates) {
+      try {
+        final orderId = int.tryParse(_order.id ?? '0') ?? 0;
+        if (orderId > 0) {
+          final parsed = jsonDecode(_order.notes ?? '{}');
+          if (parsed is Map) {
+            parsed['materials'] = _materials;
+            final updatedNotes = jsonEncode(parsed);
+            await Supabase.instance.client
+                .from('packing_orders')
+                .update({'notes': updatedNotes})
+                .eq('id', orderId);
+            _order = _order.copyWith(notes: updatedNotes);
+          }
+        }
+      } catch (e) {
+        debugPrint('Error updating packing order notes with enriched suppliers: $e');
+      }
+
+      for (final mat in _materials) {
+        final batchId = int.tryParse(mat['batch_id']?.toString() ?? '0') ?? 0;
+        final sName = mat['supplier_name']?.toString().trim() ?? '';
+        final sId = mat['supplier_id']?.toString().trim();
+        if (batchId > 0 && sName.isNotEmpty && sName != 'غير محدد' && sName != 'null') {
+          try {
+            await Supabase.instance.client
+                .from('station_product_batches')
+                .update({
+                  'supplier_name': sName,
+                  if (sId != null && sId.isNotEmpty) 'supplier_id': sId,
+                })
+                .eq('id', batchId);
+          } catch (_) {}
+        }
+      }
+
+      if (mounted) {
+        setState(() {});
+      }
     }
   }
 
@@ -113,12 +343,41 @@ class _PackingOrderCostAdjustmentDialogState
     final unitSuffix = unitLabel != null && unitLabel.isNotEmpty ? ' $unitLabel' : '';
     final unitCostSuffix = unitLabel != null && unitLabel.isNotEmpty ? ' ج.م / $unitLabel' : ' ج.م';
 
+    String currentSupplierName = supplierName.trim();
+    String? currentSupplierId = supplierId;
+
+    if (currentSupplierName.isEmpty ||
+        currentSupplierName == 'غير محدد' ||
+        currentSupplierName == 'null') {
+      final fallbackName = _lot?.supplierName ?? _order.supplierName;
+      if (fallbackName != null &&
+          fallbackName.trim().isNotEmpty &&
+          fallbackName != 'غير محدد') {
+        currentSupplierName = fallbackName.trim();
+      } else if (_allSuppliers.isNotEmpty) {
+        currentSupplierName = _allSuppliers.first.name.trim();
+        currentSupplierId = _allSuppliers.first.id;
+      }
+    }
+
+    if ((currentSupplierId == null || currentSupplierId.isEmpty) &&
+        currentSupplierName.isNotEmpty &&
+        currentSupplierName != 'غير محدد') {
+      for (final s in _allSuppliers) {
+        if (s.name.trim().toLowerCase() == currentSupplierName.toLowerCase()) {
+          currentSupplierId = s.id;
+          break;
+        }
+      }
+    }
+
     await showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setModalState) {
+            final isDark = Theme.of(context).brightness == Brightness.dark;
             final newTotal = (currentTotal - discountAmount).clamp(0.0, double.infinity);
             final newUnitCost = usedQty > 0 ? newTotal / usedQty : 0.0;
             final formattedQty = usedQty == usedQty.roundToDouble()
@@ -126,10 +385,10 @@ class _PackingOrderCostAdjustmentDialogState
                 : usedQty.toStringAsFixed(2);
 
             return AlertDialog(
-              backgroundColor: AppTheme.surface,
+              backgroundColor: isDark ? AppTheme.surface : Colors.white,
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(16),
-                side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.3)),
+                side: BorderSide(color: isDark ? AppTheme.primary.withValues(alpha: 0.3) : const Color(0xFFCBD5E1)),
               ),
               title: Row(
                 children: [
@@ -147,20 +406,21 @@ class _PackingOrderCostAdjustmentDialogState
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'إشعار خصم / تسوية سعر بند',
                           style: TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo',
-                            color: Colors.white,
+                            color: isDark ? Colors.white : Colors.black,
                           ),
                         ),
                         Text(
                           itemName,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
-                            color: AppTheme.textSecondary,
+                            color: isDark ? AppTheme.textSecondary : Colors.black87,
+                            fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo',
                           ),
                         ),
@@ -179,24 +439,67 @@ class _PackingOrderCostAdjustmentDialogState
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: AppTheme.background,
+                          color: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.08)),
+                              color: isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFCBD5E1)),
                         ),
                         child: Column(
                           children: [
-                            _buildInfoRow('المورد:', supplierName.isEmpty ? 'غير محدد' : supplierName),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'المورد المرتبط:',
+                                  style: TextStyle(
+                                    color: isDark ? AppTheme.textSecondary : Colors.black87,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: AppTheme.primary.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                        color: AppTheme.primary.withValues(alpha: 0.4)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.person,
+                                          size: 15, color: AppTheme.primary),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        currentSupplierName.isNotEmpty &&
+                                                currentSupplierName != 'غير محدد'
+                                            ? currentSupplierName
+                                            : (_order.supplierName ?? 'مورد أمر التعبئة'),
+                                        style: TextStyle(
+                                          color: isDark ? Colors.white : Colors.black,
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
                             if (cropAllocation != null && cropAllocation.isNotEmpty) ...[
                               const SizedBox(height: 6),
-                              _buildInfoRow('المحصول / التخصيص:', cropAllocation),
+                              _buildInfoRow('المحصول / التخصيص:', cropAllocation, isDark: isDark),
                             ],
                             const SizedBox(height: 6),
-                            _buildInfoRow('الكمية المستخدمة:', '$formattedQty$unitSuffix'),
+                            _buildInfoRow('الكمية المستخدمة:', '$formattedQty$unitSuffix', isDark: isDark),
                             const SizedBox(height: 6),
-                            _buildInfoRow('التكلفة الحالية للبند:', '${AppUtils.formatCurrency(currentTotal)} ج.م'),
+                            _buildInfoRow('التكلفة الحالية للبند:', '${AppUtils.formatCurrency(currentTotal)} ج.م', isDark: isDark),
                             const SizedBox(height: 6),
-                            _buildInfoRow('سعر الوحدة الحالي:', '${currentUnitCost.toStringAsFixed(3)}$unitCostSuffix'),
+                            _buildInfoRow('سعر الوحدة الحالي:', '${currentUnitCost.toStringAsFixed(3)}$unitCostSuffix', isDark: isDark),
                           ],
                         ),
                       ),
@@ -204,16 +507,20 @@ class _PackingOrderCostAdjustmentDialogState
                       TextFormField(
                         controller: discountCtrl,
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                        style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                        style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                         decoration: InputDecoration(
                           labelText: 'مبلغ الخصم الإجمالي (ج.م) *',
-                          labelStyle: const TextStyle(color: AppTheme.primary, fontFamily: 'Cairo'),
-                          prefixIcon: const Icon(Icons.money_off, color: AppTheme.primary),
+                          labelStyle: TextStyle(color: isDark ? AppTheme.primary : const Color(0xFF0284C7), fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                          prefixIcon: Icon(Icons.money_off, color: isDark ? AppTheme.primary : const Color(0xFF0284C7)),
                           filled: true,
-                          fillColor: AppTheme.background,
+                          fillColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
-                            borderSide: const BorderSide(color: AppTheme.primary),
+                            borderSide: BorderSide(color: isDark ? AppTheme.primary : const Color(0xFFCBD5E1)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: isDark ? AppTheme.primary.withValues(alpha: 0.5) : const Color(0xFFCBD5E1)),
                           ),
                         ),
                         onChanged: (val) {
@@ -225,15 +532,20 @@ class _PackingOrderCostAdjustmentDialogState
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: reasonCtrl,
-                        style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                        style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                         decoration: InputDecoration(
                           labelText: 'سبب التسوية / البيان *',
-                          labelStyle: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
-                          prefixIcon: const Icon(Icons.notes, color: AppTheme.textSecondary),
+                          labelStyle: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                          prefixIcon: Icon(Icons.notes, color: isDark ? AppTheme.textSecondary : Colors.black87),
                           filled: true,
-                          fillColor: AppTheme.background,
+                          fillColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                          ),
+                          enabledBorder: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(10),
+                            borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                           ),
                         ),
                       ),
@@ -241,20 +553,21 @@ class _PackingOrderCostAdjustmentDialogState
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: AppTheme.success.withValues(alpha: 0.1),
+                          color: isDark ? AppTheme.success.withValues(alpha: 0.1) : const Color(0xFFF0FDF4),
                           borderRadius: BorderRadius.circular(10),
                           border: Border.all(
-                              color: AppTheme.success.withValues(alpha: 0.3)),
+                              color: isDark ? AppTheme.success.withValues(alpha: 0.3) : const Color(0xFF86EFAC)),
                         ),
                         child: Column(
                           children: [
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('التكلفة الجديدة للبند:',
+                                Text('التكلفة الجديدة للبند:',
                                     style: TextStyle(
-                                        color: AppTheme.textSecondary,
+                                        color: isDark ? AppTheme.textSecondary : Colors.black87,
                                         fontFamily: 'Cairo',
+                                        fontWeight: FontWeight.bold,
                                         fontSize: 12)),
                                 Text('${AppUtils.formatCurrency(newTotal)} ج.م',
                                     style: const TextStyle(
@@ -268,10 +581,11 @@ class _PackingOrderCostAdjustmentDialogState
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('سعر الوحدة الجديد:',
+                                Text('سعر الوحدة الجديد:',
                                     style: TextStyle(
-                                        color: AppTheme.textSecondary,
+                                        color: isDark ? AppTheme.textSecondary : Colors.black87,
                                         fontFamily: 'Cairo',
+                                        fontWeight: FontWeight.bold,
                                         fontSize: 12)),
                                 Text('${newUnitCost.toStringAsFixed(3)}$unitCostSuffix',
                                     style: const TextStyle(
@@ -291,8 +605,8 @@ class _PackingOrderCostAdjustmentDialogState
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),
-                  child: const Text('إلغاء',
-                      style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                  child: Text('إلغاء',
+                      style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                 ),
                 ElevatedButton.icon(
                   onPressed: discountAmount <= 0
@@ -303,7 +617,8 @@ class _PackingOrderCostAdjustmentDialogState
                             itemType: itemType,
                             batchId: batchId,
                             discountAmount: discountAmount,
-                            supplierId: supplierId,
+                            supplierId: currentSupplierId,
+                            supplierName: currentSupplierName,
                             reason: reasonCtrl.text.trim(),
                             itemName: itemName,
                           );
@@ -329,11 +644,14 @@ class _PackingOrderCostAdjustmentDialogState
     );
   }
 
+
+
   Future<void> _executeDebitNote({
     required String itemType,
     required int batchId,
     required double discountAmount,
     String? supplierId,
+    String? supplierName,
     required String reason,
     required String itemName,
   }) async {
@@ -347,18 +665,43 @@ class _PackingOrderCostAdjustmentDialogState
         discountAmount: discountAmount,
         supplierId: supplierId,
         reason: reason,
+        itemName: itemName,
       );
 
       if (res['success'] == true) {
         if (!mounted) return;
         final entryNum = res['entry_number'] ?? '';
 
-        // Reload the order from DB to reflect latest costs and lines
-        final updatedList = await _dao.getAll();
-        var refreshed = updatedList.firstWhere(
-          (o) => o.id == _order.id,
-          orElse: () => _order,
-        );
+        // 1. Immediately update in-memory _materials so UI reflects the discount instantaneously
+        if (itemType == 'material') {
+          for (var mat in _materials) {
+            final mName = (mat['product_name'] ?? mat['name'] ?? '').toString().trim();
+            final bId = int.tryParse(mat['batch_id']?.toString() ?? '0') ?? 0;
+            if ((batchId > 0 && bId == batchId) ||
+                (itemName.isNotEmpty && mName == itemName.trim()) ||
+                _materials.length == 1) {
+              final usedQty = double.tryParse(mat['used_qty']?.toString() ?? mat['quantity']?.toString() ?? '0') ?? 1.0;
+              final currentTotal = double.tryParse(mat['total']?.toString() ?? mat['total_cost']?.toString() ?? '0') ?? (usedQty * (double.tryParse(mat['unit_cost']?.toString() ?? '0') ?? 0.0));
+              final newTotal = (currentTotal - discountAmount).clamp(0.0, double.infinity);
+              final currentDiscount = double.tryParse(mat['discount_applied']?.toString() ?? '0') ?? 0.0;
+              mat['total'] = newTotal;
+              mat['total_cost'] = newTotal;
+              mat['discount_applied'] = currentDiscount + discountAmount;
+              if (usedQty > 0) {
+                mat['unit_cost'] = newTotal / usedQty;
+                mat['cost'] = newTotal / usedQty;
+              }
+              break;
+            }
+          }
+        }
+
+        // 2. Reload the order from DB to reflect latest costs and notes updated by the RPC
+        PackingOrderModel? dbOrder;
+        if (orderId > 0) {
+          dbOrder = await _dao.getById(orderId);
+        }
+        var refreshed = dbOrder ?? _order;
 
         if (orderId > 0) {
           final updatedLines = await _dao.getLines(orderId);
@@ -369,23 +712,60 @@ class _PackingOrderCostAdjustmentDialogState
 
         final newCostVal = double.tryParse(res['new_packing_cost_per_carton']?.toString() ?? '') ??
             refreshed.packingCostPerCarton;
+        final newTotalCost = double.tryParse(res['new_total_packing_cost']?.toString() ?? '') ??
+            refreshed.totalPackingCost;
+        final newMatCost = double.tryParse(res['new_actual_material_cost']?.toString() ?? '') ??
+            refreshed.actualMaterialCost;
+
+        refreshed = refreshed.copyWith(
+          packingCostPerCarton: newCostVal > 0 ? newCostVal : refreshed.packingCostPerCarton,
+          totalPackingCost: newTotalCost > 0 ? newTotalCost : refreshed.totalPackingCost,
+          actualMaterialCost: newMatCost > 0 ? newMatCost : refreshed.actualMaterialCost,
+        );
+
         final displayCost = newCostVal > 0 ? newCostVal.toStringAsFixed(2) : (res['new_packing_cost_per_carton']?.toString() ?? '');
 
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'تم إصدار إشعار الخصم ($entryNum) بنجاح وتحديث تكلفة الكرتونة إلى $displayCost ج.م',
-              style: const TextStyle(fontFamily: 'Cairo'),
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'تم إصدار إشعار الخصم ($entryNum) بنجاح وتحديث تكلفة الكرتونة إلى $displayCost ج.م',
+                style: const TextStyle(fontFamily: 'Cairo'),
+              ),
+              backgroundColor: AppTheme.success,
             ),
-            backgroundColor: AppTheme.success,
-          ),
-        );
+          );
+        }
 
         setState(() {
           _order = refreshed;
           _parseNotes();
+          // Keep the updated discount if DB note parsing lagged behind
+          if (itemType == 'material') {
+            for (var mat in _materials) {
+              final mName = (mat['product_name'] ?? mat['name'] ?? '').toString().trim();
+              final bId = int.tryParse(mat['batch_id']?.toString() ?? '0') ?? 0;
+              if ((batchId > 0 && bId == batchId) ||
+                  (itemName.isNotEmpty && mName == itemName.trim()) ||
+                  _materials.length == 1) {
+                final applied = double.tryParse(mat['discount_applied']?.toString() ?? '0') ?? 0.0;
+                if (applied == 0.0) {
+                  final usedQty = double.tryParse(mat['used_qty']?.toString() ?? mat['quantity']?.toString() ?? '0') ?? 1.0;
+                  final curTotal = double.tryParse(mat['total']?.toString() ?? mat['total_cost']?.toString() ?? '0') ?? 0.0;
+                  final newTot = (curTotal - discountAmount).clamp(0.0, double.infinity);
+                  mat['total'] = newTot;
+                  mat['total_cost'] = newTot;
+                  mat['discount_applied'] = discountAmount;
+                  if (usedQty > 0) {
+                    mat['unit_cost'] = newTot / usedQty;
+                    mat['cost'] = newTot / usedQty;
+                  }
+                }
+                break;
+              }
+            }
+          }
         });
-        await _loadLot();
 
         widget.onUpdated?.call();
       } else {
@@ -404,7 +784,10 @@ class _PackingOrderCostAdjustmentDialogState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('خطأ: $e', style: const TextStyle(fontFamily: 'Cairo')),
+          content: Text(
+            'حدث خطأ: $e',
+            style: const TextStyle(fontFamily: 'Cairo'),
+          ),
           backgroundColor: AppTheme.danger,
         ),
       );
@@ -413,19 +796,21 @@ class _PackingOrderCostAdjustmentDialogState
     }
   }
 
-  Widget _buildInfoRow(String label, String value) {
+  Widget _buildInfoRow(String label, String value, {bool? isDark}) {
+    final dark = isDark ?? (Theme.of(context).brightness == Brightness.dark);
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label,
-            style: const TextStyle(
-                color: AppTheme.textSecondary,
+            style: TextStyle(
+                color: dark ? AppTheme.textSecondary : Colors.black87,
                 fontSize: 12,
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo')),
         Text(value,
-            style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.w600,
+            style: TextStyle(
+                color: dark ? Colors.white : Colors.black,
+                fontWeight: FontWeight.bold,
                 fontSize: 12,
                 fontFamily: 'Cairo')),
       ],
@@ -434,9 +819,12 @@ class _PackingOrderCostAdjustmentDialogState
 
   @override
   Widget build(BuildContext context) {
-    final cartonCount = _order.cartonCount ?? 1;
-    final totalCost = _order.totalPackingCost ?? 0.0;
-    final costPerCarton = _order.packingCostPerCarton ?? (cartonCount > 0 ? totalCost / cartonCount : 0.0);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cartonCount = _order.cartonCount;
+    final totalCost = _order.totalPackingCost;
+    final costPerCarton = _order.packingCostPerCarton > 0
+        ? _order.packingCostPerCarton
+        : (cartonCount > 0 ? totalCost / cartonCount : 0.0);
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -447,12 +835,12 @@ class _PackingOrderCostAdjustmentDialogState
           width: 760,
           constraints: const BoxConstraints(maxHeight: 700),
           decoration: BoxDecoration(
-            color: AppTheme.surface,
+            color: isDark ? AppTheme.surface : Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+            border: Border.all(color: isDark ? AppTheme.primary.withValues(alpha: 0.3) : const Color(0xFFCBD5E1)),
             boxShadow: [
               BoxShadow(
-                color: Colors.black.withValues(alpha: 0.5),
+                color: Colors.black.withValues(alpha: isDark ? 0.5 : 0.1),
                 blurRadius: 20,
                 spreadRadius: 4,
               )
@@ -464,11 +852,11 @@ class _PackingOrderCostAdjustmentDialogState
               Container(
                 padding: const EdgeInsets.all(16),
                 decoration: BoxDecoration(
-                  color: AppTheme.primary.withValues(alpha: 0.08),
+                  color: isDark ? AppTheme.primary.withValues(alpha: 0.08) : const Color(0xFFF8FAFC),
                   borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
                   border: Border(
                       bottom: BorderSide(
-                          color: AppTheme.primary.withValues(alpha: 0.2))),
+                          color: isDark ? AppTheme.primary.withValues(alpha: 0.2) : const Color(0xFFE2E8F0))),
                 ),
                 child: Row(
                   children: [
@@ -488,13 +876,13 @@ class _PackingOrderCostAdjustmentDialogState
                         children: [
                           Row(
                             children: [
-                              const Text(
+                              Text(
                                 'تسوية أسعار بنود أمر التعبئة',
                                 style: TextStyle(
                                   fontSize: 18,
                                   fontWeight: FontWeight.bold,
                                   fontFamily: 'Cairo',
-                                  color: Colors.white,
+                                  color: isDark ? Colors.white : Colors.black,
                                 ),
                               ),
                               const SizedBox(width: 8),
@@ -517,11 +905,12 @@ class _PackingOrderCostAdjustmentDialogState
                               ),
                             ],
                           ),
-                          const Text(
+                          Text(
                             'تعديل تكلفة خامة أو محصول فردي وتوليد إشعار خصم مورد وتحديث تكلفة الكرتونة للشحنة',
                             style: TextStyle(
                               fontSize: 11,
-                              color: AppTheme.textSecondary,
+                              color: isDark ? AppTheme.textSecondary : Colors.black87,
+                              fontWeight: FontWeight.bold,
                               fontFamily: 'Cairo',
                             ),
                           ),
@@ -529,7 +918,7 @@ class _PackingOrderCostAdjustmentDialogState
                       ),
                     ),
                     IconButton(
-                      icon: const Icon(Icons.close, color: AppTheme.textSecondary),
+                      icon: Icon(Icons.close, color: isDark ? AppTheme.textSecondary : Colors.black87),
                       onPressed: () => Navigator.pop(context),
                     ),
                   ],
@@ -539,7 +928,7 @@ class _PackingOrderCostAdjustmentDialogState
               // Overview KPI Bar
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                color: AppTheme.background,
+                color: isDark ? AppTheme.background : const Color(0xFFF1F5F9),
                 child: Row(
                   children: [
                     Expanded(
@@ -548,6 +937,7 @@ class _PackingOrderCostAdjustmentDialogState
                         '$cartonCount كرتونة',
                         Icons.inventory_2_outlined,
                         Colors.blue,
+                        isDark: isDark,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -557,6 +947,7 @@ class _PackingOrderCostAdjustmentDialogState
                         '${AppUtils.formatCurrency(totalCost)} ج.م',
                         Icons.payments_outlined,
                         AppTheme.warning,
+                        isDark: isDark,
                       ),
                     ),
                     const SizedBox(width: 12),
@@ -566,6 +957,7 @@ class _PackingOrderCostAdjustmentDialogState
                         '${costPerCarton.toStringAsFixed(2)} ج.م',
                         Icons.analytics_outlined,
                         AppTheme.success,
+                        isDark: isDark,
                       ),
                     ),
                   ],
@@ -586,10 +978,11 @@ class _PackingOrderCostAdjustmentDialogState
                             _buildSectionHeader(
                               'خامات ومواد التعبئة والتغليف (${_materials.length})',
                               Icons.all_inbox_outlined,
+                              isDark: isDark,
                             ),
                             const SizedBox(height: 8),
                             if (_materials.isEmpty)
-                              _buildEmptyState('لا توجد خامات مسجلة في ملاحظات الأمر')
+                              _buildEmptyState('لا توجد خامات مسجلة في ملاحظات الأمر', isDark: isDark)
                             else
                               ListView.separated(
                                 shrinkWrap: true,
@@ -599,7 +992,7 @@ class _PackingOrderCostAdjustmentDialogState
                                     const SizedBox(height: 8),
                                 itemBuilder: (context, index) {
                                   final mat = _materials[index];
-                                  return _buildMaterialRow(mat);
+                                  return _buildMaterialRow(mat, isDark: isDark);
                                 },
                               ),
 
@@ -611,9 +1004,10 @@ class _PackingOrderCostAdjustmentDialogState
                                   ? 'المحاصيل المستخدمة / تخصيص اللوت (${_order.lines.length})'
                                   : 'المحصول المستخدم / تخصيص اللوت',
                               Icons.eco_outlined,
+                              isDark: isDark,
                             ),
                             const SizedBox(height: 8),
-                            _buildFruitSection(),
+                            _buildFruitSection(isDark: isDark),
                           ],
                         ),
                       ),
@@ -623,31 +1017,33 @@ class _PackingOrderCostAdjustmentDialogState
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppTheme.surface,
+                  color: isDark ? AppTheme.surface : Colors.white,
                   borderRadius:
                       const BorderRadius.vertical(bottom: Radius.circular(16)),
                   border: Border(
                       top: BorderSide(
-                          color: Colors.white.withValues(alpha: 0.08))),
+                          color: isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0))),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text(
+                    Text(
                       '🔒 التعديل متاح للمسؤولين فقط - يتم إنشاء قيود تسوية GL تلقائياً',
                       style: TextStyle(
                         fontSize: 11,
-                        color: AppTheme.textSecondary,
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
+                        fontWeight: FontWeight.bold,
                         fontFamily: 'Cairo',
                       ),
                     ),
                     ElevatedButton(
                       onPressed: () => Navigator.pop(context),
                       style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.white.withValues(alpha: 0.1),
-                        foregroundColor: Colors.white,
+                        backgroundColor: isDark ? Colors.white.withValues(alpha: 0.1) : const Color(0xFFF1F5F9),
+                        foregroundColor: isDark ? Colors.white : Colors.black,
+                        elevation: 0,
                       ),
-                      child: const Text('إغلاق', style: TextStyle(fontFamily: 'Cairo')),
+                      child: const Text('إغلاق', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                     ),
                   ],
                 ),
@@ -659,15 +1055,15 @@ class _PackingOrderCostAdjustmentDialogState
     );
   }
 
-  Widget _buildSectionHeader(String title, IconData icon) {
+  Widget _buildSectionHeader(String title, IconData icon, {bool isDark = true}) {
     return Row(
       children: [
         Icon(icon, size: 18, color: AppTheme.primary),
         const SizedBox(width: 6),
         Text(
           title,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: isDark ? Colors.white : Colors.black,
             fontSize: 14,
             fontWeight: FontWeight.bold,
             fontFamily: 'Cairo',
@@ -677,13 +1073,13 @@ class _PackingOrderCostAdjustmentDialogState
     );
   }
 
-  Widget _buildKpiCard(String label, String value, IconData icon, Color color) {
+  Widget _buildKpiCard(String label, String value, IconData icon, Color color, {bool isDark = true}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: isDark ? AppTheme.surface : Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+        border: Border.all(color: color.withValues(alpha: isDark ? 0.3 : 0.6)),
       ),
       child: Row(
         children: [
@@ -694,9 +1090,10 @@ class _PackingOrderCostAdjustmentDialogState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(label,
-                    style: const TextStyle(
-                        color: AppTheme.textSecondary,
+                    style: TextStyle(
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
                         fontSize: 10,
+                        fontWeight: FontWeight.bold,
                         fontFamily: 'Cairo')),
                 Text(value,
                     style: TextStyle(
@@ -774,7 +1171,7 @@ class _PackingOrderCostAdjustmentDialogState
     return 'مشترك';
   }
 
-  Widget _buildMaterialRow(Map<String, dynamic> mat) {
+  Widget _buildMaterialRow(Map<String, dynamic> mat, {bool isDark = true}) {
     final productName = mat['product_name'] ?? mat['name'] ?? 'خامة';
     final supplierName = mat['supplier_name'] ?? 'غير محدد';
     final supplierId = mat['supplier_id']?.toString();
@@ -789,19 +1186,19 @@ class _PackingOrderCostAdjustmentDialogState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.background,
+        color: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFCBD5E1)),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.05),
+              color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFE0F2FE),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.inventory, color: Colors.white70, size: 20),
+            child: Icon(Icons.inventory, color: isDark ? Colors.white70 : const Color(0xFF0284C7), size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -811,8 +1208,8 @@ class _PackingOrderCostAdjustmentDialogState
               children: [
                 Text(
                   productName,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
                     fontFamily: 'Cairo',
@@ -826,8 +1223,9 @@ class _PackingOrderCostAdjustmentDialogState
                   children: [
                     Text(
                       'المورد: $supplierName',
-                      style: const TextStyle(
-                        color: AppTheme.textSecondary,
+                      style: TextStyle(
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
+                        fontWeight: FontWeight.bold,
                         fontSize: 11,
                         fontFamily: 'Cairo',
                       ),
@@ -841,8 +1239,8 @@ class _PackingOrderCostAdjustmentDialogState
                         borderRadius: BorderRadius.circular(4),
                         border: Border.all(
                           color: isShared
-                              ? AppTheme.primary.withValues(alpha: 0.35)
-                              : Colors.greenAccent.withValues(alpha: 0.35),
+                              ? (isDark ? AppTheme.primary.withValues(alpha: 0.35) : const Color(0xFF0284C7))
+                              : (isDark ? Colors.greenAccent.withValues(alpha: 0.35) : Colors.green),
                           width: 0.5,
                         ),
                       ),
@@ -852,13 +1250,13 @@ class _PackingOrderCostAdjustmentDialogState
                           Icon(
                             isShared ? Icons.call_split : Icons.eco,
                             size: 10,
-                            color: isShared ? AppTheme.primary : Colors.greenAccent,
+                            color: isShared ? (isDark ? AppTheme.primary : const Color(0xFF0284C7)) : (isDark ? Colors.greenAccent : const Color(0xFF16A34A)),
                           ),
                           const SizedBox(width: 3),
                           Text(
                             isShared ? 'مشترك' : 'المحصول: $cropAllocation',
                             style: TextStyle(
-                              color: isShared ? AppTheme.primary : Colors.greenAccent,
+                              color: isShared ? (isDark ? AppTheme.primary : const Color(0xFF0284C7)) : (isDark ? Colors.greenAccent : const Color(0xFF16A34A)),
                               fontSize: 10,
                               fontWeight: FontWeight.bold,
                               fontFamily: 'Cairo',
@@ -891,13 +1289,13 @@ class _PackingOrderCostAdjustmentDialogState
               children: [
                 Text(
                   'الكمية: $usedQty',
-                  style: const TextStyle(
-                      color: Colors.white70, fontSize: 11, fontFamily: 'Cairo'),
+                  style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black87, fontWeight: FontWeight.bold, fontSize: 11, fontFamily: 'Cairo'),
                 ),
                 Text(
                   'سعر الوحدة: ${unitCost.toStringAsFixed(3)} ج.م',
-                  style: const TextStyle(
-                      color: Colors.white70, fontSize: 11, fontFamily: 'Cairo'),
+                  style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black87, fontWeight: FontWeight.bold, fontSize: 11, fontFamily: 'Cairo'),
                 ),
               ],
             ),
@@ -907,15 +1305,16 @@ class _PackingOrderCostAdjustmentDialogState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                const Text('إجمالي التكلفة',
+                Text('إجمالي التكلفة',
                     style: TextStyle(
-                        color: AppTheme.textSecondary,
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
+                        fontWeight: FontWeight.bold,
                         fontSize: 10,
                         fontFamily: 'Cairo')),
                 Text(
                   AppUtils.formatCurrency(total),
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
                     fontFamily: 'Cairo',
@@ -944,13 +1343,13 @@ class _PackingOrderCostAdjustmentDialogState
                     fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo')),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.primary.withValues(alpha: 0.2),
-              foregroundColor: AppTheme.primary,
+              backgroundColor: AppTheme.primary.withValues(alpha: isDark ? 0.2 : 0.1),
+              foregroundColor: isDark ? AppTheme.primary : const Color(0xFF0284C7),
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
-                side: BorderSide(color: AppTheme.primary.withValues(alpha: 0.5)),
+                side: BorderSide(color: isDark ? AppTheme.primary.withValues(alpha: 0.5) : const Color(0xFF0284C7)),
               ),
             ),
           ),
@@ -959,7 +1358,7 @@ class _PackingOrderCostAdjustmentDialogState
     );
   }
 
-  Widget _buildFruitSection() {
+  Widget _buildFruitSection({bool isDark = true}) {
     if (_order.lines.length > 1) {
       return ListView.separated(
         shrinkWrap: true,
@@ -968,15 +1367,15 @@ class _PackingOrderCostAdjustmentDialogState
         separatorBuilder: (_, __) => const SizedBox(height: 8),
         itemBuilder: (context, index) {
           final line = _order.lines[index];
-          return _buildSingleLineFruitRow(line, index);
+          return _buildSingleLineFruitRow(line, index, isDark: isDark);
         },
       );
     }
 
-    return _buildSingleCropDefaultRow();
+    return _buildSingleCropDefaultRow(isDark: isDark);
   }
 
-  Widget _buildSingleLineFruitRow(PackingOrderLineModel line, int index) {
+  Widget _buildSingleLineFruitRow(PackingOrderLineModel line, int index, {bool isDark = true}) {
     final lot = line.sourceLotId != null ? _lineLots[line.sourceLotId] : null;
     final isCartonMode =
         lot?.purchaseMode == 'carton' || _lot?.purchaseMode == 'carton';
@@ -1023,6 +1422,15 @@ class _PackingOrderCostAdjustmentDialogState
         _order.supplierName ??
         _lot?.supplierName ??
         'مورد المحصول';
+    String? lineSupId = lot?.supplierId ?? _lot?.supplierId;
+    if ((lineSupId == null || lineSupId.isEmpty) && supplierName.isNotEmpty && supplierName != 'مورد المحصول') {
+      for (final s in _allSuppliers) {
+        if (s.name.trim().toLowerCase() == supplierName.trim().toLowerCase()) {
+          lineSupId = s.id;
+          break;
+        }
+      }
+    }
     final cropName = line.productName.trim().isNotEmpty
         ? line.productName.trim()
         : (lot?.productName ?? _order.productName ?? 'محصول #${index + 1}');
@@ -1034,19 +1442,19 @@ class _PackingOrderCostAdjustmentDialogState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.background,
+        color: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFCBD5E1)),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.1),
+              color: isDark ? Colors.green.withValues(alpha: 0.1) : const Color(0xFFDCFCE7),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.eco, color: Colors.greenAccent, size: 20),
+            child: Icon(Icons.eco, color: isDark ? Colors.greenAccent : const Color(0xFF16A34A), size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1056,8 +1464,8 @@ class _PackingOrderCostAdjustmentDialogState
               children: [
                 Text(
                   '$cropName ($lotNumber)',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
                     fontFamily: 'Cairo',
@@ -1065,8 +1473,9 @@ class _PackingOrderCostAdjustmentDialogState
                 ),
                 Text(
                   'المورد: $supplierName',
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
+                  style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : Colors.black87,
+                    fontWeight: FontWeight.bold,
                     fontSize: 11,
                     fontFamily: 'Cairo',
                   ),
@@ -1083,17 +1492,18 @@ class _PackingOrderCostAdjustmentDialogState
                   isCartonMode
                       ? 'الكراتين: $formattedQty كرتونة'
                       : 'الوزن: $formattedQty كجم',
-                  style: const TextStyle(
-                      color: Colors.white70,
+                  style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black87,
                       fontSize: 11,
                       fontFamily: 'Cairo',
-                      fontWeight: FontWeight.w600),
+                      fontWeight: FontWeight.bold),
                 ),
                 Text(
                   'الكراتين: ${line.cartonCount} كرتونة',
-                  style: const TextStyle(
-                      color: AppTheme.textSecondary,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : Colors.black54,
                       fontSize: 10,
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo'),
                 ),
               ],
@@ -1104,15 +1514,16 @@ class _PackingOrderCostAdjustmentDialogState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                const Text('تكلفة المحصول المستخدم (قبل الهالك والفرز)',
+                Text('تكلفة المحصول المستخدم (قبل الهالك والفرز)',
                     style: TextStyle(
-                        color: AppTheme.textSecondary,
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
+                        fontWeight: FontWeight.bold,
                         fontSize: 10,
                         fontFamily: 'Cairo')),
                 Text(
                   AppUtils.formatCurrency(lineFruitCost),
-                  style: const TextStyle(
-                    color: Colors.greenAccent,
+                  style: TextStyle(
+                    color: isDark ? Colors.greenAccent : const Color(0xFF16A34A),
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
                     fontFamily: 'Cairo',
@@ -1134,7 +1545,7 @@ class _PackingOrderCostAdjustmentDialogState
               currentTotal: lineFruitCost,
               currentUnitCost: unitCost,
               usedQty: usedQty,
-              supplierId: lot?.supplierId ?? _lot?.supplierId,
+              supplierId: lineSupId,
               unitLabel: unitLabel,
               cropAllocation: cropName,
             ),
@@ -1145,13 +1556,13 @@ class _PackingOrderCostAdjustmentDialogState
                     fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo')),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.withValues(alpha: 0.2),
-              foregroundColor: Colors.greenAccent,
+              backgroundColor: Colors.green.withValues(alpha: isDark ? 0.2 : 0.1),
+              foregroundColor: isDark ? Colors.greenAccent : const Color(0xFF16A34A),
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
-                side: BorderSide(color: Colors.green.withValues(alpha: 0.5)),
+                side: BorderSide(color: isDark ? Colors.green.withValues(alpha: 0.5) : const Color(0xFF16A34A)),
               ),
             ),
           ),
@@ -1160,7 +1571,7 @@ class _PackingOrderCostAdjustmentDialogState
     );
   }
 
-  Widget _buildSingleCropDefaultRow() {
+  Widget _buildSingleCropDefaultRow({bool isDark = true}) {
     final isCartonMode = _lot?.purchaseMode == 'carton';
     final unitLabel = isCartonMode ? 'كرتونة' : 'كجم';
 
@@ -1191,6 +1602,15 @@ class _PackingOrderCostAdjustmentDialogState
 
     final lotNumber = _order.lotNumber ?? _lot?.lotNumber ?? 'لوت رئيسي';
     final supplierName = _order.supplierName ?? _lot?.supplierName ?? 'مورد المحصول';
+    String? cropSupId = _lot?.supplierId;
+    if ((cropSupId == null || cropSupId.isEmpty) && supplierName.isNotEmpty && supplierName != 'مورد المحصول') {
+      for (final s in _allSuppliers) {
+        if (s.name.trim().toLowerCase() == supplierName.trim().toLowerCase()) {
+          cropSupId = s.id;
+          break;
+        }
+      }
+    }
     final cropName = _order.productName ?? _lot?.productName ?? 'محصول المحطة';
 
     final formattedQty = usedQty == usedQty.roundToDouble()
@@ -1200,19 +1620,19 @@ class _PackingOrderCostAdjustmentDialogState
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.background,
+        color: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+        border: Border.all(color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFCBD5E1)),
       ),
       child: Row(
         children: [
           Container(
             padding: const EdgeInsets.all(8),
             decoration: BoxDecoration(
-              color: Colors.green.withValues(alpha: 0.1),
+              color: isDark ? Colors.green.withValues(alpha: 0.1) : const Color(0xFFDCFCE7),
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.eco, color: Colors.greenAccent, size: 20),
+            child: Icon(Icons.eco, color: isDark ? Colors.greenAccent : const Color(0xFF16A34A), size: 20),
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -1222,8 +1642,8 @@ class _PackingOrderCostAdjustmentDialogState
               children: [
                 Text(
                   '$cropName ($lotNumber)',
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
                     fontFamily: 'Cairo',
@@ -1231,8 +1651,9 @@ class _PackingOrderCostAdjustmentDialogState
                 ),
                 Text(
                   'المورد: $supplierName',
-                  style: const TextStyle(
-                    color: AppTheme.textSecondary,
+                  style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : Colors.black87,
+                    fontWeight: FontWeight.bold,
                     fontSize: 11,
                     fontFamily: 'Cairo',
                   ),
@@ -1249,17 +1670,18 @@ class _PackingOrderCostAdjustmentDialogState
                   isCartonMode
                       ? 'الكراتين: $formattedQty كرتونة'
                       : 'الوزن: $formattedQty كجم',
-                  style: const TextStyle(
-                      color: Colors.white70,
+                  style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black87,
                       fontSize: 11,
                       fontFamily: 'Cairo',
-                      fontWeight: FontWeight.w600),
+                      fontWeight: FontWeight.bold),
                 ),
                 Text(
                   'الكراتين: ${_order.cartonCount} كرتونة',
-                  style: const TextStyle(
-                      color: AppTheme.textSecondary,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : Colors.black54,
                       fontSize: 10,
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo'),
                 ),
               ],
@@ -1270,15 +1692,16 @@ class _PackingOrderCostAdjustmentDialogState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                const Text('تكلفة المحصول المستخدم (قبل الهالك والفرز)',
+                Text('تكلفة المحصول المستخدم (قبل الهالك والفرز)',
                     style: TextStyle(
-                        color: AppTheme.textSecondary,
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
+                        fontWeight: FontWeight.bold,
                         fontSize: 10,
                         fontFamily: 'Cairo')),
                 Text(
                   AppUtils.formatCurrency(fruitCost),
-                  style: const TextStyle(
-                    color: Colors.greenAccent,
+                  style: TextStyle(
+                    color: isDark ? Colors.greenAccent : const Color(0xFF16A34A),
                     fontWeight: FontWeight.bold,
                     fontSize: 13,
                     fontFamily: 'Cairo',
@@ -1297,7 +1720,7 @@ class _PackingOrderCostAdjustmentDialogState
               currentTotal: fruitCost,
               currentUnitCost: unitCost,
               usedQty: usedQty,
-              supplierId: _lot?.supplierId,
+              supplierId: cropSupId,
               unitLabel: unitLabel,
               cropAllocation: cropName,
             ),
@@ -1308,13 +1731,13 @@ class _PackingOrderCostAdjustmentDialogState
                     fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo')),
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.withValues(alpha: 0.2),
-              foregroundColor: Colors.greenAccent,
+              backgroundColor: Colors.green.withValues(alpha: isDark ? 0.2 : 0.1),
+              foregroundColor: isDark ? Colors.greenAccent : const Color(0xFF16A34A),
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8),
-                side: BorderSide(color: Colors.green.withValues(alpha: 0.5)),
+                side: BorderSide(color: isDark ? Colors.green.withValues(alpha: 0.5) : const Color(0xFF16A34A)),
               ),
             ),
           ),
@@ -1323,19 +1746,21 @@ class _PackingOrderCostAdjustmentDialogState
     );
   }
 
-  Widget _buildEmptyState(String message) {
+  Widget _buildEmptyState(String message, {bool isDark = true}) {
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.background,
+        color: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
       ),
       child: Center(
         child: Text(
           message,
-          style: const TextStyle(
-            color: AppTheme.textSecondary,
+          style: TextStyle(
+            color: isDark ? AppTheme.textSecondary : Colors.black87,
+            fontWeight: FontWeight.bold,
             fontSize: 12,
             fontFamily: 'Cairo',
           ),

@@ -15,6 +15,7 @@ import '../../data/models/treasury_model.dart';
 import '../../data/models/unified_transaction_model.dart';
 import '../../data/services/journal_entry_navigation_service.dart';
 import 'widgets/unified_transaction_details_modal.dart';
+import 'widgets/simplified_custody_expense_dialog.dart';
 import '../../data/models/expense_category_model.dart';
 import '../../data/models/treasury_stats_model.dart';
 import '../../data/dao/treasury_dao.dart';
@@ -40,6 +41,14 @@ import '../../data/dao/purchase_dao.dart';
 import '../../data/models/purchase_model.dart';
 import '../../data/services/supplier_settlement_service.dart';
 import '../../data/services/chart_of_accounts_service.dart';
+import '../../data/models/cost_center.dart';
+import 'widgets/coa_expense_dropdown.dart';
+import '../../core/widgets/password_verification_dialog.dart';
+import 'widgets/edit_confirmed_treasury_transaction_dialog.dart';
+import 'widgets/cost_center_selector_field.dart';
+import 'widgets/branch_selector_field.dart';
+import 'widgets/expense_sub_account_dialog.dart';
+import '../../core/widgets/beneficiary_selector_field.dart';
 import 'package:accounting_system/core/utils/file_helper.dart';
 
 class TreasuryPage extends StatelessWidget {
@@ -122,6 +131,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   Widget _buildHeader() {
     return BlocBuilder<TreasuryCubit, TreasuryState>(
       builder: (_, state) {
+        final isDark = Theme.of(context).brightness == Brightness.dark;
         final isAdmin =
             state is TreasuryLoaded && (state.isAdmin || state.hasOwnerSafe);
         final screenWidth = MediaQuery.of(context).size.width;
@@ -134,8 +144,9 @@ class _TreasuryViewState extends State<_TreasuryView> {
               width: 44,
               height: 44,
               decoration: BoxDecoration(
-                color: AppTheme.accent.withValues(alpha: 0.1),
+                color: AppTheme.accent.withValues(alpha: isDark ? 0.1 : 0.18),
                 borderRadius: BorderRadius.circular(12),
+                border: isDark ? null : Border.all(color: AppTheme.accent.withValues(alpha: 0.35)),
               ),
               child: const Icon(Icons.account_balance_outlined,
                   color: AppTheme.accent, size: 22),
@@ -146,13 +157,13 @@ class _TreasuryViewState extends State<_TreasuryView> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text('الخزينة الرئيسية',
+                  Text('الخزينة الرئيسية',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                           fontSize: 26,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: isDark ? Colors.white : Colors.black,
                           fontFamily: 'Cairo')),
                   Text(
                       isAdmin || (state is TreasuryLoaded && state.hasOwnerSafe)
@@ -160,9 +171,10 @@ class _TreasuryViewState extends State<_TreasuryView> {
                           : 'العهدة الخاصة بي',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: AppTheme.textSecondary,
+                      style: TextStyle(
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                           fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
                           fontSize: 14)),
                 ],
               ),
@@ -175,16 +187,21 @@ class _TreasuryViewState extends State<_TreasuryView> {
             margin: const EdgeInsets.only(top: 8),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
-              color: AppTheme.accent.withValues(alpha: 0.15),
+              color: isDark
+                  ? AppTheme.accent.withValues(alpha: 0.15)
+                  : const Color(0xFFCCFBF1),
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppTheme.accent.withValues(alpha: 0.3)),
+              border: Border.all(
+                  color: isDark
+                      ? AppTheme.accent.withValues(alpha: 0.3)
+                      : const Color(0xFF14B8A6)),
             ),
             child: Text(
               'أنت الآن تستخدم: ${state.selectedTreasury?.displayName ?? state.treasuryForCurrentUser?.displayName ?? 'الخزينة الرئيسية'}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                color: AppTheme.accent,
+              style: TextStyle(
+                color: isDark ? AppTheme.accent : const Color(0xFF0F766E),
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
@@ -234,6 +251,8 @@ class _TreasuryViewState extends State<_TreasuryView> {
   }
 
   List<Widget> _buildActionButtonsList(TreasuryLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final activeTreasury = state.selectedTreasury ?? state.treasuryForCurrentUser;
     return [
       if (state.isAdmin || state.hasOwnerSafe)
         _actionBtn(Icons.add_circle_outline, 'إضافة خزنة جديدة',
@@ -255,15 +274,23 @@ class _TreasuryViewState extends State<_TreasuryView> {
             'استلام نقدي',
             const Color.fromARGB(255, 22, 255, 84),
             () => _showReceivePaymentDialog()),
-      if (state.selectedTreasury != null)
-        _actionBtn(Icons.shopping_cart_outlined, 'صرف مصروف', AppTheme.warning,
-            () => _showExpenseSheet(state)),
+      if (activeTreasury != null)
+        _actionBtn(
+            Icons.shopping_cart_outlined,
+            activeTreasury.isEmployee ? 'صرف مصروف عهدة' : 'صرف مصروف',
+            AppTheme.warning, () {
+          if (activeTreasury.isEmployee) {
+            _showSimplifiedCustodyExpenseDialog(activeTreasury, state);
+          } else {
+            _showExpenseSheet(state);
+          }
+        }),
       if (state.selectedTreasury != null)
         _actionBtn(Icons.receipt_long_outlined, 'سداد مورد (متعدد)', Colors.amber,
             () => _showMultiInvoicePaymentDialog()),
       const SizedBox(width: 8),
       IconButton(
-        icon: const Icon(Icons.refresh_outlined),
+        icon: Icon(Icons.refresh_outlined, color: isDark ? Colors.white70 : Colors.black),
         tooltip: 'تحديث',
         onPressed: () => context.read<TreasuryCubit>().loadAll(reset: true),
       ),
@@ -272,6 +299,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
 
   Widget _actionBtn(
       IconData icon, String label, Color color, VoidCallback onTap) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(left: 8),
       child: Tooltip(
@@ -282,9 +310,11 @@ class _TreasuryViewState extends State<_TreasuryView> {
           child: Container(
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.1),
+              color: color.withValues(alpha: isDark ? 0.1 : 0.18),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: color.withValues(alpha: 0.3)),
+              border: Border.all(
+                  color: color.withValues(alpha: isDark ? 0.3 : 0.5),
+                  width: 1.2),
             ),
             child: Icon(icon, color: color, size: 20),
           ),
@@ -460,20 +490,38 @@ class _TreasuryViewState extends State<_TreasuryView> {
 
   Widget _dashboardCard(String label, String value, IconData icon, Color color,
       {String? subtitle}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: 240,
       margin: const EdgeInsets.only(left: 12),
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            color.withValues(alpha: 0.1),
-            color.withValues(alpha: 0.03),
-          ],
+          colors: isDark
+              ? [
+                  color.withValues(alpha: 0.1),
+                  color.withValues(alpha: 0.03),
+                ]
+              : [
+                  color.withValues(alpha: 0.18),
+                  color.withValues(alpha: 0.08),
+                ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(
+          color: color.withValues(alpha: isDark ? 0.2 : 0.4),
+          width: 1.2,
+        ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withAlpha(8),
+                  blurRadius: 6,
+                  offset: const Offset(0, 2),
+                ),
+              ],
       ),
       padding: const EdgeInsets.all(14),
       child: Row(children: [
@@ -481,7 +529,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
           width: 44,
           height: 44,
           decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.15),
+            color: color.withValues(alpha: isDark ? 0.15 : 0.22),
             borderRadius: BorderRadius.circular(10),
           ),
           child: Icon(icon, color: color, size: 22),
@@ -495,25 +543,27 @@ class _TreasuryViewState extends State<_TreasuryView> {
               Text(value,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontWeight: FontWeight.bold,
                       fontSize: 20,
-                      color: Colors.white,
+                      color: isDark ? Colors.white : Colors.black,
                       fontFamily: 'Cairo')),
               if (subtitle != null)
                 Text(subtitle,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 13,
-                        color: AppTheme.textSecondary,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? AppTheme.textSecondary : Colors.black,
                         fontFamily: 'Cairo')),
               Text(label,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 13,
-                      color: AppTheme.textMuted,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? AppTheme.textMuted : Colors.black,
                       fontFamily: 'Cairo')),
             ],
           ),
@@ -525,6 +575,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   // ── Tree View (Admin) ──
 
   Widget _buildTreeView(TreasuryLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
@@ -535,13 +586,13 @@ class _TreasuryViewState extends State<_TreasuryView> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text('شجرة العهد',
+              Text('شجرة العهد',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: isDark ? Colors.white : Colors.black,
                       fontFamily: 'Cairo')),
               const SizedBox(height: 12),
               Expanded(
@@ -552,15 +603,15 @@ class _TreasuryViewState extends State<_TreasuryView> {
                       const SizedBox(height: 8),
                     ],
                     if (state.employeeTreasuries.isNotEmpty) ...[
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 4),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Text('العهد الفرعية',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                                color: AppTheme.textSecondary,
+                                color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
                                 fontSize: 14,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.bold,
                                 fontFamily: 'Cairo')),
                       ),
                       ...state.employeeTreasuries.map(
@@ -571,15 +622,15 @@ class _TreasuryViewState extends State<_TreasuryView> {
                       ),
                     ],
                     if (state.treasuries.where((t) => !t.isMain && !t.isEmployee).isNotEmpty) ...[
-                      const Padding(
-                        padding: EdgeInsets.symmetric(vertical: 4),
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 4),
                         child: Text('خزائن أخرى',
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                                color: AppTheme.textSecondary,
+                                color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
                                 fontSize: 14,
-                                fontWeight: FontWeight.w600,
+                                fontWeight: FontWeight.bold,
                                 fontFamily: 'Cairo')),
                       ),
                       ...state.treasuries.where((t) => !t.isMain && !t.isEmployee).map(
@@ -591,13 +642,14 @@ class _TreasuryViewState extends State<_TreasuryView> {
                     ],
                     if (state.employeeTreasuries.isEmpty &&
                         state.mainTreasury == null)
-                      const Center(
+                      Center(
                         child: Padding(
-                          padding: EdgeInsets.all(32),
+                          padding: const EdgeInsets.all(32),
                           child: Text('لا توجد عهد',
                               style: TextStyle(
-                                  color: AppTheme.textSecondary,
+                                  color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
                                   fontSize: 14,
+                                  fontWeight: FontWeight.bold,
                                   fontFamily: 'Cairo')),
                         ),
                       ),
@@ -931,6 +983,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
     final activeTreasuryId =
         state.selectedTreasury?.id ?? state.treasuryForCurrentUser?.id;
     final isSelected = activeTreasuryId == treasury.id;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       borderRadius: BorderRadius.circular(16),
       onTap: () => context.read<TreasuryCubit>().selectTreasury(treasury),
@@ -940,18 +993,30 @@ class _TreasuryViewState extends State<_TreasuryView> {
         decoration: BoxDecoration(
           gradient: isSelected
               ? LinearGradient(
-                  colors: [
-                    AppTheme.warning.withValues(alpha: 0.25),
-                    AppTheme.warning.withValues(alpha: 0.1),
-                  ],
+                  colors: isDark
+                      ? [
+                          AppTheme.warning.withValues(alpha: 0.25),
+                          AppTheme.warning.withValues(alpha: 0.1),
+                        ]
+                      : [
+                          const Color(0xFFFEF3C7),
+                          const Color(0xFFFDE68A),
+                        ],
                 )
               : null,
-          color: isSelected ? null : Colors.white.withValues(alpha: 0.03),
+          color: isSelected
+              ? null
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.03)
+                  : const Color(0xFFF8FAFC)),
           borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: isSelected
-                ? AppTheme.warning.withValues(alpha: 0.6)
-                : AppTheme.glassBorder,
+                ? (isDark
+                    ? AppTheme.warning.withValues(alpha: 0.6)
+                    : const Color(0xFFD97706))
+                : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+            width: isSelected ? 1.5 : 1,
           ),
         ),
         child: Column(
@@ -959,15 +1024,18 @@ class _TreasuryViewState extends State<_TreasuryView> {
           children: [
             Row(children: [
               Icon(isMain ? Icons.account_balance : Icons.person,
-                  size: 20, color: isMain ? AppTheme.primary : AppTheme.accent),
+                  size: 20,
+                  color: isMain
+                      ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                      : AppTheme.accent),
               const SizedBox(width: 8),
               Expanded(
                 child: Text(
                   treasury.displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: Colors.white,
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
                     fontWeight: FontWeight.bold,
                     fontSize: 15,
                     fontFamily: 'Cairo',
@@ -975,7 +1043,9 @@ class _TreasuryViewState extends State<_TreasuryView> {
                 ),
               ),
               Icon(Icons.chevron_left,
-                  color: isSelected ? AppTheme.primary : AppTheme.textSecondary,
+                  color: isSelected
+                      ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                      : (isDark ? AppTheme.textSecondary : const Color(0xFF64748B)),
                   size: 18),
             ]),
             const SizedBox(height: 8),
@@ -989,8 +1059,9 @@ class _TreasuryViewState extends State<_TreasuryView> {
                         child: Text(
                           '${b.currency}: ${AppUtils.formatCurrency(b.balance, b.currency)}',
                           maxLines: 1,
-                          style: const TextStyle(
-                            color: AppTheme.textSecondary,
+                          style: TextStyle(
+                            color: isDark ? AppTheme.textSecondary : Colors.black,
+                            fontWeight: FontWeight.bold,
                             fontSize: 13,
                             fontFamily: 'Cairo',
                           ),
@@ -1007,6 +1078,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   // ── Currency Cards ──
 
   Widget _buildCurrencyCards(TreasuryModel treasury, TreasuryLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
@@ -1022,10 +1094,10 @@ class _TreasuryViewState extends State<_TreasuryView> {
                     color: AppTheme.primary, size: 20),
                 const SizedBox(width: 8),
                 Text(treasury.displayName,
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: isDark ? Colors.white : Colors.black,
                         fontFamily: 'Cairo')),
               ]),
               const SizedBox(height: 16),
@@ -1052,6 +1124,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   Widget _buildCurrencyCard(
       TreasuryModel treasury, String currency, double balance,
       {TreasuryLoaded? state}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final Color cardColor;
     switch (currency) {
       case 'EGP':
@@ -1073,15 +1146,20 @@ class _TreasuryViewState extends State<_TreasuryView> {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(
-          colors: [
-            cardColor.withValues(alpha: 0.12),
-            cardColor.withValues(alpha: 0.04),
-          ],
+          colors: isDark
+              ? [
+                  cardColor.withValues(alpha: 0.12),
+                  cardColor.withValues(alpha: 0.04),
+                ]
+              : [
+                  cardColor.withValues(alpha: 0.16),
+                  cardColor.withValues(alpha: 0.06),
+                ],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: cardColor.withValues(alpha: 0.25)),
+        border: Border.all(color: cardColor.withValues(alpha: isDark ? 0.25 : 0.45)),
       ),
       padding: const EdgeInsets.all(10),
       child: Column(
@@ -1112,8 +1190,8 @@ class _TreasuryViewState extends State<_TreasuryView> {
             AppUtils.formatCurrency(balance, currency),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
               fontWeight: FontWeight.bold,
               fontSize: 14,
               fontFamily: 'Cairo',
@@ -1125,8 +1203,9 @@ class _TreasuryViewState extends State<_TreasuryView> {
   }
 
   Widget _tinyBtn(IconData icon, String label, VoidCallback onTap) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Material(
-      color: Colors.white.withValues(alpha: 0.08),
+      color: isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFF1F5F9),
       borderRadius: BorderRadius.circular(8),
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
@@ -1136,11 +1215,12 @@ class _TreasuryViewState extends State<_TreasuryView> {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              Icon(icon, size: 14, color: Colors.white70),
+              Icon(icon, size: 14, color: isDark ? Colors.white70 : Colors.black),
               const SizedBox(width: 4),
               Text(label,
-                  style: const TextStyle(
-                      color: Colors.white70,
+                  style: TextStyle(
+                      color: isDark ? Colors.white70 : Colors.black,
+                      fontWeight: FontWeight.bold,
                       fontSize: 10,
                       fontFamily: 'Cairo')),
             ],
@@ -1153,6 +1233,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   // ── Date & Currency Filters ──
 
   Widget _currencyFilterButton() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return BlocBuilder<TreasuryCubit, TreasuryState>(
       builder: (ctx, state) {
         final loaded = state is TreasuryLoaded ? state : null;
@@ -1166,16 +1247,21 @@ class _TreasuryViewState extends State<_TreasuryView> {
           offset: const Offset(0, 30),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          color: AppTheme.surface,
+          color: isDark ? AppTheme.surface : Colors.white,
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: hasFilter
                   ? AppTheme.primary.withValues(alpha: 0.2)
-                  : Colors.white.withValues(alpha: 0.08),
+                  : (isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : const Color(0xFFF1F5F9)),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: hasFilter ? AppTheme.primary : AppTheme.glassBorder,
+                color: hasFilter
+                    ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                    : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                width: 1.2,
               ),
             ),
             child: Row(
@@ -1183,37 +1269,48 @@ class _TreasuryViewState extends State<_TreasuryView> {
               children: [
                 Icon(Icons.monetization_on_outlined,
                     size: 18,
-                    color: hasFilter ? AppTheme.primary : Colors.white70),
+                    color: hasFilter
+                        ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                        : (isDark ? Colors.white70 : Colors.black)),
                 const SizedBox(width: 6),
                 Text(
                   hasFilter ? loaded!.selectedCurrencyFilter! : 'العملة',
                   style: TextStyle(
                     fontSize: 12,
-                    color: hasFilter ? AppTheme.primary : Colors.white70,
+                    fontWeight: FontWeight.bold,
+                    color: hasFilter
+                        ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                        : (isDark ? Colors.white70 : Colors.black),
                     fontFamily: 'Cairo',
                   ),
                 ),
                 const SizedBox(width: 2),
                 Icon(Icons.arrow_drop_down,
                     size: 18,
-                    color: hasFilter ? AppTheme.primary : Colors.white70),
+                    color: hasFilter
+                        ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                        : (isDark ? Colors.white70 : Colors.black)),
               ],
             ),
           ),
           itemBuilder: (context) => [
-            const PopupMenuItem(
+            PopupMenuItem(
               value: null,
               child: Text('الكل',
                   style: TextStyle(
-                      fontFamily: 'Cairo', fontSize: 13, color: Colors.white)),
+                      fontFamily: 'Cairo',
+                      fontSize: 13,
+                      fontWeight: FontWeight.bold,
+                      color: isDark ? Colors.white : Colors.black)),
             ),
             ...TreasuryDao.supportedCurrencies.map((cur) => PopupMenuItem(
                   value: cur,
                   child: Text(cur,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontFamily: 'Cairo',
                           fontSize: 13,
-                          color: Colors.white)),
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black)),
                 )),
           ],
         );
@@ -1222,19 +1319,20 @@ class _TreasuryViewState extends State<_TreasuryView> {
   }
 
   Widget _dateFilterButton({int? treasuryId}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return BlocBuilder<TreasuryCubit, TreasuryState>(
       builder: (ctx, state) {
         final loaded = state is TreasuryLoaded ? state : null;
         final hasFilter = loaded?.startDate != null || loaded?.endDate != null;
-        String dateText = 'التاريخ';
+        String dateText = 'تصفية بالتاريخ (من - إلى)';
         if (hasFilter) {
           final sStr = loaded?.startDate != null
-              ? DateFormat('MM/dd').format(loaded!.startDate!)
+              ? DateFormat('yyyy/MM/dd').format(loaded!.startDate!)
               : '';
           final eStr = loaded?.endDate != null
-              ? DateFormat('MM/dd').format(loaded!.endDate!)
+              ? DateFormat('yyyy/MM/dd').format(loaded!.endDate!)
               : '';
-          dateText = '$sStr - $eStr';
+          dateText = 'من: $sStr إلى: $eStr';
         }
 
         return GestureDetector(
@@ -1255,12 +1353,19 @@ class _TreasuryViewState extends State<_TreasuryView> {
               builder: (context, child) {
                 return Theme(
                   data: Theme.of(context).copyWith(
-                    colorScheme: const ColorScheme.dark(
-                      primary: AppTheme.primary,
-                      onPrimary: Colors.white,
-                      surface: AppTheme.cardBg,
-                      onSurface: Colors.white,
-                    ),
+                    colorScheme: isDark
+                        ? const ColorScheme.dark(
+                            primary: AppTheme.primary,
+                            onPrimary: Colors.white,
+                            surface: AppTheme.cardBg,
+                            onSurface: Colors.white,
+                          )
+                        : const ColorScheme.light(
+                            primary: Color(0xFF0284C7),
+                            onPrimary: Colors.white,
+                            surface: Colors.white,
+                            onSurface: Colors.black,
+                          ),
                   ),
                   child: child!,
                 );
@@ -1275,10 +1380,15 @@ class _TreasuryViewState extends State<_TreasuryView> {
             decoration: BoxDecoration(
               color: hasFilter
                   ? AppTheme.primary.withValues(alpha: 0.2)
-                  : Colors.white.withValues(alpha: 0.08),
+                  : (isDark
+                      ? Colors.white.withValues(alpha: 0.08)
+                      : const Color(0xFFF1F5F9)),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                color: hasFilter ? AppTheme.primary : AppTheme.glassBorder,
+                color: hasFilter
+                    ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                    : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                width: 1.2,
               ),
             ),
             child: Row(
@@ -1286,15 +1396,19 @@ class _TreasuryViewState extends State<_TreasuryView> {
               children: [
                 Icon(Icons.date_range,
                     size: 18,
-                    color: hasFilter ? AppTheme.primary : Colors.white70),
+                    color: hasFilter
+                        ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                        : (isDark ? Colors.white70 : Colors.black)),
                 const SizedBox(width: 6),
                 Text(
                   dateText,
                   style: TextStyle(
                     fontSize: 12,
-                    color: hasFilter ? AppTheme.primary : Colors.white70,
+                    color: hasFilter
+                        ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                        : (isDark ? Colors.white70 : Colors.black),
                     fontFamily: 'Cairo',
-                    fontWeight: hasFilter ? FontWeight.bold : FontWeight.normal,
+                    fontWeight: FontWeight.bold,
                   ),
                 ),
                 if (hasFilter) ...[
@@ -1315,6 +1429,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   }
 
   Widget _accountFilterButton(BuildContext ctx, TreasuryLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final hasFromFilter = state.selectedFromAccountId != null &&
         state.selectedFromAccountId!.isNotEmpty;
     final hasToFilter = state.selectedToAccountId != null &&
@@ -1328,25 +1443,35 @@ class _TreasuryViewState extends State<_TreasuryView> {
         decoration: BoxDecoration(
           color: hasFilter
               ? AppTheme.primary.withValues(alpha: 0.2)
-              : Colors.white.withValues(alpha: 0.08),
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : const Color(0xFFF1F5F9)),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: hasFilter ? AppTheme.primary : AppTheme.glassBorder,
+            color: hasFilter
+                ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+            width: 1.2,
           ),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.swap_horiz_rounded,
-                size: 18, color: hasFilter ? AppTheme.primary : Colors.white70),
+                size: 18,
+                color: hasFilter
+                    ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                    : (isDark ? Colors.white70 : Colors.black)),
             const SizedBox(width: 6),
             Text(
               hasFilter ? 'من/إلى حساب' : 'الحساب/الجهة',
               style: TextStyle(
                 fontSize: 12,
-                color: hasFilter ? AppTheme.primary : Colors.white70,
+                color: hasFilter
+                    ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                    : (isDark ? Colors.white70 : Colors.black),
                 fontFamily: 'Cairo',
-                fontWeight: hasFilter ? FontWeight.bold : FontWeight.normal,
+                fontWeight: FontWeight.bold,
               ),
             ),
             if (hasFilter) ...[
@@ -1635,35 +1760,56 @@ class _TreasuryViewState extends State<_TreasuryView> {
         return Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            // _exportBtn(Icons.picture_as_pdf, 'PDF',
-            //     () => _exportPdf(ctx, loaded, txns)),
+            _exportBtn(
+              Icons.picture_as_pdf_rounded,
+              'طباعة PDF',
+              () => _exportPdf(ctx, loaded, txns),
+              color: const Color(0xFFEF4444),
+            ),
             const SizedBox(width: 8),
-            _exportBtn(Icons.table_chart_outlined, 'Excel',
-                () => _exportExcel(ctx, loaded, txns)),
+            _exportBtn(
+              Icons.table_chart_outlined,
+              'Excel',
+              () => _exportExcel(ctx, loaded, txns),
+            ),
           ],
         );
       },
     );
   }
 
-  Widget _exportBtn(IconData icon, String label, VoidCallback onTap) {
+  Widget _exportBtn(IconData icon, String label, VoidCallback onTap, {Color? color}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final defaultIconColor = color ?? (isDark ? Colors.white70 : Colors.black);
+    final defaultTextColor = color ?? (isDark ? Colors.white70 : Colors.black);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.08),
+          color: color != null
+              ? color.withValues(alpha: isDark ? 0.15 : 0.08)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : const Color(0xFFF1F5F9)),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.glassBorder),
+          border: Border.all(
+              color: color != null
+                  ? color.withValues(alpha: 0.5)
+                  : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              width: 1.2),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16, color: Colors.white70),
+            Icon(icon, size: 16, color: defaultIconColor),
             const SizedBox(width: 5),
             Text(label,
-                style: const TextStyle(
-                    fontSize: 11, color: Colors.white70, fontFamily: 'Cairo')),
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: defaultTextColor,
+                    fontFamily: 'Cairo')),
           ],
         ),
       ),
@@ -1682,17 +1828,23 @@ class _TreasuryViewState extends State<_TreasuryView> {
       return;
     }
     try {
+      final isCustody = loaded.selectedTreasury?.isEmployee == true;
+      final currentBal = loaded.selectedTreasury
+          ?.getBalance(txns.first.currency)
+          ?.balance;
       await TreasuryPdfService.generatePdf(
         treasuryName: loaded.selectedTreasury!.displayName,
         currency: txns.first.currency,
         transactions: txns,
         fromDate: loaded.startDate,
         toDate: loaded.endDate,
+        isCustody: isCustody,
+        currentBalance: currentBal,
       );
       if (!ctx.mounted) return;
       ScaffoldMessenger.of(ctx).showSnackBar(
         SnackBar(
-          content: Text('تم تصدير ${txns.length} حركة إلى PDF بنجاح',
+          content: Text('تم فتح معاينة طباعة ${txns.length} حركة بنجاح',
               style: const TextStyle(fontFamily: 'Cairo')),
           backgroundColor: AppTheme.success,
           behavior: SnackBarBehavior.floating,
@@ -1872,6 +2024,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   // ── Transactions ──
 
   Widget _buildTransactions(TreasuryLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final filteredList = state.filteredTransactions;
     final hasActiveFilters =
         (state.searchQuery != null && state.searchQuery!.trim().isNotEmpty) ||
@@ -1906,27 +2059,32 @@ class _TreasuryViewState extends State<_TreasuryView> {
                           const Icon(Icons.receipt_long_outlined,
                               color: AppTheme.accent, size: 22),
                           const SizedBox(width: 8),
-                          const Text('آخر الحركات',
+                          Text('آخر الحركات',
                               style: TextStyle(
                                   fontSize: 20,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: isDark ? Colors.white : Colors.black,
                                   fontFamily: 'Cairo')),
                           const SizedBox(width: 8),
                           Container(
                             padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color: AppTheme.primary.withValues(alpha: 0.2),
+                              color: isDark
+                                  ? AppTheme.primary.withValues(alpha: 0.2)
+                                  : const Color(0xFFE0F2FE),
                               borderRadius: BorderRadius.circular(12),
                               border: Border.all(
-                                  color:
-                                      AppTheme.primary.withValues(alpha: 0.4)),
+                                  color: isDark
+                                      ? AppTheme.primary.withValues(alpha: 0.4)
+                                      : const Color(0xFF0284C7)),
                             ),
                             child: Text(
                               '${filteredList.length} حركة',
-                              style: const TextStyle(
-                                  color: AppTheme.primary,
+                              style: TextStyle(
+                                  color: isDark
+                                      ? AppTheme.primary
+                                      : const Color(0xFF0369A1),
                                   fontSize: 11,
                                   fontWeight: FontWeight.bold,
                                   fontFamily: 'Cairo'),
@@ -1953,8 +2111,9 @@ class _TreasuryViewState extends State<_TreasuryView> {
                       height: 38,
                       child: TextField(
                         controller: _searchController,
-                        style: const TextStyle(
-                            color: Colors.white,
+                        style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                            fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo',
                             fontSize: 13),
                         onChanged: (val) =>
@@ -1963,15 +2122,18 @@ class _TreasuryViewState extends State<_TreasuryView> {
                           hintText:
                               'بحث بالاسم ..',
                           hintStyle: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.4),
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.4)
+                                  : const Color(0xFF94A3B8),
                               fontSize: 11.5,
+                              fontWeight: FontWeight.w600,
                               fontFamily: 'Cairo'),
-                          prefixIcon: const Icon(Icons.search_rounded,
-                              color: AppTheme.accent, size: 18),
+                          prefixIcon: Icon(Icons.search_rounded,
+                              color: isDark ? AppTheme.accent : const Color(0xFF0284C7), size: 18),
                           suffixIcon: _searchController.text.isNotEmpty
                               ? IconButton(
-                                  icon: const Icon(Icons.close_rounded,
-                                      color: Colors.white70, size: 16),
+                                  icon: Icon(Icons.close_rounded,
+                                      color: isDark ? Colors.white70 : Colors.black, size: 16),
                                   onPressed: () {
                                     _searchController.clear();
                                     context
@@ -1984,23 +2146,29 @@ class _TreasuryViewState extends State<_TreasuryView> {
                           contentPadding:
                               const EdgeInsets.symmetric(vertical: 8),
                           filled: true,
-                          fillColor: Colors.white.withValues(alpha: 0.05),
+                          fillColor: isDark
+                              ? Colors.white.withValues(alpha: 0.05)
+                              : const Color(0xFFF8FAFC),
                           border: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                             borderSide: BorderSide(
-                                color: AppTheme.glassBorder
-                                    .withValues(alpha: 0.3)),
+                                color: isDark
+                                    ? AppTheme.glassBorder
+                                        .withValues(alpha: 0.3)
+                                    : const Color(0xFFCBD5E1)),
                           ),
                           enabledBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                             borderSide: BorderSide(
-                                color: AppTheme.glassBorder
-                                    .withValues(alpha: 0.3)),
+                                color: isDark
+                                    ? AppTheme.glassBorder
+                                        .withValues(alpha: 0.3)
+                                    : const Color(0xFFCBD5E1)),
                           ),
                           focusedBorder: OutlineInputBorder(
                             borderRadius: BorderRadius.circular(10),
                             borderSide:
-                                const BorderSide(color: AppTheme.primary),
+                                BorderSide(color: isDark ? AppTheme.primary : const Color(0xFF0284C7), width: 1.5),
                           ),
                         ),
                       ),
@@ -2013,10 +2181,11 @@ class _TreasuryViewState extends State<_TreasuryView> {
                         runSpacing: 4,
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          const Text('الفلاتر النشطة:',
+                          Text('الفلاتر النشطة:',
                               style: TextStyle(
-                                  color: AppTheme.textMuted,
+                                  color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
                                   fontSize: 10,
+                                  fontWeight: FontWeight.bold,
                                   fontFamily: 'Cairo')),
                           if (state.searchQuery != null &&
                               state.searchQuery!.trim().isNotEmpty)
@@ -2078,23 +2247,24 @@ class _TreasuryViewState extends State<_TreasuryView> {
                   ],
                 ),
               ),
-              const Divider(height: 1, color: AppTheme.border),
+              Divider(height: 1, color: isDark ? AppTheme.border : const Color(0xFFE2E8F0)),
               if (filteredList.isEmpty)
                 Expanded(
                   child: Center(
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Icon(Icons.search_off_rounded,
-                            color: AppTheme.textMuted, size: 40),
+                        Icon(Icons.search_off_rounded,
+                            color: isDark ? AppTheme.textMuted : const Color(0xFF94A3B8), size: 40),
                         const SizedBox(height: 8),
                         Text(
                           hasActiveFilters
                               ? 'لا توجد حركات تطابق الفلاتر المحددة'
                               : 'لا توجد حركات',
-                          style: const TextStyle(
-                              color: AppTheme.textSecondary,
+                          style: TextStyle(
+                              color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                               fontSize: 14,
+                              fontWeight: FontWeight.bold,
                               fontFamily: 'Cairo'),
                         ),
                       ],
@@ -2177,6 +2347,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   }
 
   Widget _buildTransactionRow(TreasuryTransactionModel tx) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isIncoming = tx.isIncoming;
     final arrowColor = isIncoming ? AppTheme.success : AppTheme.danger;
     final Color? catColor =
@@ -2184,6 +2355,9 @@ class _TreasuryViewState extends State<_TreasuryView> {
     final state = context.read<TreasuryCubit>().state;
     final isAdmin =
         state is TreasuryLoaded && (state.isAdmin || state.hasOwnerSafe);
+    final txDesc = (tx.description != null && tx.description!.isNotEmpty)
+        ? tx.description!
+        : (tx.notes != null && tx.notes!.isNotEmpty ? tx.notes! : '');
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
@@ -2192,8 +2366,9 @@ class _TreasuryViewState extends State<_TreasuryView> {
           width: 36,
           height: 36,
           decoration: BoxDecoration(
-            color: arrowColor.withValues(alpha: 0.1),
+            color: arrowColor.withValues(alpha: isDark ? 0.1 : 0.15),
             borderRadius: BorderRadius.circular(8),
+            border: isDark ? null : Border.all(color: arrowColor.withValues(alpha: 0.3)),
           ),
           child: Icon(
             isIncoming ? Icons.arrow_downward : Icons.arrow_upward,
@@ -2213,10 +2388,10 @@ class _TreasuryViewState extends State<_TreasuryView> {
                     child: Text(tx.typeLabel,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontWeight: FontWeight.w600,
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
                             fontSize: 14,
-                            color: Colors.white,
+                            color: isDark ? Colors.white : Colors.black,
                             fontFamily: 'Cairo')),
                   ),
                   if (tx.isDraft) ...[
@@ -2247,14 +2422,43 @@ class _TreasuryViewState extends State<_TreasuryView> {
                         color: catColor?.withValues(alpha: 0.15) ??
                             AppTheme.primary.withValues(alpha: 0.1),
                         borderRadius: BorderRadius.circular(4),
+                        border: isDark ? null : Border.all(color: (catColor ?? AppTheme.primary).withValues(alpha: 0.3)),
                       ),
                       child: Text(tx.categoryName!,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                               fontSize: 11,
-                              color: catColor ?? AppTheme.primary,
+                              fontWeight: FontWeight.bold,
+                              color: catColor ?? (isDark ? AppTheme.primary : const Color(0xFF0369A1)),
                               fontFamily: 'Cairo')),
+                    ),
+                  ],
+                  if (tx.costCenterId != null && tx.costCenterId!.isNotEmpty) ...[
+                    const SizedBox(width: 6),
+                    Builder(
+                      builder: (_) {
+                        final cc = CostCenterHelper.fromId(tx.costCenterId);
+                        return Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: cc.color.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(color: cc.color.withValues(alpha: 0.4)),
+                          ),
+                          child: Text(
+                            cc.nameAr,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                              color: cc.color,
+                              fontFamily: 'Cairo',
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ],
                 ]),
@@ -2264,16 +2468,19 @@ class _TreasuryViewState extends State<_TreasuryView> {
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                         fontSize: 13,
-                        color: tx.isDraft ? AppTheme.warning : AppTheme.textSecondary,
-                        fontWeight: tx.isDraft ? FontWeight.bold : FontWeight.normal,
+                        color: tx.isDraft
+                            ? AppTheme.warning
+                            : (isDark ? AppTheme.textSecondary : Colors.black),
+                        fontWeight: FontWeight.bold,
                         fontFamily: 'Cairo')),
-                if (tx.description != null && tx.description!.isNotEmpty)
-                  Text(tx.description!,
-                      maxLines: 1,
+                if (txDesc.isNotEmpty)
+                  Text(txDesc,
+                      maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 12,
-                          color: AppTheme.textMuted,
+                          color: isDark ? AppTheme.textMuted : Colors.black,
+                          fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo')),
                 if (_resolveRelatedParty(tx).isNotEmpty)
                   Text(_resolveRelatedParty(tx),
@@ -2281,7 +2488,10 @@ class _TreasuryViewState extends State<_TreasuryView> {
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
                           fontSize: 11,
-                          color: AppTheme.textSecondary.withValues(alpha: 0.7),
+                          color: isDark
+                              ? AppTheme.textSecondary.withValues(alpha: 0.7)
+                              : Colors.black,
+                          fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo')),
               ],
             ),
@@ -2290,8 +2500,11 @@ class _TreasuryViewState extends State<_TreasuryView> {
         Text(AppUtils.formatDate(_parseDate(tx.createdAt)),
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-                fontSize: 12, color: AppTheme.textMuted, fontFamily: 'Cairo')),
+            style: TextStyle(
+                fontSize: 12,
+                color: isDark ? AppTheme.textMuted : Colors.black,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Cairo')),
         const SizedBox(width: 4),
         _TransactionActions(
           tx: tx,
@@ -2300,10 +2513,55 @@ class _TreasuryViewState extends State<_TreasuryView> {
           onViewJournalEntry: tx.isDraft ? null : () => _goToJournalEntry(tx),
           onDelete: () => _confirmDelete(tx),
           onEditDraft: tx.isDraft ? () => _showEditTransaction(tx) : null,
+          onEditConfirmed: !tx.isDraft ? () => _handleSecuredEditTreasuryTransaction(tx) : null,
           onConfirmDraft: tx.isDraft ? () => _confirmDraftTx(tx) : null,
           onDeleteDraft: tx.isDraft ? () => _deleteDraftTx(tx) : null,
         ),
       ]),
+    );
+  }
+
+  Future<void> _handleSecuredEditTreasuryTransaction(
+      TreasuryTransactionModel tx) async {
+    final verified = await showPasswordVerificationDialog(
+      context,
+      title: 'تأكيد كلمة المرور لتعديل الحركة',
+      subtitle:
+          'يرجى إدخال كلمة المرور للمتابعة في تعديل بيانات حركة الخزنة #${tx.id}',
+      expectedPassword: 'eslam2026',
+    );
+
+    if (!mounted) return;
+
+    if (!verified) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'كلمة المرور غير صحيحة أو تم إلغاء العملية، تم منع فتح شاشة التعديل',
+            style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: AppTheme.danger,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    final cubit = context.read<TreasuryCubit>();
+    final cubitState = cubit.state;
+    if (cubitState is! TreasuryLoaded) return;
+
+    showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => BlocProvider<TreasuryCubit>.value(
+        value: cubit,
+        child: EditConfirmedTreasuryTransactionDialog(
+          tx: tx,
+          state: cubitState,
+          cubit: cubit,
+        ),
+      ),
     );
   }
 
@@ -2349,6 +2607,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   }
 
   void _confirmDelete(TreasuryTransactionModel tx) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showModalBottomSheet(
       context: context,
       backgroundColor: Colors.transparent,
@@ -2360,18 +2619,19 @@ class _TreasuryViewState extends State<_TreasuryView> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('تأكيد الحذف',
+                Text('تأكيد الحذف',
                     style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: isDark ? Colors.white : Colors.black,
                         fontFamily: 'Cairo')),
                 const SizedBox(height: 8),
                 Text(
                     'هل تريد حذف حركة "${tx.typeLabel}" بمبلغ ${_formatAmount(tx.amount)} ${tx.currency}؟',
-                    style: const TextStyle(
+                    style: TextStyle(
                         fontSize: 13,
-                        color: AppTheme.textSecondary,
+                        color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                         fontFamily: 'Cairo')),
                 const SizedBox(height: 16),
                 SizedBox(
@@ -2401,21 +2661,33 @@ class _TreasuryViewState extends State<_TreasuryView> {
     if (tx.id == null) return;
     final txId = int.tryParse(tx.id!);
     if (txId == null) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
+        backgroundColor: isDark ? AppTheme.surface : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('تأكيد وترحيل الحركة', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, color: Colors.white)),
+        title: Text('تأكيد وترحيل الحركة',
+            style: TextStyle(
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black)),
         content: Text(
           'هل أنت متأكد من تأكيد وترحيل حركة "${tx.typeLabel}" بمبلغ ${_formatAmount(tx.amount)} ${tx.currency} وتحديث الأرصدة والقيود المحاسبية؟',
-          style: const TextStyle(fontFamily: 'Cairo', color: AppTheme.textSecondary),
+          style: TextStyle(
+              fontFamily: 'Cairo',
+              color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+              fontWeight: isDark ? FontWeight.normal : FontWeight.bold),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', color: AppTheme.textMuted)),
+            child: Text('إلغاء',
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                    fontWeight: FontWeight.bold)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -2437,21 +2709,30 @@ class _TreasuryViewState extends State<_TreasuryView> {
     if (tx.id == null) return;
     final txId = int.tryParse(tx.id!);
     if (txId == null) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
+        backgroundColor: isDark ? AppTheme.surface : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('حذف المسودة', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, color: AppTheme.danger)),
+        title: const Text('حذف المسودة',
+            style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, color: AppTheme.danger)),
         content: Text(
           'هل تريد حذف مسودة "${tx.typeLabel}" بمبلغ ${_formatAmount(tx.amount)} ${tx.currency} نهائياً؟',
-          style: const TextStyle(fontFamily: 'Cairo', color: AppTheme.textSecondary),
+          style: TextStyle(
+              fontFamily: 'Cairo',
+              color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+              fontWeight: isDark ? FontWeight.normal : FontWeight.bold),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', color: AppTheme.textMuted)),
+            child: Text('إلغاء',
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                    fontWeight: FontWeight.bold)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -2527,6 +2808,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   }
 
   Widget _detailRow(String label, String value, {Color? valueColor}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Row(
@@ -2535,17 +2817,18 @@ class _TreasuryViewState extends State<_TreasuryView> {
           SizedBox(
             width: 80,
             child: Text(label,
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 12,
-                    color: AppTheme.textSecondary,
+                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                    color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                     fontFamily: 'Cairo')),
           ),
           Expanded(
             child: Text(value,
                 style: TextStyle(
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: valueColor ?? Colors.white,
+                    fontWeight: FontWeight.bold,
+                    color: valueColor ?? (isDark ? Colors.white : Colors.black),
                     fontFamily: 'Cairo')),
           ),
         ],
@@ -2589,6 +2872,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   }
 
   void _showCreateTreasurySheet(TreasuryLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final nameCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
     String selectedType = 'employee';
@@ -2617,11 +2901,11 @@ class _TreasuryViewState extends State<_TreasuryView> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('إضافة خزنة جديدة',
+                Text('إضافة خزنة جديدة',
                     style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: isDark ? Colors.white : Colors.black,
                         fontFamily: 'Cairo')),
                 const SizedBox(height: 16),
                 _buildTextField(nameCtrl, 'اسم الخزنة', Icons.badge_outlined),
@@ -2678,6 +2962,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   // ── Bottom Sheet: Disburse ──
 
   void _showDisburseSheet(TreasuryLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final amountCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     String selectedCurrency = 'EGP';
@@ -2702,11 +2987,11 @@ class _TreasuryViewState extends State<_TreasuryView> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('صرف عهدة جديدة',
+                Text('صرف عهدة جديدة',
                     style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: isDark ? Colors.white : Colors.black,
                         fontFamily: 'Cairo')),
                 const SizedBox(height: 16),
                 _buildEmployeeTreasuryDropdown(
@@ -2723,10 +3008,10 @@ class _TreasuryViewState extends State<_TreasuryView> {
                     'رصيد الخزنة الرئيسية: ${_getMainBalance().toStringAsFixed(2)} ج.م',
                     style: TextStyle(
                       color: _getMainBalance() > 0
-                          ? Colors.greenAccent
+                          ? (isDark ? Colors.greenAccent : const Color(0xFF15803D))
                           : Colors.redAccent,
                       fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                      fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',
                     ),
                   ),
@@ -2798,6 +3083,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   // ── Bottom Sheet: Currency Exchange ──
 
   void _showCurrencyExchangeSheet(TreasuryLoaded state, {TreasuryTransactionModel? draftTx}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     String? fromCurrency = draftTx?.payload?['from_currency'];
     String? toCurrency = draftTx?.payload?['to_currency'];
     final amountCtrl = TextEditingController(
@@ -2812,18 +3098,21 @@ class _TreasuryViewState extends State<_TreasuryView> {
     InputDecoration inputDecor(String hint, IconData icon) {
       return InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(
-            color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo'),
-        prefixIcon: Icon(icon, color: AppTheme.textSecondary, size: 18),
+        hintStyle: TextStyle(
+            color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+            fontSize: 13,
+            fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+            fontFamily: 'Cairo'),
+        prefixIcon: Icon(icon, color: isDark ? AppTheme.textSecondary : const Color(0xFF475569), size: 18),
         filled: true,
-        fillColor: Colors.white.withValues(alpha: 0.06),
+        fillColor: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF8FAFC),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppTheme.glassBorder),
+          borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppTheme.glassBorder),
+          borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -2845,10 +3134,10 @@ class _TreasuryViewState extends State<_TreasuryView> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(draftTx != null ? 'تعديل تحويل عملة — #${draftTx.id}' : 'تحويل عملة',
-                      style: const TextStyle(
+                      style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: isDark ? Colors.white : Colors.black,
                           fontFamily: 'Cairo')),
                   const SizedBox(height: 16),
                   Row(
@@ -2858,13 +3147,14 @@ class _TreasuryViewState extends State<_TreasuryView> {
                           value: fromCurrency,
                           decoration: inputDecor(
                               'من عملة', Icons.monetization_on_outlined),
-                          dropdownColor: AppTheme.surface,
+                          dropdownColor: isDark ? AppTheme.surface : Colors.white,
                           items: TreasuryDao.supportedCurrencies
                               .map((c) => DropdownMenuItem(
                                   value: c,
                                   child: Text(c,
-                                      style: const TextStyle(
-                                          color: Colors.white,
+                                      style: TextStyle(
+                                          color: isDark ? Colors.white : Colors.black,
+                                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                           fontFamily: 'Cairo'))))
                               .toList(),
                           onChanged: (v) async {
@@ -2893,7 +3183,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
                           value: toCurrency,
                           decoration: inputDecor(
                               'إلى عملة', Icons.monetization_on_outlined),
-                          dropdownColor: AppTheme.surface,
+                          dropdownColor: isDark ? AppTheme.surface : Colors.white,
                           items: TreasuryDao.supportedCurrencies
                               .where((c) {
                                 if (c == fromCurrency) return false;
@@ -2903,8 +3193,9 @@ class _TreasuryViewState extends State<_TreasuryView> {
                               .map((c) => DropdownMenuItem(
                                   value: c,
                                   child: Text(c,
-                                      style: const TextStyle(
-                                          color: Colors.white,
+                                      style: TextStyle(
+                                          color: isDark ? Colors.white : Colors.black,
+                                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                           fontFamily: 'Cairo'))))
                               .toList(),
                           onChanged: (v) async {
@@ -2925,8 +3216,10 @@ class _TreasuryViewState extends State<_TreasuryView> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: amountCtrl,
-                    style: const TextStyle(
-                        color: Colors.white, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                        fontFamily: 'Cairo'),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
                     inputFormatters: [
@@ -2939,8 +3232,10 @@ class _TreasuryViewState extends State<_TreasuryView> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: rateCtrl,
-                    style: const TextStyle(
-                        color: Colors.white, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                        fontFamily: 'Cairo'),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
                     inputFormatters: [
@@ -2989,9 +3284,9 @@ class _TreasuryViewState extends State<_TreasuryView> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: AppTheme.surface.withValues(alpha: 0.6),
+                        color: isDark ? AppTheme.surface.withValues(alpha: 0.6) : const Color(0xFFF1F5F9),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppTheme.glassBorder),
+                        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2999,15 +3294,16 @@ class _TreasuryViewState extends State<_TreasuryView> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text('المبلغ المتوقع استلامه:',
+                              Text('المبلغ المتوقع استلامه:',
                                   style: TextStyle(
-                                      color: AppTheme.textSecondary,
+                                      color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                                       fontSize: 12,
+                                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                       fontFamily: 'Cairo')),
                               Text(
                                 '${expectedReceived.toStringAsFixed(2)} $toCurrency',
-                                style: const TextStyle(
-                                    color: Colors.white,
+                                style: TextStyle(
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 13,
                                     fontFamily: 'Cairo'),
@@ -3019,16 +3315,18 @@ class _TreasuryViewState extends State<_TreasuryView> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('التكلفة الدفترية المرجحة:',
+                                Text('التكلفة الدفترية المرجحة:',
                                     style: TextStyle(
-                                        color: AppTheme.textSecondary,
+                                        color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                                         fontSize: 12,
+                                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                         fontFamily: 'Cairo')),
                                 Text(
                                   '${(enteredAmount * bookRate).toStringAsFixed(2)} ج.م (بسعر ${bookRate.toStringAsFixed(4)})',
-                                  style: const TextStyle(
-                                      color: Colors.white70,
+                                  style: TextStyle(
+                                      color: isDark ? Colors.white70 : Colors.black87,
                                       fontSize: 12,
+                                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                       fontFamily: 'Cairo'),
                                 ),
                               ],
@@ -3037,10 +3335,11 @@ class _TreasuryViewState extends State<_TreasuryView> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('فروق العملة المحققة المتوقعة:',
+                                Text('فروق العملة المحققة المتوقعة:',
                                     style: TextStyle(
-                                        color: AppTheme.textSecondary,
+                                        color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                                         fontSize: 12,
+                                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                         fontFamily: 'Cairo')),
                                 Text(
                                   expectedGainLoss > 0.001
@@ -3050,7 +3349,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
                                           : '0.00 ج.م (تعادل)',
                                   style: TextStyle(
                                       color: expectedGainLoss > 0.001
-                                          ? Colors.greenAccent
+                                          ? (isDark ? Colors.greenAccent : const Color(0xFF15803D))
                                           : Colors.redAccent,
                                       fontWeight: FontWeight.bold,
                                       fontSize: 12,
@@ -3209,6 +3508,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   // ── Bottom Sheet: Transfer ──
 
   void _showTransferSheet(TreasuryLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final amountCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     String selectedCurrency = 'EGP';
@@ -3243,17 +3543,18 @@ class _TreasuryViewState extends State<_TreasuryView> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('تحويل عهدة',
+                  Text('تحويل عهدة',
                       style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: isDark ? Colors.white : Colors.black,
                           fontFamily: 'Cairo')),
                   const SizedBox(height: 16),
-                  const Text('من الخزنة',
+                  Text('من الخزنة',
                       style: TextStyle(
                           fontSize: 12,
-                          color: AppTheme.textSecondary,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                           fontFamily: 'Cairo')),
                   const SizedBox(height: 4),
                   _buildTreasuryDropdown(employeeTreasuries, (val) {
@@ -3265,10 +3566,11 @@ class _TreasuryViewState extends State<_TreasuryView> {
                     });
                   }, selectedValue: fromTreasuryId),
                   const SizedBox(height: 12),
-                  const Text('إلى الخزنة',
+                  Text('إلى الخزنة',
                       style: TextStyle(
                           fontSize: 12,
-                          color: AppTheme.textSecondary,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                           fontFamily: 'Cairo')),
                   const SizedBox(height: 4),
                   _buildTreasuryDropdown(toOptions, (val) {
@@ -3299,7 +3601,10 @@ class _TreasuryViewState extends State<_TreasuryView> {
                       style: TextStyle(
                         fontSize: 12,
                         fontFamily: 'Cairo',
-                        color: isOverBalance ? Colors.redAccent : AppTheme.textSecondary,
+                        fontWeight: FontWeight.bold,
+                        color: isOverBalance
+                            ? Colors.redAccent
+                            : (isDark ? AppTheme.textSecondary : Colors.black),
                       ),
                     );
                   }),
@@ -3389,6 +3694,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
       return;
     }
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final amountCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     String selectedCurrency = 'EGP';
@@ -3411,17 +3717,18 @@ class _TreasuryViewState extends State<_TreasuryView> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('إرجاع عهدة',
+                  Text('إرجاع عهدة',
                       style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: isDark ? Colors.white : Colors.black,
                           fontFamily: 'Cairo')),
                   const SizedBox(height: 16),
-                  const Text('من عهدة الموظف',
+                  Text('من عهدة الموظف',
                       style: TextStyle(
                           fontSize: 12,
-                          color: AppTheme.textSecondary,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                           fontFamily: 'Cairo')),
                   const SizedBox(height: 4),
                   _buildTreasuryDropdown(employeeTreasuries, (val) {
@@ -3430,10 +3737,11 @@ class _TreasuryViewState extends State<_TreasuryView> {
                     });
                   }, selectedValue: fromTreasuryId),
                   const SizedBox(height: 12),
-                  const Text('إلى الخزنة',
+                  Text('إلى الخزنة',
                       style: TextStyle(
                           fontSize: 12,
-                          color: AppTheme.textSecondary,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                           fontFamily: 'Cairo')),
                   const SizedBox(height: 4),
                   Container(
@@ -3441,15 +3749,16 @@ class _TreasuryViewState extends State<_TreasuryView> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: AppTheme.surface.withValues(alpha: 0.5),
+                      color: isDark ? AppTheme.surface.withValues(alpha: 0.5) : const Color(0xFFF1F5F9),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: AppTheme.border),
+                      border: Border.all(color: isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
                     ),
                     child: Text(
                       state.mainTreasury?.displayName ?? 'الخزينة الرئيسية',
-                      style: const TextStyle(
-                          color: AppTheme.textSecondary,
+                      style: TextStyle(
+                          color: isDark ? AppTheme.textSecondary : Colors.black,
                           fontSize: 14,
+                          fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo'),
                     ),
                   ),
@@ -3478,7 +3787,10 @@ class _TreasuryViewState extends State<_TreasuryView> {
                       style: TextStyle(
                         fontSize: 12,
                         fontFamily: 'Cairo',
-                        color: isOverBalance ? Colors.redAccent : AppTheme.textSecondary,
+                        fontWeight: FontWeight.bold,
+                        color: isOverBalance
+                            ? Colors.redAccent
+                            : (isDark ? AppTheme.textSecondary : Colors.black),
                       ),
                     );
                   }),
@@ -3557,6 +3869,17 @@ class _TreasuryViewState extends State<_TreasuryView> {
 
   // ── Bottom Sheet: Expense (Enhanced with Category) ──
 
+  void _showSimplifiedCustodyExpenseDialog(TreasuryModel treasury, TreasuryLoaded state) {
+    SimplifiedCustodyExpenseDialog.show(
+      context,
+      custodyTreasury: treasury,
+      availableCustodies: state.treasuries.where((t) => t.isEmployee).toList(),
+      onSuccess: () {
+        context.read<TreasuryCubit>().loadAll(reset: true);
+      },
+    );
+  }
+
   void _showExpenseSheet(TreasuryLoaded state, {TreasuryTransactionModel? draftTx}) {
     final amountCtrl = TextEditingController(
       text: draftTx != null ? draftTx.amount.abs().toStringAsFixed(2) : '',
@@ -3565,8 +3888,11 @@ class _TreasuryViewState extends State<_TreasuryView> {
     String selectedCurrency = draftTx?.currency ?? 'EGP';
     bool _currencyLocked = false;
     int? selectedCategoryId = draftTx != null ? int.tryParse(draftTx.categoryId ?? '') : null;
-    String? selectedExpenseAccountId = draftTx?.payload?['expense_account_id']?.toString();
-    String? _counterpartyType;
+    String? selectedExpenseAccountId = draftTx?.payload?['expense_account_id']?.toString() ?? draftTx?.categoryId;
+    String? selectedCostCenterId = draftTx?.costCenterId ?? draftTx?.payload?['cost_center_id']?.toString();
+    dynamic selectedBranchId = draftTx?.branchId ?? draftTx?.payload?['branch_id'];
+    String? selectedBranchName = draftTx?.branchName ?? draftTx?.payload?['branch_name'];
+    String? _counterpartyType = 'category';
     int? _counterpartyId;
     String? _supplierId;
     String? _counterpartyName;
@@ -3618,7 +3944,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
         _supplierId = draftTx.shareholderId;
         _counterpartyName = draftTx.shareholderName;
         _shareholderSearchCtrl.text = draftTx.shareholderName ?? '';
-      } else if (draftTx.categoryId != null && draftTx.categoryId!.isNotEmpty && draftTx.categoryId != '0') {
+      } else {
         _counterpartyType = 'category';
       }
     }
@@ -3633,6 +3959,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
         value: cubit,
         child: StatefulBuilder(
           builder: (ctx, setSheetState) {
+            final isDark = Theme.of(ctx).brightness == Brightness.dark;
             final currentState = ctx.watch<TreasuryCubit>().state;
             final expenseAccounts = currentState is TreasuryLoaded
                 ? currentState.expenseAccounts
@@ -3648,12 +3975,83 @@ class _TreasuryViewState extends State<_TreasuryView> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(draftTx != null ? 'تعديل مصروف — #${draftTx.id}' : 'صرف مصروف',
-                          style: const TextStyle(
+                          style: TextStyle(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
-                              color: Colors.white,
+                              color: isDark ? Colors.white : Colors.black,
                               fontFamily: 'Cairo')),
                       const SizedBox(height: 16),
+
+                      // ── بند الصرف والجهة المستفيدة ──
+                      BeneficiarySelectorField(
+                        initialBeneficiaryType: _counterpartyType == 'category'
+                            ? 'expense'
+                            : (_counterpartyType == 'supplier' ? 'all_suppliers' : _counterpartyType),
+                        initialEntityId: _counterpartyType == 'supplier'
+                            ? _supplierId
+                            : (_counterpartyType == 'shareholder' ? _supplierId : _counterpartyId?.toString()),
+                        initialEntityName: _counterpartyName,
+                        initialExpenseAccountId: selectedExpenseAccountId,
+                        initialCostCenterId: selectedCostCenterId,
+                        expenseAccounts: expenseAccounts,
+                        onAccountCreated: () => cubit.loadAll(reset: true),
+                        onChanged: (selection) {
+                          setSheetState(() {
+                            if (selection.isExpense) {
+                              _counterpartyType = 'category';
+                              selectedExpenseAccountId = selection.expenseAccountId;
+                              selectedCostCenterId = selection.costCenterId;
+                              _supplierId = null;
+                              _counterpartyId = null;
+                              _counterpartyName = null;
+                            } else if (selection.isSupplier) {
+                              _counterpartyType = 'supplier';
+                              _supplierId = selection.entityId;
+                              _counterpartyId = null;
+                              _counterpartyName = selection.entityName;
+                              selectedExpenseAccountId = null;
+                            } else if (selection.isShippingCompany) {
+                              _counterpartyType = 'shipping_company';
+                              _counterpartyId = int.tryParse(selection.entityId ?? '');
+                              _supplierId = null;
+                              _counterpartyName = selection.entityName;
+                              selectedExpenseAccountId = null;
+                            } else if (selection.isClearingAgent) {
+                              _counterpartyType = 'clearing_agent';
+                              _counterpartyId = int.tryParse(selection.entityId ?? '');
+                              _supplierId = null;
+                              _counterpartyName = selection.entityName;
+                              selectedExpenseAccountId = null;
+                            } else if (selection.isShareholder) {
+                              _counterpartyType = 'shareholder';
+                              _supplierId = selection.entityId;
+                              _counterpartyId = null;
+                              _counterpartyName = selection.entityName;
+                              selectedExpenseAccountId = null;
+                            }
+
+                            if (selection.currency.isNotEmpty && selection.currency != 'MULTI') {
+                              selectedCurrency = selection.currency;
+                              _currencyLocked = true;
+                            } else {
+                              _currencyLocked = false;
+                            }
+
+                            if (selection.entityName != null && selection.entityName!.isNotEmpty) {
+                              if (descCtrl.text.trim().isEmpty ||
+                                  descCtrl.text.trim().startsWith('سداد لـ ') ||
+                                  descCtrl.text.trim().startsWith('دفعه لـ ')) {
+                                descCtrl.text = 'سداد لـ ${selection.entityName}';
+                              }
+                            }
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      const Divider(color: AppTheme.glassBorder, height: 1),
+                      const SizedBox(height: 12),
+
+                      // ── 3. البيانات المالية (المبلغ والعملة والبيان) ──
                       _buildCurrencyDropdown((val) {
                         setSheetState(() => selectedCurrency = val);
                       },
@@ -3664,405 +4062,8 @@ class _TreasuryViewState extends State<_TreasuryView> {
                           amountCtrl, 'المبلغ', Icons.monetization_on_outlined,
                           isNumber: true,
                           onChanged: (_) => setSheetState(() {})),
-                      const SizedBox(height: 8),
-                      const Divider(color: AppTheme.glassBorder, height: 1),
-                      const SizedBox(height: 8),
-                      const Row(children: [
-                        Icon(Icons.people_outline,
-                            size: 14, color: AppTheme.warning),
-                        SizedBox(width: 6),
-                        Text('صرف لـ (اختياري)',
-                            style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: AppTheme.warning,
-                                fontFamily: 'Cairo')),
-                      ]),
-                      const SizedBox(height: 8),
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Row(
-                          children: [
-                            _expenseSmallBtn(ctx, 'حساب مصروف',
-                                _counterpartyType == 'category', () {
-                              setSheetState(() {
-                                _counterpartyType = 'category';
-                                _showCategorySearch = true;
-                                _showCustomerSearch = false;
-                                _showSupplierSearch = false;
-                                _showClearingAgentSearch = false;
-                                _showShippingCompanySearch = false;
-                                _showShareholderSearch = false;
-                                _counterpartyId = null;
-                                _supplierId = null;
-                                _counterpartyName = null;
-                                selectedCategoryId = null;
-                                selectedExpenseAccountId = null;
-                                _currencyLocked = false;
-                              });
-                            }),
-                            // const SizedBox(width: 10),
-                            // _expenseSmallBtn(
-                            //     ctx, 'عميل', _counterpartyType == 'customer',
-                            //     () {
-                            //   setSheetState(() {
-                            //     _counterpartyType = 'customer';
-                            //     _showCustomerSearch = true;
-                            //     _showSupplierSearch = false;
-                            //     _showClearingAgentSearch = false;
-                            //     _showShippingCompanySearch = false;
-                            //     _showShareholderSearch = false;
-                            //     _showCategorySearch = false;
-                            //     _counterpartyId = null;
-                            //     _supplierId = null;
-                            //     _counterpartyName = null;
-                            //     _currencyLocked = false;
-                            //     selectedCategoryId = null;
-                            //     _customerSearchCtrl.clear();
-                            //     _customerResults = [];
-                            //   });
-                            // }),
-                            // const SizedBox(width: 10),
-                            // _expenseSmallBtn(ctx, 'مخلص',
-                            //     _counterpartyType == 'clearing_agent', () {
-                            //   setSheetState(() {
-                            //     _counterpartyType = 'clearing_agent';
-                            //     _showClearingAgentSearch = true;
-                            //     _showCustomerSearch = false;
-                            //     _showSupplierSearch = false;
-                            //     _showShippingCompanySearch = false;
-                            //     _showShareholderSearch = false;
-                            //     _showCategorySearch = false;
-                            //     _counterpartyId = null;
-                            //     _supplierId = null;
-                            //     _counterpartyName = null;
-                            //     _currencyLocked = false;
-                            //     selectedCategoryId = null;
-                            //     _customerSearchCtrl.clear();
-                            //     _customerResults = [];
-                            //   });
-                            // }),
-                            // const SizedBox(width: 10),
-                            // _expenseSmallBtn(ctx, 'شحن',
-                            //     _counterpartyType == 'shipping_company', () {
-                            //   setSheetState(() {
-                            //     _counterpartyType = 'shipping_company';
-                            //     _showShippingCompanySearch = true;
-                            //     _showCustomerSearch = false;
-                            //     _showSupplierSearch = false;
-                            //     _showClearingAgentSearch = false;
-                            //     _showShareholderSearch = false;
-                            //     _showCategorySearch = false;
-                            //     _counterpartyId = null;
-                            //     _supplierId = null;
-                            //     _counterpartyName = null;
-                            //     _currencyLocked = false;
-                            //     selectedCategoryId = null;
-                            //     _customerSearchCtrl.clear();
-                            //     _customerResults = [];
-                            //   });
-                            // }),
-                            const SizedBox(width: 10),
-                            _expenseSmallBtn(ctx, 'مساهم',
-                                _counterpartyType == 'shareholder', () {
-                              setSheetState(() {
-                                _counterpartyType = 'shareholder';
-                                _showShareholderSearch = true;
-                                _showCustomerSearch = false;
-                                _showSupplierSearch = false;
-                                _showClearingAgentSearch = false;
-                                _showShippingCompanySearch = false;
-                                _showCategorySearch = false;
-                                _counterpartyId = null;
-                                _supplierId = null;
-                                _counterpartyName = null;
-                                _currencyLocked = false;
-                                selectedCategoryId = null;
-                                _customerSearchCtrl.clear();
-                                _customerResults = [];
-                              });
-                            }),
-                          ],
-                        ),
-                      ),
-                      if (_counterpartyType == 'category' &&
-                          !_showCategorySearch &&
-                          selectedExpenseAccountId != null) ...[
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 8),
-                          decoration: BoxDecoration(
-                            color: AppTheme.primary.withAlpha(20),
-                            borderRadius: BorderRadius.circular(10),
-                            border: Border.all(
-                                color: AppTheme.primary.withAlpha(60)),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(Icons.label,
-                                  size: 14, color: AppTheme.primary),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Builder(builder: (_) {
-                                  final match = expenseAccounts.firstWhere(
-                                      (a) =>
-                                          a['id'].toString() ==
-                                          selectedExpenseAccountId,
-                                      orElse: () => {'name': ''});
-                                  final model = AccountModel.fromMap(match);
-                                  return Text(
-                                    model.displayName.isNotEmpty
-                                        ? '${model.displayName} - ${model.code}'
-                                        : (match['name'] ?? ''),
-                                    style: const TextStyle(
-                                        color: AppTheme.primary,
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                        fontFamily: 'Cairo'),
-                                  );
-                                }),
-                              ),
-                              GestureDetector(
-                                onTap: () => setSheetState(() {
-                                  selectedExpenseAccountId = null;
-                                  _currencyLocked = false;
-                                }),
-                                child: const Icon(Icons.close,
-                                    size: 14, color: AppTheme.textSecondary),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                      if (_showCategorySearch) ...[
-                        const SizedBox(height: 8),
-                        Builder(
-                          builder: (catCtx) {
-                            String query = '';
-                            final searchCtrl = TextEditingController();
-                            return StatefulBuilder(
-                              builder: (ctx2, setCatState) {
-                                final filtered = query.isEmpty
-                                    ? expenseAccounts
-                                    : expenseAccounts.where((a) {
-                                        final m = AccountModel.fromMap(a);
-                                        final q = query.toLowerCase();
-                                        return m.displayName.toLowerCase().contains(q) ||
-                                            (a['name'] ?? '').toString().toLowerCase().contains(q) ||
-                                            m.code.toLowerCase().contains(q) ||
-                                            (a['account_code'] ?? '').toString().toLowerCase().contains(q);
-                                      }).toList();
-
-                                return Column(
-                                  mainAxisSize: MainAxisSize.min,
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    TextFormField(
-                                      controller: searchCtrl,
-                                      autofocus: true,
-                                      onChanged: (v) =>
-                                          setCatState(() => query = v.trim()),
-                                      decoration: InputDecoration(
-                                        hintText: 'ابحث عن حساب مصروف بالاسم أو الكود...',
-                                        prefixIcon:
-                                            const Icon(Icons.search, size: 18),
-                                        suffixIcon: query.isNotEmpty
-                                            ? IconButton(
-                                                icon: const Icon(Icons.close,
-                                                    size: 16),
-                                                onPressed: () {
-                                                  searchCtrl.clear();
-                                                  setCatState(() => query = '');
-                                                },
-                                              )
-                                            : null,
-                                      ),
-                                      style: const TextStyle(fontFamily: 'Cairo'),
-                                    ),
-                                    const SizedBox(height: 4),
-                                    Container(
-                                      constraints:
-                                          const BoxConstraints(maxHeight: 180),
-                                      decoration: BoxDecoration(
-                                        color: const Color(0xCC05192D),
-                                        borderRadius: BorderRadius.circular(12),
-                                        border:
-                                            Border.all(color: AppTheme.glassBorder),
-                                      ),
-                                      child: filtered.isEmpty
-                                          ? const Padding(
-                                              padding: EdgeInsets.all(16),
-                                              child: Center(
-                                                child: Text(
-                                                  'لا توجد حسابات مطابقة للبحث',
-                                                  style: TextStyle(
-                                                    color: AppTheme.textSecondary,
-                                                    fontFamily: 'Cairo',
-                                                    fontSize: 13,
-                                                  ),
-                                                ),
-                                              ),
-                                            )
-                                          : ListView.separated(
-                                              shrinkWrap: true,
-                                              padding: EdgeInsets.zero,
-                                              itemCount: filtered.length,
-                                              separatorBuilder: (_, __) => const Divider(
-                                                  height: 1, color: AppTheme.divider),
-                                              itemBuilder: (_, i) {
-                                                final acct = filtered[i];
-                                                final acctId = acct['id'].toString();
-                                                final isSelected =
-                                                    selectedExpenseAccountId == acctId;
-                                                final model = AccountModel.fromMap(acct);
-                                                return Material(
-                                                  color: Colors.transparent,
-                                                  child: ListTile(
-                                                    dense: true,
-                                                    onTap: () {
-                                                      setSheetState(() {
-                                                        selectedExpenseAccountId = acctId;
-                                                        _showCategorySearch = false;
-                                                      });
-                                                    },
-                                                    leading: Icon(
-                                                      isSelected
-                                                          ? Icons.radio_button_checked
-                                                          : Icons.radio_button_unchecked,
-                                                      size: 16,
-                                                      color: isSelected
-                                                          ? AppTheme.primary
-                                                          : AppTheme.textMuted,
-                                                    ),
-                                                    title: Text(
-                                                      '${model.displayName} - ${model.code}',
-                                                      textDirection: TextDirection.rtl,
-                                                      textAlign: TextAlign.right,
-                                                      style: TextStyle(
-                                                        fontFamily: 'Cairo',
-                                                        fontSize: 13,
-                                                        color: isSelected
-                                                            ? AppTheme.primary
-                                                            : Colors.white,
-                                                        fontWeight: isSelected
-                                                            ? FontWeight.bold
-                                                            : FontWeight.normal,
-                                                      ),
-                                                    ),
-                                                  ),
-                                                );
-                                              },
-                                            ),
-                                    ),
-                                  ],
-                                );
-                              },
-                            );
-                          },
-                        ),
-                      ],
-                      if (_showCustomerSearch) ...[
-                        const SizedBox(height: 8),
-                        _expenseCustomerSearch(
-                            ctx, _customerSearchCtrl, _customerResults,
-                            (q) async {
-                          if (q.trim().isEmpty) {
-                            setSheetState(() => _customerResults = []);
-                            return;
-                          }
-                          final results =
-                              await CustomerDao().search(q.trim(), limit: 20);
-                          setSheetState(() => _customerResults = results);
-                        }, (c) {
-                          setSheetState(() {
-                            _counterpartyId = int.tryParse(c.id ?? '');
-                            _counterpartyName = c.name;
-                            _customerSearchCtrl.text = c.name;
-                            _customerResults = [];
-                            _currencyLocked = true;
-                            selectedCurrency = c.currency;
-                            descCtrl.text = 'دفعه لـ ${c.name}';
-                          });
-                        }),
-                      ],
-                      if (_showClearingAgentSearch) ...[
-                        const SizedBox(height: 8),
-                        _expenseClearingAgentSearch(
-                            ctx,
-                            _clearingAgentSearchCtrl,
-                            _clearingAgentResults, (q) async {
-                          if (q.trim().isEmpty) {
-                            setSheetState(() => _clearingAgentResults = []);
-                            return;
-                          }
-                          final results = await ClearingAgentDao()
-                              .search(q.trim(), limit: 20);
-                          setSheetState(() => _clearingAgentResults = results);
-                        }, (a) {
-                          setSheetState(() {
-                            _counterpartyId = int.tryParse(a.id ?? '');
-                            _counterpartyName = a.name;
-                            _clearingAgentSearchCtrl.text = a.name;
-                            _clearingAgentResults = [];
-                            _currencyLocked = true;
-                            selectedCurrency = a.currency;
-                            descCtrl.text = 'دفعه لـ ${a.name}';
-                          });
-                        }),
-                      ],
-                      if (_showShippingCompanySearch) ...[
-                        const SizedBox(height: 8),
-                        _expenseShippingCompanySearch(
-                            ctx,
-                            _shippingCompanySearchCtrl,
-                            _shippingCompanyResults, (q) async {
-                          if (q.trim().isEmpty) {
-                            setSheetState(() => _shippingCompanyResults = []);
-                            return;
-                          }
-                          final results = await ShippingCompanyDao()
-                              .search(q.trim(), limit: 20);
-                          setSheetState(
-                              () => _shippingCompanyResults = results);
-                        }, (s) {
-                          setSheetState(() {
-                            _counterpartyId = s.id;
-                            _counterpartyName = s.name;
-                            _shippingCompanySearchCtrl.text = s.name;
-                            _shippingCompanyResults = [];
-                            _currencyLocked = true;
-                            selectedCurrency = s.currency;
-                            descCtrl.text = 'دفعه لـ ${s.name}';
-                          });
-                        }),
-                      ],
-                      if (_showShareholderSearch) ...[
-                        const SizedBox(height: 8),
-                        _expenseShareholderSearch(
-                            ctx, _shareholderSearchCtrl, _shareholderResults,
-                            (q) async {
-                          if (q.trim().isEmpty) {
-                            setSheetState(() => _shareholderResults = []);
-                            return;
-                          }
-                          final results = await ShareholderDao()
-                              .search(q.trim(), limit: 20);
-                          setSheetState(() => _shareholderResults = results);
-                        }, (s) {
-                          setSheetState(() {
-                            _counterpartyId = null;
-                            _supplierId = s.id;
-                            _counterpartyName = s.name;
-                            _shareholderSearchCtrl.text = s.name;
-                            _shareholderResults = [];
-                            _currencyLocked = false;
-                            descCtrl.text = 'دفعه لـ ${s.name}';
-                          });
-                        }),
-                      ],
                       const SizedBox(height: 12),
-                      _buildTextField(descCtrl, 'الوصف (اختياري)',
+                      _buildTextField(descCtrl, 'الوصف / البيان (اختياري)',
                           Icons.description_outlined),
                       const SizedBox(height: 12),
                       ValueListenableBuilder<bool>(
@@ -4078,10 +4079,23 @@ class _TreasuryViewState extends State<_TreasuryView> {
                           final isAmountValid =
                               enteredAmount > 0 && !isOverBalance;
 
+                          final isExpenseAccountValid = _counterpartyType != 'category' ||
+                              (selectedExpenseAccountId != null &&
+                                  expenseAccounts.any((a) {
+                                    if (a['id'].toString() != selectedExpenseAccountId) return false;
+                                    final code = (a['account_code'] ?? a['code'] ?? '').toString().trim();
+                                    return code.startsWith('31') &&
+                                        !code.startsWith('32') &&
+                                        (a['is_leaf'] == true || a['allow_posting'] == true);
+                                  }));
+
                           final isFormValid = isAmountValid &&
                               _counterpartyType != null &&
+                              isExpenseAccountValid &&
                               !(_counterpartyType == 'category' &&
-                                  selectedExpenseAccountId == null) &&
+                                  (selectedExpenseAccountId == null ||
+                                   selectedCostCenterId == null ||
+                                   selectedCostCenterId!.trim().isEmpty)) &&
                               !(_counterpartyType == 'shareholder' &&
                                   _supplierId == null) &&
                               !((_counterpartyType == 'customer' ||
@@ -4091,6 +4105,122 @@ class _TreasuryViewState extends State<_TreasuryView> {
 
                           return Column(
                             children: [
+                              // Double-Entry Accounting Preview Card
+                              if (selectedExpenseAccountId != null || _counterpartyType != null)
+                                Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: isDark ? const Color(0xFF091A2D) : const Color(0xFFF1F5F9),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      const Row(
+                                        children: [
+                                          Icon(Icons.auto_stories_outlined, size: 14, color: AppTheme.primary),
+                                          SizedBox(width: 6),
+                                          Expanded(
+                                            child: Text(
+                                              'معاينة القيد المحاسبي المزدوج (Double-Entry Preview)',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                fontSize: 11,
+                                                color: AppTheme.primary,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Cairo',
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 6),
+                                      Row(
+                                        children: [
+                                          const Text(
+                                            'مدين (Dr): ',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: AppTheme.success,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: Builder(
+                                              builder: (_) {
+                                                final bName = selectedBranchName;
+                                                final branchText = bName != null && bName.isNotEmpty ? ' [الفرع: $bName]' : '';
+                                                if (_counterpartyType == 'category') {
+                                                  final match = expenseAccounts.firstWhereOrNull(
+                                                    (a) => a['id'].toString() == selectedExpenseAccountId,
+                                                  );
+                                                  final name = match != null
+                                                      ? AccountModel.fromMap(match).displayName
+                                                      : 'حساب المصروف';
+                                                  final cc = selectedCostCenterId != null && selectedCostCenterId!.isNotEmpty
+                                                      ? CostCenterHelper.fromId(selectedCostCenterId)
+                                                      : null;
+                                                  final ccText = cc != null ? ' [المركز: ${cc.nameAr}]' : '';
+                                                  return Text(
+                                                    '$name$branchText$ccText',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: isDark ? Colors.white : Colors.black,
+                                                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                                        fontFamily: 'Cairo'),
+                                                  );
+                                                } else {
+                                                  return Text(
+                                                    '${_counterpartyName ?? 'الحساب المقابل'}$branchText',
+                                                    maxLines: 1,
+                                                    overflow: TextOverflow.ellipsis,
+                                                    style: TextStyle(
+                                                        fontSize: 11,
+                                                        color: isDark ? Colors.white : Colors.black,
+                                                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                                        fontFamily: 'Cairo'),
+                                                  );
+                                                }
+                                              },
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Row(
+                                        children: [
+                                          const Text(
+                                            'دائن (Cr): ',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: AppTheme.danger,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          ),
+                                          Expanded(
+                                            child: Text(
+                                              (state.selectedTreasury ?? state.mainTreasury)?.name ?? 'الخزينة الحالية',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                              style: TextStyle(
+                                                  fontSize: 11,
+                                                  color: isDark ? Colors.white70 : Colors.black87,
+                                                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                                  fontFamily: 'Cairo'),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                ),
                               if (isOverBalance && enteredAmount > 0)
                                 Container(
                                   margin: const EdgeInsets.only(bottom: 12),
@@ -4138,6 +4268,28 @@ class _TreasuryViewState extends State<_TreasuryView> {
                                         _showSnackBar('المبلغ يجب أن يكون أكبر من صفر');
                                         return;
                                       }
+                                      if (_counterpartyType == 'category') {
+                                        if (selectedCostCenterId == null || selectedCostCenterId!.trim().isEmpty) {
+                                          _showSnackBar('يرجى تحديد مركز التكلفة / القسم المستفيد');
+                                          return;
+                                        }
+                                        if (selectedExpenseAccountId == null) {
+                                          _showSnackBar('يرجى اختيار حساب المصروف من شجرة الحسابات');
+                                          return;
+                                        }
+                                        final selectedAcc = expenseAccounts.firstWhereOrNull(
+                                          (a) => a['id'].toString() == selectedExpenseAccountId,
+                                        );
+                                        final accCode = (selectedAcc?['account_code'] ?? selectedAcc?['code'] ?? '').toString().trim();
+                                        if (accCode.isEmpty || !accCode.startsWith('31') || accCode.startsWith('32')) {
+                                          _showSnackBar('حساب المصروف غير صالح. يجب اختيار حساب نقدي ضمن مجموعة المصروفات التشغيلية والإدارية (31)');
+                                          return;
+                                        }
+                                        if (selectedAcc?['is_leaf'] != true && selectedAcc?['allow_posting'] != true) {
+                                          _showSnackBar('يجب اختيار حساب تحليلي فرعي يقبل الترحيل');
+                                          return;
+                                        }
+                                      }
                                       isSaving.value = true;
                                       String finalDesc = descCtrl.text.trim();
 
@@ -4148,13 +4300,15 @@ class _TreasuryViewState extends State<_TreasuryView> {
                                           amount: amount,
                                           currency: selectedCurrency,
                                           description: finalDesc.isEmpty ? null : finalDesc,
-                                          categoryId: selectedCategoryId,
+                                          categoryId: _counterpartyType == 'category' ? null : selectedCategoryId,
                                           customerId: _counterpartyType == 'customer' ? _counterpartyId : null,
                                           supplierId: _counterpartyType == 'supplier' ? _supplierId : null,
                                           clearingAgentId: _counterpartyType == 'clearing_agent' ? _counterpartyId : null,
                                           shippingCompanyId: _counterpartyType == 'shipping_company' ? _counterpartyId : null,
                                           shareholderId: _counterpartyType == 'shareholder' ? _supplierId : null,
                                           expenseAccountId: selectedExpenseAccountId != null ? int.tryParse(selectedExpenseAccountId!) : null,
+                                          costCenterId: selectedCostCenterId,
+                                          branchId: selectedBranchId,
                                         );
                                       } else {
                                         // Save new draft
@@ -4163,7 +4317,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
                                           currency: selectedCurrency,
                                           amount: amount,
                                           description: finalDesc,
-                                          categoryId: selectedCategoryId,
+                                          categoryId: _counterpartyType == 'category' ? null : selectedCategoryId,
                                           expenseAccountId: selectedExpenseAccountId,
                                           customerId: _counterpartyType == 'customer' ? _counterpartyId : null,
                                           supplierId: _counterpartyType == 'supplier' ? _supplierId : null,
@@ -4171,6 +4325,8 @@ class _TreasuryViewState extends State<_TreasuryView> {
                                           shippingCompanyId: _counterpartyType == 'shipping_company' ? _counterpartyId : null,
                                           shareholderId: _counterpartyType == 'shareholder' ? _supplierId : null,
                                           invoice: _selectedInvoice,
+                                          costCenterId: selectedCostCenterId,
+                                          branchId: selectedBranchId,
                                         );
                                       }
 
@@ -4201,25 +4357,28 @@ class _TreasuryViewState extends State<_TreasuryView> {
 
   Widget _expenseSmallBtn(
       BuildContext ctx, String label, bool active, VoidCallback onTap) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 6),
+        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 16),
         decoration: BoxDecoration(
           color: active
-              ? AppTheme.warning.withValues(alpha: 0.15)
-              : Colors.white.withValues(alpha: 0.06),
+              ? (isDark ? AppTheme.warning.withValues(alpha: 0.15) : const Color(0xFFFEF3C7))
+              : (isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF1F5F9)),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-              color: active ? AppTheme.warning : AppTheme.glassBorder),
+              color: active ? AppTheme.warning : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
         ),
         child: Center(
           child: Text(label,
               style: TextStyle(
-                  color: active ? AppTheme.warning : AppTheme.textSecondary,
+                  color: active
+                      ? (isDark ? AppTheme.warning : const Color(0xFFB45309))
+                      : (isDark ? AppTheme.textSecondary : Colors.black),
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo',
-                  fontSize: 11)),
+                  fontSize: 12)),
         ),
       ),
     );
@@ -4231,6 +4390,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
       List<CustomerModel> results,
       Future<void> Function(String) onSearch,
       void Function(CustomerModel) onSelect) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
     return Column(children: [
       TextFormField(
         controller: ctrl,
@@ -4246,35 +4406,45 @@ class _TreasuryViewState extends State<_TreasuryView> {
           margin: const EdgeInsets.only(top: 4),
           constraints: const BoxConstraints(maxHeight: 160),
           decoration: BoxDecoration(
-            color: const Color(0xCC05192D),
+            color: isDark ? const Color(0xCC05192D) : Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.glassBorder),
+            border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+            boxShadow: isDark
+                ? null
+                : [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4))
+                  ],
           ),
           child: ListView.separated(
             shrinkWrap: true,
             padding: EdgeInsets.zero,
             itemCount: results.length,
             separatorBuilder: (_, __) =>
-                const Divider(height: 1, color: AppTheme.divider),
+                Divider(height: 1, color: isDark ? AppTheme.divider : const Color(0xFFE2E8F0)),
             itemBuilder: (_, i) {
               final c = results[i];
               return Material(
                 color: Colors.transparent,
                 child: ListTile(
-                dense: true,
-                onTap: () => onSelect(c),
-                title: Text(c.name,
-                    style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 13,
-                        color: Colors.white)),
-                subtitle: Text(
-                    'رصيد: ${AppUtils.formatCurrency(c.balance, c.currency)}',
-                    style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 11,
-                        color: AppTheme.textSecondary)),
-              ),
+                  dense: true,
+                  onTap: () => onSelect(c),
+                  title: Text(c.name,
+                      style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black)),
+                  subtitle: Text(
+                      'رصيد: ${AppUtils.formatCurrency(c.balance, c.currency)}',
+                      style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 11,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569))),
+                ),
               );
             },
           ),
@@ -4288,6 +4458,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
       List<SupplierModel> results,
       Future<void> Function(String) onSearch,
       void Function(SupplierModel) onSelect) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
     return Column(children: [
       TextFormField(
         controller: ctrl,
@@ -4303,35 +4474,45 @@ class _TreasuryViewState extends State<_TreasuryView> {
           margin: const EdgeInsets.only(top: 4),
           constraints: const BoxConstraints(maxHeight: 160),
           decoration: BoxDecoration(
-            color: const Color(0xCC05192D),
+            color: isDark ? const Color(0xCC05192D) : Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.glassBorder),
+            border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+            boxShadow: isDark
+                ? null
+                : [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4))
+                  ],
           ),
           child: ListView.separated(
             shrinkWrap: true,
             padding: EdgeInsets.zero,
             itemCount: results.length,
             separatorBuilder: (_, __) =>
-                const Divider(height: 1, color: AppTheme.divider),
+                Divider(height: 1, color: isDark ? AppTheme.divider : const Color(0xFFE2E8F0)),
             itemBuilder: (_, i) {
               final s = results[i];
               return Material(
                 color: Colors.transparent,
                 child: ListTile(
-                dense: true,
-                onTap: () => onSelect(s),
-                title: Text(s.name,
-                    style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 13,
-                        color: Colors.white)),
-                subtitle: Text(
-                    'رصيد: ${AppUtils.formatCurrency(s.outstandingBalance, s.currency)}',
-                    style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 11,
-                        color: AppTheme.textSecondary)),
-              ),
+                  dense: true,
+                  onTap: () => onSelect(s),
+                  title: Text(s.name,
+                      style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black)),
+                  subtitle: Text(
+                      'رصيد: ${AppUtils.formatCurrency(s.outstandingBalance, s.currency)}',
+                      style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 11,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569))),
+                ),
               );
             },
           ),
@@ -4345,6 +4526,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
       List<ClearingAgentModel> results,
       Future<void> Function(String) onSearch,
       void Function(ClearingAgentModel) onSelect) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
     return Column(children: [
       TextFormField(
         controller: ctrl,
@@ -4360,34 +4542,44 @@ class _TreasuryViewState extends State<_TreasuryView> {
           margin: const EdgeInsets.only(top: 4),
           constraints: const BoxConstraints(maxHeight: 160),
           decoration: BoxDecoration(
-            color: const Color(0xCC05192D),
+            color: isDark ? const Color(0xCC05192D) : Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.glassBorder),
+            border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+            boxShadow: isDark
+                ? null
+                : [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4))
+                  ],
           ),
           child: ListView.separated(
             shrinkWrap: true,
             padding: EdgeInsets.zero,
             itemCount: results.length,
             separatorBuilder: (_, __) =>
-                const Divider(height: 1, color: AppTheme.divider),
+                Divider(height: 1, color: isDark ? AppTheme.divider : const Color(0xFFE2E8F0)),
             itemBuilder: (_, i) {
               final a = results[i];
               return Material(
                 color: Colors.transparent,
                 child: ListTile(
-                dense: true,
-                onTap: () => onSelect(a),
-                title: Text(a.name,
-                    style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 13,
-                        color: Colors.white)),
-                subtitle: Text('عملة: ${a.currency}',
-                    style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 11,
-                        color: AppTheme.textSecondary)),
-              ),
+                  dense: true,
+                  onTap: () => onSelect(a),
+                  title: Text(a.name,
+                      style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black)),
+                  subtitle: Text('عملة: ${a.currency}',
+                      style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 11,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569))),
+                ),
               );
             },
           ),
@@ -4401,6 +4593,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
       List<ShippingCompanyModel> results,
       Future<void> Function(String) onSearch,
       void Function(ShippingCompanyModel) onSelect) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
     return Column(children: [
       TextFormField(
         controller: ctrl,
@@ -4416,34 +4609,44 @@ class _TreasuryViewState extends State<_TreasuryView> {
           margin: const EdgeInsets.only(top: 4),
           constraints: const BoxConstraints(maxHeight: 160),
           decoration: BoxDecoration(
-            color: const Color(0xCC05192D),
+            color: isDark ? const Color(0xCC05192D) : Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.glassBorder),
+            border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+            boxShadow: isDark
+                ? null
+                : [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4))
+                  ],
           ),
           child: ListView.separated(
             shrinkWrap: true,
             padding: EdgeInsets.zero,
             itemCount: results.length,
             separatorBuilder: (_, __) =>
-                const Divider(height: 1, color: AppTheme.divider),
+                Divider(height: 1, color: isDark ? AppTheme.divider : const Color(0xFFE2E8F0)),
             itemBuilder: (_, i) {
               final s = results[i];
               return Material(
                 color: Colors.transparent,
                 child: ListTile(
-                dense: true,
-                onTap: () => onSelect(s),
-                title: Text(s.name,
-                    style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 13,
-                        color: Colors.white)),
-                subtitle: Text('عملة: ${s.currency}',
-                    style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 11,
-                        color: AppTheme.textSecondary)),
-              ),
+                  dense: true,
+                  onTap: () => onSelect(s),
+                  title: Text(s.name,
+                      style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black)),
+                  subtitle: Text('عملة: ${s.currency}',
+                      style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 11,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569))),
+                ),
               );
             },
           ),
@@ -4457,6 +4660,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
       List<ShareholderModel> results,
       Future<void> Function(String) onSearch,
       void Function(ShareholderModel) onSelect) {
+    final isDark = Theme.of(ctx).brightness == Brightness.dark;
     return Column(children: [
       TextFormField(
         controller: ctrl,
@@ -4472,71 +4676,85 @@ class _TreasuryViewState extends State<_TreasuryView> {
           margin: const EdgeInsets.only(top: 4),
           constraints: const BoxConstraints(maxHeight: 160),
           decoration: BoxDecoration(
-            color: const Color(0xCC05192D),
+            color: isDark ? const Color(0xCC05192D) : Colors.white,
             borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.glassBorder),
+            border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+            boxShadow: isDark
+                ? null
+                : [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4))
+                  ],
           ),
           child: ListView.separated(
             shrinkWrap: true,
             padding: EdgeInsets.zero,
             itemCount: results.length,
             separatorBuilder: (_, __) =>
-                const Divider(height: 1, color: AppTheme.divider),
+                Divider(height: 1, color: isDark ? AppTheme.divider : const Color(0xFFE2E8F0)),
             itemBuilder: (_, i) {
               final s = results[i];
               return Material(
                 color: Colors.transparent,
                 child: ListTile(
-                dense: true,
-                onTap: () => onSelect(s),
-                title: Text(s.name,
-                    style: const TextStyle(
-                        fontFamily: 'Cairo',
-                        fontSize: 13,
-                        color: Colors.white)),
-                subtitle: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (s.totalDepositsEgp - s.totalWithdrawalsEgp != 0)
-                      Text(
-                          'جنية: ${AppUtils.formatCurrency(s.totalDepositsEgp - s.totalWithdrawalsEgp)}',
-                          style: const TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 11,
-                              color: AppTheme.success)),
-                    if (s.totalDepositsUsd - s.totalWithdrawalsUsd != 0)
-                      Text(
-                          'دولار: ${AppUtils.formatCurrency(s.totalDepositsUsd - s.totalWithdrawalsUsd)}',
-                          style: const TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 11,
-                              color: AppTheme.success)),
-                    if (s.totalDepositsEur - s.totalWithdrawalsEur != 0)
-                      Text(
-                          'يورو: ${AppUtils.formatCurrency(s.totalDepositsEur - s.totalWithdrawalsEur)}',
-                          style: const TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 11,
-                              color: AppTheme.success)),
-                    if (s.totalDepositsGbp - s.totalWithdrawalsGbp != 0)
-                      Text(
-                          'استرليني: ${AppUtils.formatCurrency(s.totalDepositsGbp - s.totalWithdrawalsGbp)}',
-                          style: const TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 11,
-                              color: AppTheme.success)),
-                    if (s.totalDepositsEgp - s.totalWithdrawalsEgp == 0 &&
-                        s.totalDepositsUsd - s.totalWithdrawalsUsd == 0 &&
-                        s.totalDepositsEur - s.totalWithdrawalsEur == 0 &&
-                        s.totalDepositsGbp - s.totalWithdrawalsGbp == 0)
-                      const Text('رصيد: 0',
-                          style: TextStyle(
-                              fontFamily: 'Cairo',
-                              fontSize: 11,
-                              color: AppTheme.textSecondary)),
-                  ],
+                  dense: true,
+                  onTap: () => onSelect(s),
+                  title: Text(s.name,
+                      style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      if (s.totalDepositsEgp - s.totalWithdrawalsEgp != 0)
+                        Text(
+                            'جنية: ${AppUtils.formatCurrency(s.totalDepositsEgp - s.totalWithdrawalsEgp)}',
+                            style: const TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.success)),
+                      if (s.totalDepositsUsd - s.totalWithdrawalsUsd != 0)
+                        Text(
+                            'دولار: ${AppUtils.formatCurrency(s.totalDepositsUsd - s.totalWithdrawalsUsd)}',
+                            style: const TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.success)),
+                      if (s.totalDepositsEur - s.totalWithdrawalsEur != 0)
+                        Text(
+                            'يورو: ${AppUtils.formatCurrency(s.totalDepositsEur - s.totalWithdrawalsEur)}',
+                            style: const TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.success)),
+                      if (s.totalDepositsGbp - s.totalWithdrawalsGbp != 0)
+                        Text(
+                            'استرليني: ${AppUtils.formatCurrency(s.totalDepositsGbp - s.totalWithdrawalsGbp)}',
+                            style: const TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: AppTheme.success)),
+                      if (s.totalDepositsEgp - s.totalWithdrawalsEgp == 0 &&
+                          s.totalDepositsUsd - s.totalWithdrawalsUsd == 0 &&
+                          s.totalDepositsEur - s.totalWithdrawalsEur == 0 &&
+                          s.totalDepositsGbp - s.totalWithdrawalsGbp == 0)
+                        Text('رصيد: 0',
+                            style: TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 11,
+                                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                color: isDark ? AppTheme.textSecondary : const Color(0xFF475569))),
+                    ],
+                  ),
                 ),
-              ),
               );
             },
           ),
@@ -4565,81 +4783,85 @@ class _TreasuryViewState extends State<_TreasuryView> {
       context: ctx,
       backgroundColor: Colors.transparent,
       builder: (_) => StatefulBuilder(
-        builder: (ctx2, setInnerState) => _buildSheetContainer(
-          child: Padding(
-            padding: const EdgeInsets.all(20),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('إضافة تصنيف جديد',
-                    style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        fontFamily: 'Cairo')),
-                const SizedBox(height: 12),
-                _buildTextField(nameCtrl, 'اسم التصنيف', Icons.label_outline),
-                const SizedBox(height: 12),
-                const Text('اختر لون',
-                    style: TextStyle(
-                        fontSize: 12,
-                        color: AppTheme.textSecondary,
-                        fontFamily: 'Cairo')),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: colors.map((hex) {
-                    final c = _parseHexColor(hex);
-                    final isSelected = selectedColor == hex;
-                    return GestureDetector(
-                      onTap: () => setInnerState(() => selectedColor = hex),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 200),
-                        width: 36,
-                        height: 36,
-                        decoration: BoxDecoration(
-                          color: c,
-                          borderRadius: BorderRadius.circular(8),
-                          border: isSelected
-                              ? Border.all(color: Colors.white, width: 2)
-                              : null,
-                          boxShadow: isSelected
-                              ? [
-                                  BoxShadow(
-                                      color: c.withValues(alpha: 0.5),
-                                      blurRadius: 8)
-                                ]
+        builder: (ctx2, setInnerState) {
+          final isDark = Theme.of(ctx2).brightness == Brightness.dark;
+          return _buildSheetContainer(
+            child: Padding(
+              padding: const EdgeInsets.all(20),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('إضافة تصنيف جديد',
+                      style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black,
+                          fontFamily: 'Cairo')),
+                  const SizedBox(height: 12),
+                  _buildTextField(nameCtrl, 'اسم التصنيف', Icons.label_outline),
+                  const SizedBox(height: 12),
+                  Text('اختر لون',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                          fontFamily: 'Cairo')),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: colors.map((hex) {
+                      final c = _parseHexColor(hex);
+                      final isSelected = selectedColor == hex;
+                      return GestureDetector(
+                        onTap: () => setInnerState(() => selectedColor = hex),
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 200),
+                          width: 36,
+                          height: 36,
+                          decoration: BoxDecoration(
+                            color: c,
+                            borderRadius: BorderRadius.circular(8),
+                            border: isSelected
+                                ? Border.all(color: isDark ? Colors.white : Colors.black, width: 2)
+                                : null,
+                            boxShadow: isSelected
+                                ? [
+                                    BoxShadow(
+                                        color: c.withValues(alpha: 0.5),
+                                        blurRadius: 8)
+                                  ]
+                                : null,
+                          ),
+                          child: isSelected
+                              ? const Icon(Icons.check,
+                                  color: Colors.white, size: 18)
                               : null,
                         ),
-                        child: isSelected
-                            ? const Icon(Icons.check,
-                                color: Colors.white, size: 18)
-                            : null,
-                      ),
-                    );
-                  }).toList(),
-                ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: _btnStyle(AppTheme.primary),
-                    onPressed: () {
-                      if (nameCtrl.text.trim().isEmpty) return;
-                      onSave(nameCtrl.text.trim(), selectedColor);
-                      Navigator.of(ctx2).pop();
-                      Navigator.of(ctx).pop();
-                    },
-                    child: const Text('إضافة',
-                        style: TextStyle(fontFamily: 'Cairo')),
+                      );
+                    }).toList(),
                   ),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      style: _btnStyle(AppTheme.primary),
+                      onPressed: () {
+                        if (nameCtrl.text.trim().isEmpty) return;
+                        onSave(nameCtrl.text.trim(), selectedColor);
+                        Navigator.of(ctx2).pop();
+                        Navigator.of(ctx).pop();
+                      },
+                      child: const Text('إضافة',
+                          style: TextStyle(fontFamily: 'Cairo')),
+                    ),
+                  ),
+                ],
+              ),
             ),
-          ),
-        ),
+          );
+        },
       ),
     );
   }
@@ -4647,6 +4869,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   // ── Bottom Sheet: Return ──
 
   void _showReturnSheet(TreasuryLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final amountCtrl = TextEditingController();
     final descCtrl = TextEditingController();
     String selectedCurrency = 'EGP';
@@ -4670,11 +4893,11 @@ class _TreasuryViewState extends State<_TreasuryView> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('إرجاع عهدة',
+                Text('إرجاع عهدة',
                     style: TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: isDark ? Colors.white : Colors.black,
                         fontFamily: 'Cairo')),
                 const SizedBox(height: 16),
                 _buildFixedEGPCurrencyField(),
@@ -4750,6 +4973,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
   // ── Sheet Container ──
 
   Widget _buildSheetContainer({required Widget child}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       child: ClipRRect(
@@ -4758,10 +4982,19 @@ class _TreasuryViewState extends State<_TreasuryView> {
           filter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0xF0051B2B),
+              color: isDark ? const Color(0xF0051B2B) : Colors.white,
               borderRadius:
                   const BorderRadius.vertical(top: Radius.circular(24)),
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        blurRadius: 20,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
             ),
             child: child,
           ),
@@ -4774,11 +5007,12 @@ class _TreasuryViewState extends State<_TreasuryView> {
 
   Widget _buildTextField(TextEditingController ctrl, String hint, IconData icon,
       {bool isNumber = false, ValueChanged<String>? onChanged}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
+        color: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.glassBorder),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
       ),
       child: TextField(
         controller: ctrl,
@@ -4789,12 +5023,18 @@ class _TreasuryViewState extends State<_TreasuryView> {
         inputFormatters: isNumber
             ? [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d{0,2}$'))]
             : null,
-        style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+        style: TextStyle(
+            color: isDark ? Colors.white : Colors.black,
+            fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+            fontFamily: 'Cairo'),
         decoration: InputDecoration(
           hintText: hint,
-          hintStyle: const TextStyle(
-              color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo'),
-          prefixIcon: Icon(icon, color: AppTheme.textSecondary, size: 18),
+          hintStyle: TextStyle(
+              color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+              fontSize: 13,
+              fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+              fontFamily: 'Cairo'),
+          prefixIcon: Icon(icon, color: isDark ? AppTheme.textSecondary : const Color(0xFF475569), size: 18),
           border: InputBorder.none,
           contentPadding:
               const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -4880,24 +5120,25 @@ class _TreasuryViewState extends State<_TreasuryView> {
   }
 
   Widget _buildFixedEGPCurrencyField() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
+        color: isDark ? Colors.white.withValues(alpha: 0.04) : const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.glassBorder),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.lock_outline, size: 16, color: AppTheme.textSecondary),
-          SizedBox(width: 8),
+          Icon(Icons.lock_outline, size: 16, color: isDark ? AppTheme.textSecondary : const Color(0xFF475569)),
+          const SizedBox(width: 8),
           Text(
             'العملة: جنيه مصري (EGP)',
             style: TextStyle(
-              color: Colors.white70,
+              color: isDark ? Colors.white70 : Colors.black,
               fontSize: 13,
-              fontWeight: FontWeight.w600,
+              fontWeight: FontWeight.bold,
               fontFamily: 'Cairo',
             ),
           ),
@@ -4935,29 +5176,34 @@ class _TreasuryViewState extends State<_TreasuryView> {
     ValueChanged<String?> onChanged, {
     String? selectedValue,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
+        color: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.glassBorder),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           isExpanded: true,
-          dropdownColor: const Color(0xDD05192D),
+          dropdownColor: isDark ? const Color(0xDD05192D) : Colors.white,
           value: selectedValue,
           hint: Text(hint,
-              style: const TextStyle(
-                  color: AppTheme.textSecondary,
+              style: TextStyle(
+                  color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
                   fontSize: 13,
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                   fontFamily: 'Cairo')),
           items: items.map((item) {
             return DropdownMenuItem<String>(
               value: '${value(item)}',
               child: Text(label(item),
-                  style: const TextStyle(
-                      color: Colors.white, fontSize: 13, fontFamily: 'Cairo')),
+                  style: TextStyle(
+                      color: isDark ? Colors.white : Colors.black,
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      fontSize: 13,
+                      fontFamily: 'Cairo')),
             );
           }).toList(),
           onChanged: onChanged,
@@ -4975,6 +5221,7 @@ class _TreasuryViewState extends State<_TreasuryView> {
     ValueChanged<String?> onChanged, {
     String? selectedValue,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return FutureBuilder<List<T>>(
       future: future,
       builder: (_, snap) {
@@ -4982,13 +5229,14 @@ class _TreasuryViewState extends State<_TreasuryView> {
           return Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.06),
+              color: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF8FAFC),
               borderRadius: BorderRadius.circular(10),
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
             ),
-            child: const Text('لا توجد بيانات',
+            child: Text('لا توجد بيانات',
                 style: TextStyle(
-                    color: AppTheme.textSecondary,
+                    color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                     fontSize: 13,
                     fontFamily: 'Cairo')),
           );
@@ -5022,20 +5270,22 @@ class _TreasuryViewState extends State<_TreasuryView> {
   }
 
   Widget _buildInfoRow(String label, String value, {bool isBold = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label,
-            style: const TextStyle(
-                color: AppTheme.textSecondary,
-                fontFamily: 'Cairo',
-                fontSize: 13)),
-        Text(value,
             style: TextStyle(
-                color: Colors.white,
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                 fontFamily: 'Cairo',
                 fontSize: 13,
-                fontWeight: isBold ? FontWeight.bold : FontWeight.normal)),
+                fontWeight: isDark ? FontWeight.normal : FontWeight.bold)),
+        Text(value,
+            style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+                fontFamily: 'Cairo',
+                fontSize: 13,
+                fontWeight: (isBold || !isDark) ? FontWeight.bold : FontWeight.normal)),
       ],
     );
   }
@@ -5075,6 +5325,7 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       value: _cubit,
       child: BlocBuilder<TreasuryCubit, TreasuryState>(
         builder: (ctx, state) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
           final categories =
               state is TreasuryLoaded ? state.categories : widget.categories;
 
@@ -5090,10 +5341,19 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                     maxHeight: MediaQuery.of(ctx).size.height * 0.75,
                   ),
                   decoration: BoxDecoration(
-                    color: const Color(0xF0051B2B),
+                    color: isDark ? const Color(0xF0051B2B) : Colors.white,
                     borderRadius:
                         const BorderRadius.vertical(top: Radius.circular(24)),
-                    border: Border.all(color: AppTheme.glassBorder),
+                    border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                    boxShadow: isDark
+                        ? null
+                        : [
+                            BoxShadow(
+                              color: Colors.black.withValues(alpha: 0.1),
+                              blurRadius: 20,
+                              offset: const Offset(0, -4),
+                            ),
+                          ],
                   ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -5104,11 +5364,11 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                           const Icon(Icons.category_outlined,
                               color: AppTheme.neonCyan, size: 20),
                           const SizedBox(width: 8),
-                          const Text('إدارة تصنيفات المصروفات',
+                          Text('إدارة تصنيفات المصروفات',
                               style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.bold,
-                                  color: Colors.white,
+                                  color: isDark ? Colors.white : Colors.black,
                                   fontFamily: 'Cairo')),
                           const Spacer(),
                           InkWell(
@@ -5125,13 +5385,14 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
                           ),
                         ]),
                       ),
-                      const Divider(height: 1, color: AppTheme.border),
+                      Divider(height: 1, color: isDark ? AppTheme.border : const Color(0xFFE2E8F0)),
                       if (categories.isEmpty)
-                        const Padding(
-                          padding: EdgeInsets.all(32),
+                        Padding(
+                          padding: const EdgeInsets.all(32),
                           child: Text('لا توجد تصنيفات',
                               style: TextStyle(
-                                  color: AppTheme.textSecondary,
+                                  color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                                   fontFamily: 'Cairo')),
                         )
                       else
@@ -5158,15 +5419,16 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
   }
 
   Widget _buildCategoryItem(ExpenseCategoryModel cat) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final catColor = _parseColor(cat.color);
     return Container(
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
+        color: isDark ? Colors.white.withValues(alpha: 0.04) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
             color: cat.isActive
                 ? catColor.withValues(alpha: 0.2)
-                : AppTheme.glassBorder),
+                : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
       ),
       child: ListTile(
         dense: true,
@@ -5185,8 +5447,8 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
         title: Text(cat.name,
             style: TextStyle(
                 fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: cat.isActive ? Colors.white : AppTheme.textMuted,
+                fontWeight: FontWeight.bold,
+                color: cat.isActive ? (isDark ? Colors.white : Colors.black) : AppTheme.textMuted,
                 fontFamily: 'Cairo')),
         trailing: const SizedBox.shrink(),
       ),
@@ -5195,29 +5457,33 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
 
   Widget _buildCurrencyDropdown(ValueChanged<String> onChanged,
       {String? selectedValue, bool locked = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
+        color: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.glassBorder),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           isExpanded: true,
-          dropdownColor: const Color(0xDD05192D),
+          dropdownColor: isDark ? const Color(0xDD05192D) : Colors.white,
           value: selectedValue,
-          hint: const Text('اختر العملة',
+          hint: Text('اختر العملة',
               style: TextStyle(
-                  color: AppTheme.textSecondary,
+                  color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                   fontSize: 13,
                   fontFamily: 'Cairo')),
           items: TreasuryDao.supportedCurrencies
               .map((c) => DropdownMenuItem<String>(
                     value: c,
                     child: Text(c,
-                        style: const TextStyle(
-                            color: Colors.white, fontFamily: 'Cairo')),
+                        style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
+                            fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                            fontFamily: 'Cairo')),
                   ))
               .toList(),
           onChanged: locked
@@ -5238,125 +5504,141 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx2, setInner) => Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xF0051B2B),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: AppTheme.glassBorder),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text('إضافة تصنيف جديد',
-                  style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      fontFamily: 'Cairo')),
-              const SizedBox(height: 12),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppTheme.glassBorder),
-                ),
-                child: TextField(
-                  controller: nameCtrl,
-                  style:
-                      const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
-                  decoration: const InputDecoration(
-                    hintText: 'اسم التصنيف',
-                    hintStyle: TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 13,
+        builder: (ctx2, setInner) {
+          final isDark = Theme.of(ctx2).brightness == Brightness.dark;
+          return Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xF0051B2B) : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        blurRadius: 20,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('إضافة تصنيف جديد',
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black,
+                        fontFamily: 'Cairo')),
+                const SizedBox(height: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                  ),
+                  child: TextField(
+                    controller: nameCtrl,
+                    style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                         fontFamily: 'Cairo'),
-                    border: InputBorder.none,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    decoration: InputDecoration(
+                      hintText: 'اسم التصنيف',
+                      hintStyle: TextStyle(
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          fontSize: 13,
+                          fontFamily: 'Cairo'),
+                      border: InputBorder.none,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              _buildCurrencyDropdown((val) {
-                setInner(() => selectedCurrency = val);
-              }, selectedValue: selectedCurrency),
-              const SizedBox(height: 12),
-              const Text('اختر لون',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textSecondary,
-                      fontFamily: 'Cairo')),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _colorOptions.map((hex) {
-                  final c = _parseColor(hex);
-                  final isSelected = selectedColor == hex;
-                  return GestureDetector(
-                    onTap: () => setInner(() => selectedColor = hex),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: c,
-                        borderRadius: BorderRadius.circular(8),
-                        border: isSelected
-                            ? Border.all(color: Colors.white, width: 2)
-                            : null,
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                    color: c.withValues(alpha: 0.5),
-                                    blurRadius: 8)
-                              ]
+                const SizedBox(height: 12),
+                _buildCurrencyDropdown((val) {
+                  setInner(() => selectedCurrency = val);
+                }, selectedValue: selectedCurrency),
+                const SizedBox(height: 12),
+                Text('اختر لون',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                        color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                        fontFamily: 'Cairo')),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _colorOptions.map((hex) {
+                    final c = _parseColor(hex);
+                    final isSelected = selectedColor == hex;
+                    return GestureDetector(
+                      onTap: () => setInner(() => selectedColor = hex),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: c,
+                          borderRadius: BorderRadius.circular(8),
+                          border: isSelected
+                              ? Border.all(color: isDark ? Colors.white : Colors.black, width: 2)
+                              : null,
+                          boxShadow: isSelected
+                              ? [
+                                  BoxShadow(
+                                      color: c.withValues(alpha: 0.5),
+                                      blurRadius: 8)
+                                ]
+                              : null,
+                        ),
+                        child: isSelected
+                            ? const Icon(Icons.check,
+                                color: Colors.white, size: 18)
                             : null,
                       ),
-                      child: isSelected
-                          ? const Icon(Icons.check,
-                              color: Colors.white, size: 18)
-                          : null,
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () async {
-                    if (nameCtrl.text.trim().isEmpty) return;
-                    await _cubit.createCategory(
-                      name: nameCtrl.text.trim(),
-                      color: selectedColor,
-                      currency: selectedCurrency,
                     );
-                    if (!ctx2.mounted) return;
-                    final state = _cubit.state;
-                    if (state is TreasuryLoaded && state.errorMessage != null)
-                      return;
-                    Navigator.of(ctx2).pop();
-                  },
-                  child: const Text('إضافة',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          fontFamily: 'Cairo')),
+                  }).toList(),
                 ),
-              ),
-            ],
-          ),
-        ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () async {
+                      if (nameCtrl.text.trim().isEmpty) return;
+                      await _cubit.createCategory(
+                        name: nameCtrl.text.trim(),
+                        color: selectedColor,
+                        currency: selectedCurrency,
+                      );
+                      if (!ctx2.mounted) return;
+                      final state = _cubit.state;
+                      if (state is TreasuryLoaded && state.errorMessage != null)
+                        return;
+                      Navigator.of(ctx2).pop();
+                    },
+                    child: const Text('إضافة',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            fontFamily: 'Cairo')),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -5370,126 +5652,142 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
       context: context,
       backgroundColor: Colors.transparent,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx2, setInner) => Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            color: const Color(0xF0051B2B),
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border.all(color: AppTheme.glassBorder),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text('تعديل: ${cat.name}',
-                  style: const TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                      fontFamily: 'Cairo')),
-              const SizedBox(height: 12),
-              Container(
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppTheme.glassBorder),
-                ),
-                child: TextField(
-                  controller: nameCtrl,
-                  style:
-                      const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
-                  decoration: const InputDecoration(
-                    hintText: 'اسم التصنيف',
-                    hintStyle: TextStyle(
-                        color: AppTheme.textSecondary,
-                        fontSize: 13,
+        builder: (ctx2, setInner) {
+          final isDark = Theme.of(ctx2).brightness == Brightness.dark;
+          return Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xF0051B2B) : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.1),
+                        blurRadius: 20,
+                        offset: const Offset(0, -4),
+                      ),
+                    ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('تعديل: ${cat.name}',
+                    style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black,
+                        fontFamily: 'Cairo')),
+                const SizedBox(height: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    color: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF8FAFC),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                  ),
+                  child: TextField(
+                    controller: nameCtrl,
+                    style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                         fontFamily: 'Cairo'),
-                    border: InputBorder.none,
-                    contentPadding:
-                        EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    decoration: InputDecoration(
+                      hintText: 'اسم التصنيف',
+                      hintStyle: TextStyle(
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                          fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                          fontSize: 13,
+                          fontFamily: 'Cairo'),
+                      border: InputBorder.none,
+                      contentPadding:
+                          const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+                    ),
                   ),
                 ),
-              ),
-              const SizedBox(height: 12),
-              _buildCurrencyDropdown((val) {
-                setInner(() => selectedCurrency = val);
-              }, selectedValue: selectedCurrency),
-              const SizedBox(height: 12),
-              const Text('اختر لون',
-                  style: TextStyle(
-                      fontSize: 12,
-                      color: AppTheme.textSecondary,
-                      fontFamily: 'Cairo')),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _colorOptions.map((hex) {
-                  final c = _parseColor(hex);
-                  final isSelected = selectedColor == hex;
-                  return GestureDetector(
-                    onTap: () => setInner(() => selectedColor = hex),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color: c,
-                        borderRadius: BorderRadius.circular(8),
-                        border: isSelected
-                            ? Border.all(color: Colors.white, width: 2)
-                            : null,
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                    color: c.withValues(alpha: 0.5),
-                                    blurRadius: 8)
-                              ]
+                const SizedBox(height: 12),
+                _buildCurrencyDropdown((val) {
+                  setInner(() => selectedCurrency = val);
+                }, selectedValue: selectedCurrency),
+                const SizedBox(height: 12),
+                Text('اختر لون',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                        color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                        fontFamily: 'Cairo')),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _colorOptions.map((hex) {
+                    final c = _parseColor(hex);
+                    final isSelected = selectedColor == hex;
+                    return GestureDetector(
+                      onTap: () => setInner(() => selectedColor = hex),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 200),
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: c,
+                          borderRadius: BorderRadius.circular(8),
+                          border: isSelected
+                              ? Border.all(color: isDark ? Colors.white : Colors.black, width: 2)
+                              : null,
+                          boxShadow: isSelected
+                              ? [
+                                  BoxShadow(
+                                      color: c.withValues(alpha: 0.5),
+                                      blurRadius: 8)
+                                ]
+                              : null,
+                        ),
+                        child: isSelected
+                            ? const Icon(Icons.check,
+                                color: Colors.white, size: 18)
                             : null,
                       ),
-                      child: isSelected
-                          ? const Icon(Icons.check,
-                              color: Colors.white, size: 18)
-                          : null,
-                    ),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 16),
-              SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.info,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () async {
-                    if (nameCtrl.text.trim().isEmpty) return;
-                    await _cubit.updateCategory(
-                      id: cat.id,
-                      name: nameCtrl.text.trim(),
-                      color: selectedColor,
-                      currency: selectedCurrency,
                     );
-                    if (!ctx2.mounted) return;
-                    final state = _cubit.state;
-                    if (state is TreasuryLoaded && state.errorMessage != null)
-                      return;
-                    Navigator.of(ctx2).pop();
-                  },
-                  child: const Text('حفظ',
-                      style: TextStyle(
-                          fontWeight: FontWeight.bold,
-                          fontSize: 15,
-                          fontFamily: 'Cairo')),
+                  }).toList(),
                 ),
-              ),
-            ],
-          ),
-        ),
+                const SizedBox(height: 16),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.info,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () async {
+                      if (nameCtrl.text.trim().isEmpty) return;
+                      await _cubit.updateCategory(
+                        id: cat.id,
+                        name: nameCtrl.text.trim(),
+                        color: selectedColor,
+                        currency: selectedCurrency,
+                      );
+                      if (!ctx2.mounted) return;
+                      final state = _cubit.state;
+                      if (state is TreasuryLoaded && state.errorMessage != null)
+                        return;
+                      Navigator.of(ctx2).pop();
+                    },
+                    child: const Text('حفظ',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                            fontFamily: 'Cairo')),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
       ),
     );
   }
@@ -5502,21 +5800,26 @@ class _ManageCategoriesSheetState extends State<_ManageCategoriesSheet> {
   }
 
   void _deleteCategory(ExpenseCategoryModel cat) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xF0051B2B),
+        backgroundColor: isDark ? const Color(0xF0051B2B) : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('حذف التصنيف',
-            style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+        title: Text('حذف التصنيف',
+            style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
         content: Text('هل أنت متأكد من حذف "${cat.name}"؟',
-            style: const TextStyle(
-                color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+            style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                fontFamily: 'Cairo')),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('إلغاء',
-                style: TextStyle(color: AppTheme.textSecondary)),
+            child: Text('إلغاء',
+                style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                    fontWeight: FontWeight.bold)),
           ),
           TextButton(
             onPressed: () async {
@@ -5546,6 +5849,7 @@ class _TransactionActions extends StatelessWidget {
   final VoidCallback? onViewJournalEntry;
   final VoidCallback onDelete;
   final VoidCallback? onEditDraft;
+  final VoidCallback? onEditConfirmed;
   final VoidCallback? onConfirmDraft;
   final VoidCallback? onDeleteDraft;
 
@@ -5556,6 +5860,7 @@ class _TransactionActions extends StatelessWidget {
     this.onViewJournalEntry,
     required this.onDelete,
     this.onEditDraft,
+    this.onEditConfirmed,
     this.onConfirmDraft,
     this.onDeleteDraft,
   });
@@ -5604,6 +5909,17 @@ class _TransactionActions extends StatelessWidget {
         ),
       );
 
+      if (onEditConfirmed != null) {
+        buttons.add(
+          _ActionIcon(
+            icon: Icons.edit_outlined,
+            tooltip: 'تعديل الحركة (محمي بكلمة مرور)',
+            color: const Color(0xFF0284C7),
+            onTap: onEditConfirmed!,
+          ),
+        );
+      }
+
       if (onViewJournalEntry != null) {
         buttons.add(
           _ActionIcon(
@@ -5649,8 +5965,13 @@ class _ActionIconState extends State<_ActionIcon> {
   bool _hovered = false;
   @override
   Widget build(BuildContext context) {
-    final defaultColor = widget.color ?? Colors.white.withValues(alpha: 140);
-    final hoverColor = widget.color ?? (widget.isWarning ? AppTheme.warning : AppTheme.primary);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final defaultColor = widget.color ??
+        (isDark ? Colors.white.withValues(alpha: 140) : const Color(0xFF475569));
+    final hoverColor = widget.color ??
+        (widget.isWarning
+            ? AppTheme.danger
+            : (isDark ? AppTheme.primary : const Color(0xFF0284C7)));
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),

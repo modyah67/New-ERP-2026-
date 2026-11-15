@@ -71,6 +71,7 @@ import '../features/packing/packing_material_transfer_page.dart';
 import '../features/packing/sorting_page.dart';
 import '../data/models/packing_order_model.dart';
 import '../features/exports/preparation_center_invoice_screen.dart';
+import '../features/exports/export_shipment_return_page.dart';
 import '../features/bank_accounts/bank_accounts_page.dart';
 import '../features/accounts/chart_of_accounts_page.dart';
 import '../data/models/export_shipment_model.dart';
@@ -80,6 +81,11 @@ import '../features/clearing_agents/clearing_agent_statement_page.dart';
 import '../features/clearing_agents/clearing_agent_statement_cubit.dart';
 import '../features/shipping_companies/shipping_company_statement_page.dart';
 import '../features/shipping_companies/shipping_company_statement_cubit.dart';
+import '../features/transport_suppliers/transport_suppliers_page.dart';
+import '../features/transport_suppliers/transport_supplier_statement_page.dart';
+import '../features/transport_suppliers/transport_supplier_statement_cubit.dart';
+import '../features/station_suppliers/station_suppliers_page.dart';
+import '../features/deductions_suppliers/deductions_suppliers_page.dart';
 import '../features/warehouse_tracking/warehouse_tracking_page.dart';
 import '../features/warehouse_tracking/warehouse_tracking_details_page.dart';
 import '../features/warehouse_tracking/warehouse_tracking_cubit.dart';
@@ -201,10 +207,14 @@ class RoutePaths {
   static const prepCenterInvoice = '/preparation-center-invoice';
   static const bankAccounts = '/bank-accounts';
   static const shippingCompanies = '/shipping-companies';
+  static const transportSuppliers = '/transport-suppliers';
+  static const stationSuppliers = '/station-suppliers';
+  static const deductionsSuppliers = '/deductions-suppliers';
   static const exportCustomerStatement = '/export-customer-statement';
   static const supplierStatementPage = '/supplier-statement-page';
   static const clearingAgentStatement = '/clearing-agent-statement';
   static const shippingCompanyStatement = '/shipping-company-statement';
+  static const transportSupplierStatement = '/transport-supplier-statement';
   static const warehouseTracking = '/warehouse-tracking';
   static const warehouseTrackingDetail = '/warehouse-tracking/detail';
   static const rawMaterials = '/raw-materials';
@@ -644,12 +654,19 @@ GoRouter createRouter() {
           GoRoute(
             path: RoutePaths.supplierStatement,
             name: 'supplier-statement',
-            pageBuilder: (context, state) => NoTransitionPage(
-              child: BlocProvider(
-                create: (_) => sl<SupplierStatementCubit>()..init(),
-                child: const SupplierStatementPage(),
-              ),
-            ),
+            pageBuilder: (context, state) {
+              final extra = state.extra;
+              final initialId = extra is String
+                  ? extra
+                  : (extra != null ? (extra as dynamic).id?.toString() : null);
+              return NoTransitionPage(
+                child: BlocProvider(
+                  create: (_) => sl<SupplierStatementCubit>()
+                    ..init(initialSupplierId: initialId),
+                  child: SupplierStatementPage(initialSupplierId: initialId),
+                ),
+              );
+            },
           ),
           GoRoute(
             path: RoutePaths.briefStatement,
@@ -750,6 +767,18 @@ GoRouter createRouter() {
                   return PreparationCenterInvoiceScreen(shipmentId: id);
                 },
               ),
+              GoRoute(
+                path: 'return/:id',
+                name: 'export-return',
+                builder: (context, state) {
+                  final id = state.pathParameters['id'] ?? '';
+                  final extra = state.extra as Map<String, dynamic>?;
+                  return ExportShipmentReturnPage(
+                    shipmentId: id,
+                    initialShipment: extra?['shipment'] as ExportShipmentModel?,
+                  );
+                },
+              ),
             ],
           ),
           GoRoute(
@@ -837,6 +866,27 @@ GoRouter createRouter() {
             ),
           ),
           GoRoute(
+            path: RoutePaths.transportSuppliers,
+            name: 'transport-suppliers',
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: TransportSuppliersPage(),
+            ),
+          ),
+          GoRoute(
+            path: RoutePaths.stationSuppliers,
+            name: 'station-suppliers',
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: StationSuppliersPage(),
+            ),
+          ),
+          GoRoute(
+            path: RoutePaths.deductionsSuppliers,
+            name: 'deductions-suppliers',
+            pageBuilder: (context, state) => const NoTransitionPage(
+              child: DeductionsSuppliersPage(),
+            ),
+          ),
+          GoRoute(
             path: RoutePaths.exportCustomerStatement,
             name: 'export-customer-statement',
             pageBuilder: (context, state) => NoTransitionPage(
@@ -849,12 +899,19 @@ GoRouter createRouter() {
           GoRoute(
             path: RoutePaths.supplierStatementPage,
             name: 'supplier-statement-page',
-            pageBuilder: (context, state) => NoTransitionPage(
-              child: BlocProvider(
-                create: (_) => SupplierAccountStatementCubit()..init(),
-                child: const SupplierAccountStatementPage(),
-              ),
-            ),
+            pageBuilder: (context, state) {
+              final extra = state.extra;
+              final initialId = extra is String
+                  ? extra
+                  : (extra != null ? (extra as dynamic).id?.toString() : null);
+              return NoTransitionPage(
+                child: BlocProvider(
+                  create: (_) => SupplierAccountStatementCubit()
+                    ..init(initialSupplierId: initialId),
+                  child: SupplierAccountStatementPage(initialSupplierId: initialId),
+                ),
+              );
+            },
           ),
           GoRoute(
             path: RoutePaths.clearingAgentStatement,
@@ -875,6 +932,23 @@ GoRouter createRouter() {
                 child: const ShippingCompanyStatementPage(),
               ),
             ),
+          ),
+          GoRoute(
+            path: RoutePaths.transportSupplierStatement,
+            name: 'transport-supplier-statement',
+            pageBuilder: (context, state) {
+              final initialSupplierId = state.extra as int?;
+              return NoTransitionPage(
+                child: BlocProvider(
+                  create: (_) => TransportSupplierStatementCubit(
+                    initialSupplierId: initialSupplierId,
+                  )..init(initialSupplierId: initialSupplierId),
+                  child: TransportSupplierStatementPage(
+                    initialSupplierId: initialSupplierId,
+                  ),
+                ),
+              );
+            },
           ),
           GoRoute(
             path: RoutePaths.userManagement,

@@ -11,6 +11,7 @@ library;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/utils.dart';
 import '../../../data/models/account_model.dart';
+import '../../../data/models/cost_center.dart';
 import '../models/report_models.dart';
 import '../utils/account_classifier.dart';
 
@@ -93,10 +94,11 @@ class ReportDao {
 
     final accounts = (data as List).map((row) {
       final rowMap = Map<String, dynamic>.from(row as Map);
+      final model = AccountModel.fromMap(rowMap);
       final classification = AccountClassifier.classify(
         rowMap['account_type']?.toString() ?? '',
+        accountCode: rowMap['account_code']?.toString() ?? model.code,
       );
-      final model = AccountModel.fromMap(rowMap);
       return AccountHierarchy(
         id: rowMap['id'].toString(),
         code: model.code,
@@ -258,6 +260,19 @@ class ReportDao {
           .map((e) => Map<String, dynamic>.from(e as Map))
           .toList();
 
+      // If RPC returned empty, verify against fallback (in case DB function points to obsolete table)
+      if (results.isEmpty) {
+        final fallback = await _getAccountTotalsFallback(
+          fromDate: fromDate,
+          toDate: toDate,
+          currency: currency,
+          excludeClosing: excludeClosing,
+        );
+        if (fallback.isNotEmpty) {
+          return fallback;
+        }
+      }
+
       return results;
     } catch (e) {
       // Fallback: client-side aggregation if RPC not deployed yet
@@ -284,8 +299,8 @@ class ReportDao {
   }) async {
     var query = _client.from('account_ledger_entries').select('''
       account_id, debit, credit, currency, amount_in_base_currency,
-      journal_entries!inner(entry_date, source_type)
-    ''');
+      journal_entries!inner(entry_date, source_type, status, deleted_at)
+    ''').isFilter('deleted_at', null).isFilter('journal_entries.deleted_at', null);
 
     if (excludeClosing) {
       query = query.neq('journal_entries.source_type', 'fiscal_year_closing');
@@ -297,7 +312,7 @@ class ReportDao {
     if (toDate != null) {
       query = query.lte('journal_entries.entry_date', AppUtils.formatDateForDb(toDate));
     }
-    if (currency != null && currency.isNotEmpty) {
+    if (currency != null && currency.isNotEmpty && currency != 'ALL') {
       query = query.eq('currency', currency);
     }
 
@@ -553,6 +568,12 @@ class ReportDao {
       final debit = isBase ? (rawDebit > 0 ? baseAmount : 0.0) : rawDebit;
       final credit = isBase ? (rawCredit > 0 ? baseAmount : 0.0) : rawCredit;
 
+      final ccId = flat['cost_center_id']?.toString();
+      final rawCcName = flat['cost_center_name']?.toString();
+      final ccName = (rawCcName != null && rawCcName.isNotEmpty)
+          ? rawCcName
+          : (ccId != null && ccId.isNotEmpty ? CostCenterHelper.fromId(ccId).nameAr : '');
+
       return {
         'id': flat['id']?.toString(),
         'date': flat['transaction_date']?.toString() ?? '',
@@ -560,6 +581,8 @@ class ReportDao {
         'account_id': flat['account_id']?.toString(),
         'account_code': (acCode != null && acCode.isNotEmpty) ? acCode : accountModel.code,
         'account_name': (acName != null && acName.isNotEmpty) ? acName : accountModel.displayName,
+        'cost_center_id': ccId,
+        'cost_center_name': ccName,
         'description': flat['description']?.toString() ?? '',
         'debit': debit,
         'credit': credit,
@@ -886,6 +909,13 @@ class ReportDao {
         flat.remove('has_more');
         flat.remove('opening_balance_debit');
         flat.remove('opening_balance_credit');
+        final ccId = flat['cost_center_id']?.toString();
+        final rawCcName = flat['cost_center_name']?.toString();
+        if (rawCcName == null || rawCcName.isEmpty) {
+          if (ccId != null && ccId.isNotEmpty) {
+            flat['cost_center_name'] = CostCenterHelper.fromId(ccId).nameAr;
+          }
+        }
         return flat;
       }).toList();
 

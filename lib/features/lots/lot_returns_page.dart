@@ -10,6 +10,12 @@ import '../../data/services/journal_entry_navigation_service.dart';
 import 'package:flutter/services.dart';
 import '../../core/data_change_event_bus.dart';
 import 'dart:async';
+import 'crop_return_pdf_service.dart';
+import '../../data/models/cost_center.dart';
+import '../../data/services/product_cost_center_sync_service.dart';
+
+/// Alias for Crop Returns page
+typedef CropReturnsPage = LotReturnsPage;
 
 class LotReturnsPage extends StatefulWidget {
   const LotReturnsPage({super.key});
@@ -37,8 +43,24 @@ class GroupedLotReturn {
   final LotReceiptModel originalLot;
   final List<LotStationInfo> stations;
   final List<LotBatchInfo> batches;
-  double get totalRemaining => stations.fold<double>(0, (s, e) => s + e.remainingQuantity);
-  GroupedLotReturn(this.originalLot, this.stations, this.batches);
+  final double purchasedQuantity;
+  final double netQuantity;
+  final double alreadyReturnedQuantity;
+  final double availableQuantity;
+  final String unitLabel;
+
+  double get totalRemaining => availableQuantity;
+
+  GroupedLotReturn({
+    required this.originalLot,
+    required this.stations,
+    required this.batches,
+    required this.purchasedQuantity,
+    required this.netQuantity,
+    required this.alreadyReturnedQuantity,
+    required this.availableQuantity,
+    required this.unitLabel,
+  });
 }
 
 class _LotReturnsPageState extends State<LotReturnsPage> {
@@ -87,14 +109,23 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
     super.dispose();
   }
 
+  String _formatQty(num qty, String unitLabel) {
+    if (qty % 1 == 0 || unitLabel == 'كرتونة') {
+      return '${qty.toInt()} $unitLabel';
+    }
+    return '${qty.toStringAsFixed(1)} $unitLabel';
+  }
+
   Future<void> _load() async {
     if (_initialLoad) setState(() => _loading = true);
     try {
+      final availLotsFuture = _returnDao.getAvailableLotsForReturn();
       final lotFuture = _lotDao.getAll();
       final stationsFuture = _client.from('stations').select('id, name');
-      final batchesFuture = _client.from('station_product_batches').select('id, product_code, product_name, remaining_quantity, station_id, source_type');
+      final batchesFuture = _client.from('station_product_batches').select('id, product_code, product_name, remaining_quantity, station_id, source_type, item_type, fruit_type_id, raw_material_id');
       final historyFuture = _returnDao.getHistoryWithDetails();
 
+      final availLotsData = await availLotsFuture;
       final allLots = await lotFuture;
       final stationsResponse = await stationsFuture;
       final response = await batchesFuture;
@@ -108,79 +139,221 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
       final List<Map<String, dynamic>> allBatches = [];
       for (final row in response) {
         final sourceType = row['source_type']?.toString() ?? '';
-        if (sourceType != 'lot_receipt' && sourceType != 'transfer' && sourceType != 'purchase') continue;
+        final itemType = row['item_type']?.toString() ?? '';
+        final rawMatId = row['raw_material_id'];
+
+        // Only allow crop/fruit batches (lot_receipt, crop_purchase, or fruit transfer)
+        if (sourceType != 'lot_receipt' && sourceType != 'crop_purchase' && sourceType != 'transfer') continue;
+        if (itemType == 'material' || rawMatId != null) continue;
+
         allBatches.add({
           'id': row['id'] as int,
           'code': row['product_code']?.toString() ?? '',
           'pname': row['product_name']?.toString() ?? '',
           'qty': (row['remaining_quantity'] as num?)?.toDouble() ?? 0.0,
           'sid': row['station_id']?.toString() ?? '',
+          'fruit_type_id': row['fruit_type_id']?.toString(),
+          'item_type': itemType,
         });
       }
 
-      final Map<String, Map<String, double>> lotStationQty = {};
-      for (final b in allBatches) {
-        final code = b['code'] as String;
-        final sid = b['sid'] as String;
-        final qty = b['qty'] as double;
-        lotStationQty.putIfAbsent(code, () => {});
-        lotStationQty[code]![sid] = (lotStationQty[code]![sid] ?? 0) + qty;
+      final Map<String, LotReceiptModel> lotsById = {};
+      final Map<String, LotReceiptModel> lotsByNumber = {};
+      for (final lot in allLots) {
+        if (lot.id != null) lotsById[lot.id!] = lot;
+        lotsByNumber[lot.lotNumber] = lot;
       }
 
-      final Map<String, GroupedLotReturn> grouped = {};
-      for (var lot in allLots) {
-        if (!lot.isConfirmed) continue;
-        final lotNum = lot.lotNumber;
-        final stationMap = lotStationQty[lotNum];
-        if (stationMap == null || stationMap.isEmpty) {
-          continue;
-        }
+      final List<GroupedLotReturn> returnList = [];
 
-        final lotProductName = (lot.productName ?? '').toLowerCase();
+      for (final avail in availLotsData) {
+        final lotId = avail['lot_id']?.toString() ?? '';
+        final lotNum = avail['lot_number']?.toString() ?? '';
+        LotReceiptModel? lot = lotsById[lotId] ?? lotsByNumber[lotNum];
+        final netQty = (avail['net_quantity'] as num?)?.toDouble() ??
+            lot?.netWarehouseQuantity ??
+            (avail['purchased_quantity'] as num?)?.toDouble() ?? 0.0;
+        final purchasedQty = (avail['purchased_quantity'] as num?)?.toDouble() ??
+            lot?.grossPurchaseQuantity ?? netQty;
+        final returnedQty = (avail['already_returned_quantity'] as num?)?.toDouble() ?? 0.0;
+        final availableQty = (avail['available_quantity'] as num?)?.toDouble() ?? (netQty - returnedQty);
+        final unitLabel = avail['unit_label']?.toString() ?? (avail['purchase_mode'] == 'carton' ? 'كرتونة' : 'كجم');
 
-        bool batchMatchesLot(Map<String, dynamic> b) {
-          final pname = (b['pname'] as String).toLowerCase();
-          if (pname.isEmpty) return true;
-          if (pname.contains('مادة تعبئة') || pname.contains('مادة تعبئه')) return false;
-          if (pname.contains(lotProductName) || lotProductName.contains(pname)) return true;
-          return false;
-        }
+        if (availableQty <= 0) continue;
 
-        final matchedBatches = allBatches.where((b) =>
-          b['code'] == lot.lotNumber && batchMatchesLot(b)).toList();
+        lot ??= LotReceiptModel(
+          id: lotId,
+          lotNumber: lotNum,
+          fruitTypeId: avail['fruit_type_id']?.toString(),
+          productName: avail['product_name']?.toString(),
+          supplierId: avail['supplier_id']?.toString(),
+          supplierName: avail['supplier_name']?.toString(),
+          receiptDate: avail['receipt_date'] != null ? DateTime.parse(avail['receipt_date'].toString()) : DateTime.now(),
+          stationId: avail['station_id']?.toString(),
+          purchaseMode: avail['purchase_mode']?.toString() ?? 'weight',
+          currency: avail['currency']?.toString() ?? 'EGP',
+          exchangeRate: (avail['exchange_rate'] as num?)?.toDouble() ?? 1.0,
+          isConfirmed: true,
+        );
 
-        final Map<String, double> filteredStationQty = {};
+        final lProdName = (lot.productName ?? '').trim();
+        final lFruitId = lot.fruitTypeId?.toString();
+
+        final matchedBatches = allBatches.where((b) {
+          final bCode = b['code'] as String;
+          final bName = (b['pname'] as String).trim();
+          final codeMatch = (bCode == lotNum || bCode == lotId);
+          if (!codeMatch) return false;
+
+          if (lProdName.isNotEmpty && bName.isNotEmpty) {
+            if (bName != lProdName && !bName.contains(lProdName) && !lProdName.contains(bName)) {
+              return false;
+            }
+          }
+
+          final bFruitId = b['fruit_type_id']?.toString();
+          if (bFruitId != null && lFruitId != null && bFruitId != lFruitId) {
+            return false;
+          }
+
+          return true;
+        }).toList();
         final List<LotBatchInfo> lotBatches = [];
+        final Map<String, double> stationQtyMap = {};
+
         for (final b in matchedBatches) {
           final sid = b['sid'] as String;
           final qty = b['qty'] as double;
-          if (qty <= 0) continue;
-          filteredStationQty[sid] = (filteredStationQty[sid] ?? 0) + qty;
-          lotBatches.add(LotBatchInfo(
-            b['id'] as int,
-            sid,
-            stationNames[sid] ?? 'محطة $sid',
-            qty,
-          ));
+          if (qty > 0) {
+            stationQtyMap[sid] = (stationQtyMap[sid] ?? 0) + qty;
+            lotBatches.add(LotBatchInfo(
+              b['id'] as int,
+              sid,
+              stationNames[sid] ?? 'محطة $sid',
+              qty,
+            ));
+          }
         }
-        if (filteredStationQty.isEmpty) continue;
 
         final stationInfos = <LotStationInfo>[];
-        for (final entry in filteredStationQty.entries) {
-          if (entry.value > 0) {
+        for (final entry in stationQtyMap.entries) {
+          stationInfos.add(LotStationInfo(
+            entry.key,
+            stationNames[entry.key] ?? 'محطة ${entry.key}',
+            entry.value,
+          ));
+        }
+
+        if (stationInfos.isEmpty) {
+          final stId = lot.stationId ?? '1';
+          stationInfos.add(LotStationInfo(
+            stId,
+            stationNames[stId] ?? 'المحطة الرئيسية',
+            availableQty,
+          ));
+        }
+
+        returnList.add(GroupedLotReturn(
+          originalLot: lot,
+          stations: stationInfos,
+          batches: lotBatches,
+          purchasedQuantity: purchasedQty,
+          netQuantity: netQty,
+          alreadyReturnedQuantity: returnedQty,
+          availableQuantity: availableQty,
+          unitLabel: unitLabel,
+        ));
+      }
+
+      if (returnList.isEmpty && allLots.isNotEmpty) {
+        final Map<String, double> lotReturnedMap = {};
+        for (final h in history) {
+          final lid = h['lot_receipt_id']?.toString() ?? '';
+          final retQty = (h['returned_quantity'] as num?)?.toDouble() ?? 0.0;
+          lotReturnedMap[lid] = (lotReturnedMap[lid] ?? 0.0) + retQty;
+        }
+
+        for (final lot in allLots) {
+          if (!lot.isConfirmed) continue;
+          final lotId = lot.id ?? '';
+          final lotNum = lot.lotNumber;
+          final netQty = lot.netWarehouseQuantity;
+          final purchasedQty = lot.grossPurchaseQuantity;
+          final returnedQty = lotReturnedMap[lotId] ?? 0.0;
+          final availableQty = (netQty - returnedQty).clamp(0.0, double.infinity);
+          if (availableQty <= 0) continue;
+
+          final lProdName = (lot.productName ?? '').trim();
+          final lFruitId = lot.fruitTypeId?.toString();
+
+          final matchedBatches = allBatches.where((b) {
+            final bCode = b['code'] as String;
+            final bName = (b['pname'] as String).trim();
+            final codeMatch = (bCode == lotNum || bCode == lotId);
+            if (!codeMatch) return false;
+
+            if (lProdName.isNotEmpty && bName.isNotEmpty) {
+              if (bName != lProdName && !bName.contains(lProdName) && !lProdName.contains(bName)) {
+                return false;
+              }
+            }
+
+            final bFruitId = b['fruit_type_id']?.toString();
+            if (bFruitId != null && lFruitId != null && bFruitId != lFruitId) {
+              return false;
+            }
+
+            return true;
+          }).toList();
+          final List<LotBatchInfo> lotBatches = [];
+          final Map<String, double> stationQtyMap = {};
+
+          for (final b in matchedBatches) {
+            final sid = b['sid'] as String;
+            final qty = b['qty'] as double;
+            if (qty > 0) {
+              stationQtyMap[sid] = (stationQtyMap[sid] ?? 0) + qty;
+              lotBatches.add(LotBatchInfo(
+                b['id'] as int,
+                sid,
+                stationNames[sid] ?? 'محطة $sid',
+                qty,
+              ));
+            }
+          }
+
+          final stationInfos = <LotStationInfo>[];
+          for (final entry in stationQtyMap.entries) {
             stationInfos.add(LotStationInfo(
               entry.key,
               stationNames[entry.key] ?? 'محطة ${entry.key}',
               entry.value,
             ));
           }
-        }
-        if (stationInfos.isNotEmpty) {
-          grouped[lot.lotNumber!] = GroupedLotReturn(lot, stationInfos, lotBatches);
+
+          if (stationInfos.isEmpty) {
+            final stId = lot.stationId ?? '1';
+            stationInfos.add(LotStationInfo(
+              stId,
+              stationNames[stId] ?? 'المحطة الرئيسية',
+              availableQty,
+            ));
+          }
+
+          returnList.add(GroupedLotReturn(
+            originalLot: lot,
+            stations: stationInfos,
+            batches: lotBatches,
+            purchasedQuantity: purchasedQty,
+            netQuantity: netQty,
+            alreadyReturnedQuantity: returnedQty,
+            availableQuantity: availableQty,
+            unitLabel: lot.unitLabel,
+          ));
         }
       }
 
-      _lots = grouped.values.toList();
+      _lots = returnList;
       _historyReturns = history;
     } catch (e) {
       debugPrint('Error loading lots for returns: $e');
@@ -226,6 +399,50 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
     });
   }
 
+  Future<void> _exportReturnsPdf() async {
+    final dataToExport = _filteredHistory.isNotEmpty ? _filteredHistory : _historyReturns;
+    if (dataToExport.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('لا توجد عمليات مرتجع متاحة للطباعة', style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: AppTheme.warning,
+        ),
+      );
+      return;
+    }
+    try {
+      await CropReturnPdfService.printReturnsReport(
+        context,
+        dataToExport,
+        filterQuery: _searchQuery.isNotEmpty ? _searchQuery : null,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('حدث خطأ أثناء إعداد ملف PDF: $e', style: const TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: AppTheme.danger,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _printSingleReturn(Map<String, dynamic> ret) async {
+    try {
+      await CropReturnPdfService.printSingleReturn(context, ret);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('فشل تجهيز إذن المرتجع للطباعة: $e', style: const TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: AppTheme.danger,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _showReturnDialog(GroupedLotReturn item) async {
     final lot = item.originalLot;
     final batches = item.batches;
@@ -235,11 +452,26 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
     if (batches.length == 1) {
       selectedStationId = batches.first.stationId;
       selectedBatchId = batches.first.batchId;
+    } else if (batches.isNotEmpty) {
+      selectedStationId = batches.first.stationId;
+      selectedBatchId = batches.first.batchId;
+    } else {
+      selectedStationId = item.stations.firstOrNull?.stationId ?? lot.stationId;
     }
+
+    CostCenter? targetCc;
+    try {
+      targetCc = await ProductCostCenterSyncService.instance.resolveCropCostCenter(
+        fruitTypeId: lot.fruitTypeId,
+        cropName: lot.productName ?? 'محصول',
+      );
+    } catch (_) {}
 
     final qtyCtrl = TextEditingController();
     final notesCtrl = TextEditingController();
     bool saving = false;
+
+    if (!mounted) return;
 
     await showDialog(
       context: context,
@@ -247,22 +479,34 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
       builder: (context) {
         return StatefulBuilder(
           builder: (context, setState) {
-            final selectedBatch = selectedBatchId != null
-                ? batches.firstWhere((b) => b.batchId == selectedBatchId)
-                : null;
-            final maxQty = selectedBatch?.remainingQuantity ?? 0.0;
+            LotBatchInfo? selectedBatch;
+            if (selectedBatchId != null) {
+              selectedBatch = batches.where((b) => b.batchId == selectedBatchId).firstOrNull;
+            }
+            final double batchStock = selectedBatch?.remainingQuantity ?? item.availableQuantity;
+            final double maxQty = (batchStock < item.availableQuantity) ? batchStock : item.availableQuantity;
+            final unitLabel = item.unitLabel;
 
+            final isDark = AppTheme.isDark(context);
             return Directionality(
               textDirection: TextDirection.rtl,
               child: AlertDialog(
-                backgroundColor: const Color(0xFF0D2137),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                backgroundColor: isDark ? const Color(0xFF0D2137) : Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
+                  side: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                ),
                 title: Row(
                   children: [
                     Expanded(
                       child: Text(
                         'مرتجع ${lot.productName}',
-                        style: const TextStyle(color: AppTheme.primary, fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16),
+                        style: TextStyle(
+                          color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
                       ),
                     ),
                   ],
@@ -272,111 +516,222 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('المورد: ${lot.supplierName ?? ''}', style: const TextStyle(color: Colors.white, fontFamily: 'Cairo')),
-                      const SizedBox(height: 12),
-                      const Text('اختر الدفعة:', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-                      const SizedBox(height: 8),
-                      ...batches.map((b) {
-                        final isSelected = selectedBatchId == b.batchId;
-                        return GestureDetector(
-                          onTap: saving ? null : () {
-                            setState(() {
-                              selectedBatchId = b.batchId;
-                              selectedStationId = b.stationId;
-                              qtyCtrl.clear();
-                            });
-                          },
-                          child: Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: isSelected
-                                  ? AppTheme.primary.withAlpha(25)
-                                  : const Color(0x1AFFFFFF),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: isSelected ? AppTheme.primary : AppTheme.glassBorder.withAlpha(40),
-                                width: isSelected ? 1.5 : 1,
-                              ),
-                            ),
-                            child: Row(
+                      Text(
+                        'المورد: ${lot.supplierName ?? ''}',
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF8FAFC),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                Icon(
-                                  isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
-                                  color: isSelected ? AppTheme.primary : AppTheme.textSecondary,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(b.stationName, style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13)),
-                                      const SizedBox(height: 2),
-                                      Text('الدفعة #${b.batchId}', style: TextStyle(color: AppTheme.textSecondary.withAlpha(180), fontFamily: 'Cairo', fontSize: 11)),
-                                    ],
-                                  ),
-                                ),
-                                Text(
-                                  '${b.remainingQuantity.toStringAsFixed(1)} ${lot.purchaseMode == "carton" ? "كرتونة" : "كجم"}',
-                                  style: TextStyle(
-                                    color: isSelected ? AppTheme.warning : AppTheme.textSecondary,
-                                    fontFamily: 'Cairo',
-                                    fontWeight: FontWeight.bold,
-                                    fontSize: 13,
-                                  ),
-                                ),
+                                Text('الكمية الصافية المخزنية:',
+                                    style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                                Text(_formatQty(item.netQuantity, unitLabel),
+                                    style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Cairo')),
                               ],
                             ),
-                          ),
-                        );
-                      }),
-                      if (selectedBatchId != null) ...[
-                        const SizedBox(height: 12),
-                        Text('الكمية المتبقية: ${maxQty.toStringAsFixed(1)}', style: const TextStyle(color: AppTheme.warning, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        TextField(
-                          controller: qtyCtrl,
-                          enabled: !saving,
-                          decoration: InputDecoration(
-                            labelText: 'الكمية المرتجعة *',
-                            hintText: 'الحد الأقصى ${maxQty.toStringAsFixed(1)}',
-                            filled: true,
-                            fillColor: const Color(0x1AFFFFFF),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                          ),
-                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                          inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*'))],
-                          style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                            if (item.purchasedQuantity > item.netQuantity) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text('الوزن القائم (الإجمالي):',
+                                      style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                                  Text(_formatQty(item.purchasedQuantity, unitLabel),
+                                      style: TextStyle(color: isDark ? Colors.white70 : Colors.black87, fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ],
+                            if (item.alreadyReturnedQuantity > 0) ...[
+                              const SizedBox(height: 4),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  const Text('الكمية المرتجعة سابقاً:',
+                                      style: TextStyle(color: AppTheme.danger, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                                  Text(_formatQty(item.alreadyReturnedQuantity, unitLabel),
+                                      style: const TextStyle(color: AppTheme.danger, fontWeight: FontWeight.bold, fontSize: 12, fontFamily: 'Cairo')),
+                                ],
+                              ),
+                            ],
+                            Divider(color: isDark ? const Color(0x33FFFFFF) : const Color(0xFFE2E8F0), height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text('الكمية المتاحة للإرجاع:',
+                                    style: TextStyle(color: isDark ? AppTheme.warning : const Color(0xFFD97706), fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                                Text(_formatQty(maxQty, unitLabel),
+                                    style: TextStyle(color: isDark ? AppTheme.warning : const Color(0xFFD97706), fontWeight: FontWeight.w900, fontSize: 14, fontFamily: 'Cairo')),
+                              ],
+                            ),
+                          ],
                         ),
-                        const SizedBox(height: 10),
-                        // TextField(
-                        //   controller: notesCtrl,
-                        //   enabled: !saving,
-                        //   decoration: InputDecoration(
-                        //     labelText: 'ملاحظات المرتجع (اختياري)',
-                        //     hintText: 'سبب المرتجع...',
-                        //     filled: true,
-                        //     fillColor: const Color(0x1AFFFFFF),
-                        //     border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
-                        //   ),
-                        //   style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
-                        // ),
+                      ),
+                      if (targetCc != null) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: AppTheme.success.withAlpha(30),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: AppTheme.success.withAlpha(80)),
+                          ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.account_tree_outlined, size: 16, color: AppTheme.success),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  'مركز التكلفة: ${targetCc.displayTitle}',
+                                  style: const TextStyle(color: AppTheme.success, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
+                      if (batches.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        Text('المحطة / الدفعة المخزنية:',
+                            style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                        const SizedBox(height: 8),
+                        ...batches.map((b) {
+                          final isSelected = selectedBatchId == b.batchId;
+                          return GestureDetector(
+                            onTap: saving ? null : () {
+                              setState(() {
+                                selectedBatchId = b.batchId;
+                                selectedStationId = b.stationId;
+                              });
+                            },
+                            child: Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: isSelected
+                                    ? (isDark ? AppTheme.primary.withAlpha(25) : const Color(0xFFE0F2FE))
+                                    : (isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF8FAFC)),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: isSelected
+                                      ? AppTheme.primary
+                                      : (isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1)),
+                                  width: isSelected ? 1.5 : 1,
+                                ),
+                              ),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    isSelected ? Icons.radio_button_checked : Icons.radio_button_unchecked,
+                                    color: isSelected ? AppTheme.primary : (isDark ? AppTheme.textSecondary : Colors.black54),
+                                    size: 20,
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(b.stationName,
+                                            style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold)),
+                                        const SizedBox(height: 2),
+                                        Text('الدفعة #${b.batchId}',
+                                            style: TextStyle(color: isDark ? AppTheme.textSecondary.withAlpha(180) : Colors.black54, fontFamily: 'Cairo', fontSize: 11, fontWeight: FontWeight.bold)),
+                                      ],
+                                    ),
+                                  ),
+                                  Text(
+                                    'رصيد الدفعة: ${_formatQty(b.remainingQuantity, unitLabel)}',
+                                    style: TextStyle(
+                                      color: isSelected ? (isDark ? AppTheme.warning : const Color(0xFFD97706)) : (isDark ? AppTheme.textSecondary : Colors.black87),
+                                      fontFamily: 'Cairo',
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          );
+                        }),
+                      ],
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: qtyCtrl,
+                        enabled: !saving,
+                        decoration: InputDecoration(
+                          labelText: 'الكمية المرتجعة * ($unitLabel)',
+                          hintText: 'الحد الأقصى ${_formatQty(maxQty, unitLabel)}',
+                          labelStyle: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                          hintStyle: TextStyle(color: isDark ? AppTheme.textSecondary.withAlpha(120) : Colors.black54, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                          filled: true,
+                          fillColor: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d*'))],
+                        style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(height: 10),
+                      TextField(
+                        controller: notesCtrl,
+                        enabled: !saving,
+                        decoration: InputDecoration(
+                          labelText: 'ملاحظات المرتجع (اختياري)',
+                          hintText: 'سبب المرتجع...',
+                          labelStyle: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                          hintStyle: TextStyle(color: isDark ? AppTheme.textSecondary.withAlpha(120) : Colors.black54, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                          filled: true,
+                          fillColor: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
+                        ),
+                        style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                      ),
                     ],
                   ),
                 ),
                 actions: [
                   TextButton(
                     onPressed: saving ? null : () => Navigator.pop(context),
-                    child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                    child: Text('إلغاء',
+                        style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                   ),
                   ElevatedButton(
-                    onPressed: (saving || selectedBatchId == null) ? null : () async {
+                    onPressed: saving ? null : () async {
                       final val = double.tryParse(qtyCtrl.text) ?? 0;
-                      if (val <= 0 || val > maxQty) {
+                      if (val <= 0) {
                         ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(content: Text('الكمية غير صحيحة'), backgroundColor: AppTheme.danger),
+                          const SnackBar(
+                            content: Text('يرجى إدخال كمية إرجاع صحيحة أكبر من صفر'),
+                            backgroundColor: AppTheme.danger,
+                          ),
+                        );
+                        return;
+                      }
+                      if (val > maxQty) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('الكمية تتجاوز الرصيد المخزني المتاح للإرجاع (${_formatQty(maxQty, unitLabel)})'),
+                            backgroundColor: AppTheme.danger,
+                          ),
                         );
                         return;
                       }
@@ -386,11 +741,16 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
                         final result = await _returnDao.processReturn(
                           lotId: lot.id!,
                           returnQuantity: val,
-                          notes: notesCtrl.text.trim().isNotEmpty ? notesCtrl.text.trim() : 'مرتجع شراء محصول',
+                          notes: notesCtrl.text.trim().isNotEmpty
+                              ? notesCtrl.text.trim()
+                              : (lot.supplierName != null && lot.supplierName!.isNotEmpty
+                                  ? 'مرتجع شراء محصول للمورد: ${lot.supplierName} - لوط #${lot.lotNumber.isNotEmpty ? lot.lotNumber : lot.id}'
+                                  : null),
                           stationId: selectedStationId,
                           batchId: selectedBatchId,
+                          costCenterId: targetCc?.code ?? targetCc?.id,
                         );
-                        if (mounted) {
+                        if (context.mounted) {
                           Navigator.pop(context);
                           final jeId = result['journal_entry_id'];
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -412,7 +772,7 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
                         }
                       } catch (e) {
                         setState(() => saving = false);
-                        if (mounted) {
+                        if (context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(content: Text('حدث خطأ: $e'), backgroundColor: AppTheme.danger),
                           );
@@ -422,7 +782,7 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
                     style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
                     child: saving
                         ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
-                        : const Text('تأكيد المرتجع', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+                        : const Text('تأكيد المرتجع', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                   ),
                 ],
               ),
@@ -435,41 +795,44 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : AppTheme.lightBackground,
         body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
-            ),
-          ),
+          decoration: isDark
+              ? const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                    colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
+                  ),
+                )
+              : null,
           child: Column(children: [
-            _buildHeader(),
-            _buildTabSelector(),
-            _buildSearchBar(),
-            Expanded(child: _buildBody()),
+            _buildHeader(isDark),
+            _buildTabSelector(isDark),
+            _buildSearchBar(isDark),
+            Expanded(child: _buildBody(isDark)),
           ]),
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 16, bottom: 16, left: 20, right: 20),
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
-            border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+            color: isDark ? const Color(0x3805192D) : Colors.white,
+            border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(50) : const Color(0xFFCBD5E1))),
           ),
           child: Row(children: [
             IconButton(
-              icon: const Icon(Icons.arrow_forward, color: Colors.white),
+              icon: Icon(Icons.arrow_forward, color: isDark ? Colors.white : Colors.black),
               onPressed: () => context.pop(),
             ),
             const SizedBox(width: 8),
@@ -479,24 +842,48 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
               child: const Icon(Icons.assignment_return_outlined, color: AppTheme.danger, size: 24),
             ),
             const SizedBox(width: 12),
-            const Expanded(
-              child: Text('مرتجع شراء المحاصيل',
-                  style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+            Expanded(
+              child: Text(
+                'مرتجع شراء المحاصيل',
+                style: TextStyle(
+                  color: isDark ? AppTheme.textPrimary : Colors.black,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo',
+                ),
+              ),
             ),
+            if (_historyReturns.isNotEmpty) ...[
+              ElevatedButton.icon(
+                onPressed: _exportReturnsPdf,
+                icon: const Icon(Icons.picture_as_pdf_outlined, size: 17, color: Colors.white),
+                label: const Text(
+                  'طباعة التقرير',
+                  style: TextStyle(fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.bold, color: Colors.white),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.danger,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                  elevation: 0,
+                ),
+              ),
+            ],
           ]),
         ),
       ),
     );
   }
 
-  Widget _buildTabSelector() {
+  Widget _buildTabSelector(bool isDark) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       padding: const EdgeInsets.all(4),
       decoration: BoxDecoration(
-        color: const Color(0x2205192D),
+        color: isDark ? const Color(0x2205192D) : const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.glassBorder.withAlpha(40)),
+        border: Border.all(color: isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1)),
       ),
       child: Row(
         children: [
@@ -506,6 +893,7 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
               count: _lots.length,
               isSelected: _selectedTab == 0,
               icon: Icons.inventory_2_outlined,
+              isDark: isDark,
               onTap: () => setState(() => _selectedTab = 0),
             ),
           ),
@@ -516,6 +904,7 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
               count: _historyReturns.length,
               isSelected: _selectedTab == 1,
               icon: Icons.history_outlined,
+              isDark: isDark,
               onTap: () => setState(() => _selectedTab = 1),
             ),
           ),
@@ -529,6 +918,7 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
     required int count,
     required bool isSelected,
     required IconData icon,
+    required bool isDark,
     required VoidCallback onTap,
   }) {
     return InkWell(
@@ -537,12 +927,23 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
         decoration: BoxDecoration(
-          color: isSelected ? AppTheme.primary.withAlpha(40) : Colors.transparent,
+          color: isSelected
+              ? (isDark ? AppTheme.primary.withAlpha(40) : Colors.white)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isSelected ? AppTheme.primary : Colors.transparent,
-            width: 1,
+            width: 1.5,
           ),
+          boxShadow: isSelected && !isDark
+              ? [
+                  BoxShadow(
+                    color: Colors.black.withValues(alpha: 0.05),
+                    blurRadius: 4,
+                    offset: const Offset(0, 1),
+                  )
+                ]
+              : null,
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -550,17 +951,17 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
             Icon(
               icon,
               size: 16,
-              color: isSelected ? AppTheme.primary : AppTheme.textSecondary,
+              color: isSelected ? AppTheme.primary : (isDark ? AppTheme.textSecondary : Colors.black87),
             ),
             const SizedBox(width: 6),
             Flexible(
               child: Text(
                 title,
                 style: TextStyle(
-                  color: isSelected ? Colors.white : AppTheme.textSecondary,
+                  color: isSelected ? (isDark ? Colors.white : Colors.black) : (isDark ? AppTheme.textSecondary : Colors.black87),
                   fontFamily: 'Cairo',
                   fontSize: 13,
-                  fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                  fontWeight: FontWeight.bold,
                 ),
                 overflow: TextOverflow.ellipsis,
               ),
@@ -570,12 +971,17 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
                 decoration: BoxDecoration(
-                  color: isSelected ? AppTheme.primary : const Color(0x33FFFFFF),
+                  color: isSelected ? AppTheme.primary : (isDark ? const Color(0x33FFFFFF) : const Color(0xFFE2E8F0)),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Text(
                   '$count',
-                  style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                  style: TextStyle(
+                    color: isSelected ? Colors.white : (isDark ? Colors.white : Colors.black),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                  ),
                 ),
               ),
             ],
@@ -585,7 +991,7 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       child: TextField(
@@ -594,39 +1000,40 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
           _searchQuery = v;
           _applyFilter();
         },
-        style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+        style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold),
         decoration: InputDecoration(
           hintText: _selectedTab == 0
               ? 'بحث باسم المحصول، المورد أو الكود...'
               : 'بحث في سجل المرتجعات باللوط، المورد، أو القيد...',
-          hintStyle: TextStyle(color: AppTheme.textSecondary.withAlpha(120), fontFamily: 'Cairo', fontSize: 12),
-          prefixIcon: Icon(Icons.search, color: AppTheme.textSecondary.withAlpha(120), size: 18),
+          hintStyle: TextStyle(color: isDark ? AppTheme.textSecondary.withAlpha(120) : Colors.black54, fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.bold),
+          prefixIcon: Icon(Icons.search, color: isDark ? AppTheme.textSecondary.withAlpha(120) : Colors.black54, size: 18),
           filled: true,
-          fillColor: const Color(0x3805192D),
-          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: AppTheme.glassBorder.withAlpha(40))),
-          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: AppTheme.glassBorder.withAlpha(40))),
-          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary)),
+          fillColor: isDark ? const Color(0x3805192D) : Colors.white,
+          border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1))),
+          enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1))),
+          focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
           contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         ),
       ),
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(bool isDark) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
     }
     if (_selectedTab == 0) {
-      return _buildAvailableReturnsList();
+      return _buildAvailableReturnsList(isDark);
     } else {
-      return _buildHistoryReturnsList();
+      return _buildHistoryReturnsList(isDark);
     }
   }
 
-  Widget _buildAvailableReturnsList() {
+  Widget _buildAvailableReturnsList(bool isDark) {
     if (_filteredLots.isEmpty) {
-      return const Center(
-        child: Text('لا توجد محاصيل قابلة للارتجاع حالياً', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+      return Center(
+        child: Text('لا توجد محاصيل قابلة للارتجاع حالياً',
+            style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
       );
     }
     return ListView.builder(
@@ -636,13 +1043,14 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
         final item = _filteredLots[index];
         final lot = item.originalLot;
         final stationCount = item.stations.length;
-        final unitLabel = lot.purchaseMode == 'carton' ? 'كرتونة' : 'كجم';
+        final unitLabel = item.unitLabel;
         return Card(
-          color: const Color(0x3805192D),
+          color: isDark ? const Color(0x3805192D) : Colors.white,
           margin: const EdgeInsets.only(bottom: 12),
+          elevation: isDark ? 0 : 1,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: AppTheme.glassBorder.withAlpha(40)),
+            side: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1)),
           ),
           child: InkWell(
             borderRadius: BorderRadius.circular(16),
@@ -655,14 +1063,51 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(lot.productName ?? 'غير معروف', style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                        Text(lot.productName ?? 'غير معروف',
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                         const SizedBox(height: 4),
-                        Text('المورد: ${lot.supplierName ?? 'بدون مورد'}', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo')),
+                        Text('المورد: ${lot.supplierName ?? 'بدون مورد'}',
+                            style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 13, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                         const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(color: AppTheme.primary.withOpacity(0.1), borderRadius: BorderRadius.circular(12)),
-                          child: Text('رقم الشراء: ${lot.lotNumber}', style: const TextStyle(color: AppTheme.primary, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(color: AppTheme.primary.withAlpha(25), borderRadius: BorderRadius.circular(12)),
+                              child: Text('رقم الشراء: ${lot.lotNumber}',
+                                  style: const TextStyle(color: AppTheme.primary, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF1F5F9),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+                              ),
+                              child: Text('الكمية الصافية المخزنية: ${_formatQty(item.netQuantity, unitLabel)}',
+                                  style: TextStyle(color: isDark ? Colors.white70 : Colors.black, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                            ),
+                            if (item.purchasedQuantity > item.netQuantity)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: isDark ? const Color(0x0DFFFFFF) : const Color(0xFFF8FAFC),
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(color: isDark ? Colors.transparent : const Color(0xFFE2E8F0)),
+                                ),
+                                child: Text('القائم: ${_formatQty(item.purchasedQuantity, unitLabel)}',
+                                    style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                              ),
+                            if (item.alreadyReturnedQuantity > 0)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                                decoration: BoxDecoration(color: AppTheme.danger.withAlpha(30), borderRadius: BorderRadius.circular(12)),
+                                child: Text('تم إرجاع: ${_formatQty(item.alreadyReturnedQuantity, unitLabel)}',
+                                    style: const TextStyle(color: AppTheme.danger, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                              ),
+                          ],
                         ),
                         const SizedBox(height: 8),
                         Wrap(
@@ -671,13 +1116,13 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
                           children: item.stations.map((s) => Container(
                             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color: AppTheme.info.withAlpha(20),
+                              color: isDark ? AppTheme.info.withAlpha(20) : const Color(0xFFE0F2FE),
                               borderRadius: BorderRadius.circular(8),
-                              border: Border.all(color: AppTheme.info.withAlpha(40)),
+                              border: Border.all(color: isDark ? AppTheme.info.withAlpha(40) : const Color(0xFFBAE6FD)),
                             ),
                             child: Text(
-                              '${s.stationName} (${s.remainingQuantity.toStringAsFixed(0)} $unitLabel)',
-                              style: const TextStyle(color: AppTheme.info, fontSize: 11, fontFamily: 'Cairo'),
+                              '${s.stationName} (${_formatQty(s.remainingQuantity, unitLabel)})',
+                              style: TextStyle(color: isDark ? AppTheme.info : const Color(0xFF0369A1), fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                             ),
                           )).toList(),
                         ),
@@ -687,11 +1132,14 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      const Text('الإجمالي المتبقي', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
-                      Text('${item.totalRemaining.toStringAsFixed(1)} $unitLabel', style: const TextStyle(color: AppTheme.warning, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                      Text('المتاح للإرجاع',
+                          style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                      Text(_formatQty(item.availableQuantity, unitLabel),
+                          style: TextStyle(color: isDark ? AppTheme.warning : const Color(0xFFD97706), fontSize: 18, fontWeight: FontWeight.w900, fontFamily: 'Cairo')),
                       if (stationCount > 1) ...[
                         const SizedBox(height: 2),
-                        Text('في $stationCount مخازن', style: const TextStyle(color: AppTheme.info, fontSize: 11, fontFamily: 'Cairo')),
+                        Text('في $stationCount مخازن',
+                            style: TextStyle(color: isDark ? AppTheme.info : const Color(0xFF0284C7), fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                       ],
                       const SizedBox(height: 8),
                       ElevatedButton(
@@ -716,10 +1164,11 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
     );
   }
 
-  Widget _buildHistoryReturnsList() {
+  Widget _buildHistoryReturnsList(bool isDark) {
     if (_filteredHistory.isEmpty) {
-      return const Center(
-        child: Text('لا توجد عمليات مرتجع مسجلة حتى الآن', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+      return Center(
+        child: Text('لا توجد عمليات مرتجع مسجلة حتى الآن',
+            style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
       );
     }
     return ListView.builder(
@@ -744,11 +1193,12 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
         final jeId = ret['journal_entry_id'];
 
         return Card(
-          color: const Color(0x3805192D),
+          color: isDark ? const Color(0x3805192D) : Colors.white,
           margin: const EdgeInsets.only(bottom: 12),
+          elevation: isDark ? 0 : 1,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(16),
-            side: BorderSide(color: AppTheme.glassBorder.withAlpha(40)),
+            side: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1)),
           ),
           child: Padding(
             padding: const EdgeInsets.all(16),
@@ -775,13 +1225,26 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
                         const SizedBox(width: 8),
                         Text(
                           productName,
-                          style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                          style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
                         ),
                       ],
                     ),
-                    Text(
-                      dateStr,
-                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo'),
+                    Row(
+                      children: [
+                        Text(
+                          dateStr,
+                          style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                        ),
+                        const SizedBox(width: 8),
+                        IconButton(
+                          icon: const Icon(Icons.print_outlined, color: AppTheme.primary, size: 18),
+                          tooltip: 'طباعة إذن المرتجع',
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          splashRadius: 18,
+                          onPressed: () => _printSingleReturn(ret),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -792,14 +1255,18 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text('المورد: $supplierName', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo')),
+                          Text('المورد: $supplierName',
+                              style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 13, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                           const SizedBox(height: 2),
-                          Text('المحطة/المخزن: $stationName', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo')),
+                          Text('المحطة/المخزن: $stationName',
+                              style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 13, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                           const SizedBox(height: 2),
-                          Text('رقم شراء المحصول: $lotNumber', style: const TextStyle(color: AppTheme.info, fontSize: 12, fontFamily: 'Cairo')),
+                          Text('رقم شراء المحصول: $lotNumber',
+                              style: TextStyle(color: isDark ? AppTheme.info : const Color(0xFF0284C7), fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                           if (notes.isNotEmpty) ...[
                             const SizedBox(height: 4),
-                            Text('ملاحظات: $notes', style: TextStyle(color: AppTheme.textSecondary.withAlpha(180), fontSize: 12, fontFamily: 'Cairo')),
+                            Text('ملاحظات: $notes',
+                                style: TextStyle(color: isDark ? AppTheme.textSecondary.withAlpha(180) : Colors.black54, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                           ],
                         ],
                       ),
@@ -809,61 +1276,100 @@ class _LotReturnsPageState extends State<LotReturnsPage> {
                       children: [
                         Text(
                           '${returnedQty.toStringAsFixed(1)} $unitLabel',
-                          style: const TextStyle(color: AppTheme.warning, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                          style: TextStyle(color: isDark ? AppTheme.warning : const Color(0xFFD97706), fontSize: 16, fontWeight: FontWeight.w900, fontFamily: 'Cairo'),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           '${returnValue.toStringAsFixed(2)} ${lotInfo?['currency'] == 'USD' ? '\$' : lotInfo?['currency'] == 'EUR' ? '€' : 'ج.م'}',
-                          style: const TextStyle(color: AppTheme.danger, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                          style: const TextStyle(color: AppTheme.danger, fontSize: 14, fontWeight: FontWeight.w900, fontFamily: 'Cairo'),
                         ),
                       ],
                     ),
                   ],
                 ),
                 const SizedBox(height: 12),
-                const Divider(color: Color(0x1AFFFFFF), height: 1),
+                Divider(color: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFE2E8F0), height: 1),
                 const SizedBox(height: 10),
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // View Journal Entry Button
-                    InkWell(
-                      borderRadius: BorderRadius.circular(8),
-                      onTap: () => JournalEntryNavigationService.openForLotReturn(
-                        context,
-                        returnId: ret['id'],
-                        lotNumber: lotNumber,
-                        journalEntryId: jeId,
-                      ),
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                        decoration: BoxDecoration(
-                          color: AppTheme.cyan.withAlpha(30),
+                    Row(
+                      children: [
+                        // View Journal Entry Button
+                        InkWell(
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: AppTheme.cyan.withAlpha(80)),
-                        ),
-                        child: const Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(Icons.receipt_long_outlined, color: AppTheme.cyan, size: 16),
-                            SizedBox(width: 6),
-                            Text(
-                              'عرض القيد المحاسبي',
-                              style: TextStyle(
-                                color: AppTheme.cyan,
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Cairo',
-                              ),
+                          onTap: () => JournalEntryNavigationService.openForLotReturn(
+                            context,
+                            returnId: ret['id'],
+                            lotNumber: lotNumber,
+                            journalEntryId: jeId,
+                          ),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isDark ? AppTheme.cyan.withAlpha(30) : const Color(0xFFECFEFF),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: isDark ? AppTheme.cyan.withAlpha(80) : const Color(0xFF06B6D4)),
                             ),
-                          ],
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.receipt_long_outlined, color: isDark ? AppTheme.cyan : const Color(0xFF0E7490), size: 16),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'عرض القيد المحاسبي',
+                                  style: TextStyle(
+                                    color: isDark ? AppTheme.cyan : const Color(0xFF0E7490),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        // Print Single Return Voucher Button
+                        InkWell(
+                          borderRadius: BorderRadius.circular(8),
+                          onTap: () => _printSingleReturn(ret),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: isDark ? AppTheme.primary.withAlpha(30) : const Color(0xFFE0F2FE),
+                              borderRadius: BorderRadius.circular(8),
+                              border: Border.all(color: isDark ? AppTheme.primary.withAlpha(80) : const Color(0xFF0284C7)),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.print_outlined, color: isDark ? AppTheme.primary : const Color(0xFF0284C7), size: 16),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'طباعة إذن المرتجع',
+                                  style: TextStyle(
+                                    color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                     if (jeId != null)
                       Text(
                         'قيد رقم #$jeId',
-                        style: TextStyle(color: AppTheme.textSecondary.withAlpha(160), fontSize: 11, fontFamily: 'Cairo'),
+                        style: TextStyle(
+                          color: isDark ? AppTheme.textSecondary.withAlpha(160) : Colors.black54,
+                          fontSize: 11,
+                          fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                   ],
                 ),

@@ -61,7 +61,7 @@ class ExportShipmentModel {
   final double allocatedAdminExpenses;
   final double allocatedTaxes;
   final bool isConfirmed;
-
+  final int? returnJournalEntryId;
 
   ExportShipmentModel({
     this.id,
@@ -126,6 +126,7 @@ class ExportShipmentModel {
     this.paymentTreasuryId,
     this.paymentBankAccountId,
     this.isConfirmed = false,
+    this.returnJournalEntryId,
   });
 
   double get grossProfitPerCarton => exportPricePerCarton - costPerCarton;
@@ -199,6 +200,7 @@ class ExportShipmentModel {
       paymentTreasuryId: map['payment_treasury_id']?.toString(),
       paymentBankAccountId: _parseInt(map['payment_bank_account_id']),
       isConfirmed: map['is_confirmed'] == true,
+      returnJournalEntryId: _parseInt(map['return_journal_entry_id']),
     );
   }
 
@@ -236,7 +238,7 @@ class ExportShipmentModel {
       if (paymentTerms != null) 'payment_terms': paymentTerms,
       if (currency != null) 'currency': currency,
       if (termsConditions != null) 'terms_conditions': termsConditions,
-      if (internalNotes != null) 'notes': internalNotes,
+      if (internalNotes != null) 'internal_notes': internalNotes,
       'status': status,
       if (packingRecipeId != null) 'packing_recipe_id': packingRecipeId,
       'freight_cost': freightCost,
@@ -267,6 +269,7 @@ class ExportShipmentModel {
       if (paymentTreasuryId != null) 'payment_treasury_id': paymentTreasuryId,
       if (paymentBankAccountId != null) 'payment_bank_account_id': paymentBankAccountId,
       'is_confirmed': isConfirmed,
+      if (returnJournalEntryId != null) 'return_journal_entry_id': returnJournalEntryId,
     };
   }
 
@@ -355,6 +358,7 @@ class ExportShipmentModel {
     String? paymentTreasuryId,
     int? paymentBankAccountId,
     bool? isConfirmed,
+    int? returnJournalEntryId,
   }) {
     return ExportShipmentModel(
       id: id ?? this.id,
@@ -419,6 +423,7 @@ class ExportShipmentModel {
       paymentTreasuryId: paymentTreasuryId ?? this.paymentTreasuryId,
       paymentBankAccountId: paymentBankAccountId ?? this.paymentBankAccountId,
       isConfirmed: isConfirmed ?? this.isConfirmed,
+      returnJournalEntryId: returnJournalEntryId ?? this.returnJournalEntryId,
     );
   }
 

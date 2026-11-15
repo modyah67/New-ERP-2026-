@@ -9,16 +9,59 @@ import '../models/report_models.dart';
 class AccountClassifier {
   AccountClassifier._();
 
-  /// Map database account_type string to [AccountClassification]
-  static AccountClassification classify(String accountType) {
-    return switch (accountType.toLowerCase()) {
+  /// Check if an account code belongs to operational waste, spoilage, loss, or cost of activity
+  /// that participates in inventory valuation and cost entries.
+  static bool isOperationalLossOrCostAccount(String? code) {
+    if (code == null) return false;
+    final c = code.trim();
+    // Intermediary spoilage / waste accounts:
+    // 9112 (وسيط هالك وفاقد المحاصيل), 9111 (وسيط هالك مواد التعبئة)
+    // Legacy: 2106, 2107, 9106, 9107, 51102, 51103, 51104, 3131, 3132
+    if (c == '9112' ||
+        c == '9111' ||
+        c == '9107' ||
+        c == '9106' ||
+        c == '2107' ||
+        c == '2106' ||
+        c == '3131' ||
+        c == '3132' ||
+        c == '51102' ||
+        c == '51103' ||
+        c == '51104') {
+      return true;
+    }
+    if (c.startsWith('911') ||
+        c.startsWith('313') ||
+        c.startsWith('312') ||
+        c.startsWith('311')) {
+      return true;
+    }
+    return false;
+  }
+
+  /// Map database account_type string to [AccountClassification].
+  ///
+  /// If [accountCode] is provided and represents an operational loss/spoilage
+  /// intermediary account (e.g. 9112 وسيط هالك وفاقد المحاصيل, 9111 وسيط هالك مواد التعبئة),
+  /// it is always re-classified under [AccountClassification.expense] (المصروفات والتكاليف / تكلفة النشاط)
+  /// so it participates properly in valuation and financial statements.
+  static AccountClassification classify(String accountType, {String? accountCode}) {
+    if (accountCode != null && isOperationalLossOrCostAccount(accountCode)) {
+      return AccountClassification.expense;
+    }
+
+    final normalized = accountType.trim().toLowerCase();
+    return switch (normalized) {
       'asset' => AccountClassification.asset,
       'liability' => AccountClassification.liability,
       'equity' => AccountClassification.equity,
       'revenue' => AccountClassification.revenue,
       'expense' || 'cogs' => AccountClassification.expense,
       'suspense' => AccountClassification.equity,
-      _ => AccountClassification.equity,
+      'system' => (accountCode != null && isOperationalLossOrCostAccount(accountCode))
+          ? AccountClassification.expense
+          : AccountClassification.equity,
+      _ => throw ArgumentError('Unknown or invalid account type: "$accountType"'),
     };
   }
 

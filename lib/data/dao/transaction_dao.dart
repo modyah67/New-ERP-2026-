@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../accounting/fiscal_year/dao/fiscal_year_dao.dart';
 import '../../core/utils.dart';
 import '../models/transaction_model.dart';
 import '../services/currency_conversion_service.dart';
@@ -151,16 +152,42 @@ class TransactionDao {
     String? referenceId,
     Map<String, dynamic>? currencySnapshot,
   }) async {
-    final result = await _client.rpc('rpc_build_manual_journal', params: {
-      'payload': {
-        'date': transactionDate ?? DateTime.now().toIso8601String().substring(0, 10),
-        'amount': amount,
-        'debit_account_id': debitAccountId,
-        'credit_account_id': creditAccountId,
-        'description': description ?? '',
-      }
+    final dateStr = transactionDate ?? DateTime.now().toIso8601String().substring(0, 10);
+    final parsedDate = DateTime.tryParse(dateStr) ?? DateTime.now();
+    final isClosed = await FiscalYearDao().isDateInClosedFiscalYear(parsedDate);
+    if (isClosed && referenceType != 'fiscal_year_closing' && referenceType != 'opening_balance') {
+      throw Exception('لا يمكن تسجيل أو تعديل قيود في سنة مالية مغلقة.');
+    }
+
+    final desc = description ?? 'قيد يدوي';
+    final dId = int.tryParse(debitAccountId) ?? debitAccountId;
+    final cId = int.tryParse(creditAccountId) ?? creditAccountId;
+
+    final result = await _client.rpc('post_journal_entry', params: {
+      'p_source_type': 'manual',
+      'p_description': desc,
+      'p_entry_date': dateStr,
+      'p_company_id': null,
+      'p_created_by': _client.auth.currentUser?.id,
+      'p_source_id': referenceId,
+      'p_lines': [
+        {
+          'account_id': dId,
+          'debit': amount,
+          'credit': 0,
+          'currency': 'EGP',
+          'description': desc,
+        },
+        {
+          'account_id': cId,
+          'debit': 0,
+          'credit': amount,
+          'currency': 'EGP',
+          'description': desc,
+        },
+      ],
     });
-    return result['journal_number'] as String;
+    return result.toString();
   }
 
   /// Creates a balanced customer journal entry atomically via RPC.

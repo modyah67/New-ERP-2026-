@@ -5,7 +5,8 @@ import '../../core/data_change_event_bus.dart';
 import '../models/lot_model.dart';
 import '../services/currency_conversion_service.dart';
 import '../services/lot_payment_service.dart';
-
+import '../services/product_cost_center_sync_service.dart';
+import '../services/crop_purchase_calculation_service.dart';
 
 class LotDao {
   final _client = Supabase.instance.client;
@@ -105,6 +106,60 @@ class LotDao {
           .single();
       final insertedId = result['id'];
       debugPrint('LotDao.insert: DONE - inserted id=$insertedId, lot_number=$lotNumber, status=${lot.status}');
+
+      // Automatically sync into cost center transactions
+      try {
+        final isCarton = lot.purchaseMode == 'carton';
+        final double qty = isCarton
+            ? (lot.cartonCount?.toDouble() ?? 0.0)
+            : (lot.netWeightKg > 0 ? lot.netWeightKg : lot.grossWeightKg);
+        final double unitPrice = isCarton
+            ? (lot.pricePerCarton ?? 0.0)
+            : (lot.fruitCostPerKg > 0 ? lot.fruitCostPerKg : (qty > 0 ? lot.totalProductCost / qty : 0.0));
+        final double totalCost = lot.totalFruitCost > 0
+            ? lot.totalFruitCost
+            : (lot.totalProductCost > 0
+                ? lot.totalProductCost
+                : CropPurchaseCalculationService.calculateTotalAmount(
+                    purchaseMethod: lot.purchaseMode,
+                    cartonCount: lot.cartonCount,
+                    pricePerCarton: lot.pricePerCarton,
+                    grossWeightKg: lot.grossWeightKg,
+                    netWeightKg: lot.netWeightKg,
+                    pricePerKg: lot.fruitCostPerKg,
+                  ));
+
+        final formulaDesc = CropPurchaseCalculationService.buildFormulaDescription(
+          purchaseMethod: lot.purchaseMode,
+          cartonCount: lot.cartonCount,
+          pricePerCarton: lot.pricePerCarton,
+          grossWeightKg: lot.grossWeightKg,
+          netWeightKg: lot.netWeightKg,
+          pricePerKg: lot.fruitCostPerKg,
+          totalAmount: totalCost,
+          currency: lot.currency,
+        );
+
+        ProductCostCenterSyncService.instance.recordCropPurchaseTransaction(
+          sourceType: 'lot_receipt',
+          sourceId: insertedId.toString(),
+          fruitTypeId: lot.fruitTypeId?.toString(),
+          cropName: lot.productName,
+          supplierName: lot.supplierName,
+          purchaseDate: DateTime.tryParse(lot.createdAt?.toIso8601String() ?? '') ?? DateTime.now(),
+          quantity: qty,
+          unitPrice: unitPrice,
+          totalCost: totalCost,
+          currency: lot.currency,
+          exchangeRate: lot.exchangeRate,
+          notes: lot.notes != null ? '${lot.notes} ($formulaDesc)' : formulaDesc,
+        ).catchError((e) {
+          debugPrint('Cost center sync non-fatal error in LotDao.insert: $e');
+        });
+      } catch (e) {
+        debugPrint('Cost center sync error in LotDao.insert: $e');
+      }
+
       return {'id': insertedId, 'lot_number': lotNumber};
     } catch (e, st) {
       debugPrint('❌ LotDao.insert error: $e\n$st');
@@ -248,6 +303,52 @@ class LotDao {
       if (map.containsKey('success') && map['success'] != true) {
         throw Exception(map['error']?.toString() ?? 'فشل معالجة شراء المحصول');
       }
+
+      // Automatically sync into cost center transactions
+      try {
+        final lotRow = await _client
+            .from('lot_receipts')
+            .select('*, suppliers(name), fruit_types(name, cost_center_id)')
+            .eq('id', lotId)
+            .maybeSingle();
+        if (lotRow != null) {
+          final sName = lotRow['suppliers']?['name']?.toString();
+          final fName = lotRow['fruit_types']?['name']?.toString() ?? lotRow['product_name']?.toString();
+          final isCarton = lotRow['purchase_mode'] == 'carton';
+          final double qty = isCarton && (lotRow['carton_count'] as num? ?? 0) > 0
+              ? (lotRow['carton_count'] as num).toDouble()
+              : ((lotRow['net_weight_kg'] as num?)?.toDouble() ??
+                  (lotRow['gross_weight_kg'] as num?)?.toDouble() ??
+                  0.0);
+          final double unitPrice = isCarton && (lotRow['price_per_carton'] as num? ?? 0) > 0
+              ? (lotRow['price_per_carton'] as num).toDouble()
+              : ((lotRow['fruit_cost_per_kg'] as num?)?.toDouble() ??
+                  (lotRow['price_per_carton'] as num?)?.toDouble() ??
+                  0.0);
+          final double totalCost = (lotRow['total_fruit_cost'] as num?)?.toDouble() ??
+              (lotRow['total_product_cost'] as num?)?.toDouble() ??
+              (qty * unitPrice);
+          final DateTime? pDate = DateTime.tryParse(lotRow['created_at']?.toString() ?? '');
+
+          await ProductCostCenterSyncService.instance.recordCropPurchaseTransaction(
+            sourceType: 'lot_receipt',
+            sourceId: lotId.toString(),
+            fruitTypeId: lotRow['fruit_type_id']?.toString(),
+            cropName: fName,
+            supplierName: sName,
+            purchaseDate: pDate ?? DateTime.now(),
+            quantity: qty,
+            unitPrice: unitPrice,
+            totalCost: totalCost > 0 ? totalCost : (qty * unitPrice),
+            currency: lotRow['currency']?.toString() ?? 'EGP',
+            exchangeRate: (lotRow['exchange_rate'] as num?)?.toDouble() ?? 1.0,
+            notes: lotRow['notes']?.toString(),
+          );
+        }
+      } catch (e) {
+        debugPrint('Cost center sync non-fatal error in LotDao.processReceiptSideEffects: $e');
+      }
+
       return map;
     } catch (e, st) {
       debugPrint('❌ LotDao.processReceiptSideEffects error: $e\n$st');
@@ -405,7 +506,7 @@ class LotDao {
         }
         if (netCartons < 0) netCartons = 0;
         
-        final cartonUnitCost = netCartons > 0 ? (lot.totalProductCost ?? 0.0) / netCartons : 0.0;
+        final cartonUnitCost = netCartons > 0 ? lot.totalProductCost / netCartons : 0.0;
         
         await syncStationProductBatch(
           stationId: rpcResult['station_id'].toString(),
@@ -457,7 +558,7 @@ class LotDao {
     try {
       if (lot.id == null || (lot.totalProductCost <= 0)) return;
 
-      // 1. Check if lot already has a journal entry
+      // 1. Check if lot already has a journal entry linked in the database
       final existingLot = await _client
           .from('lot_receipts')
           .select('journal_entry_id')
@@ -473,88 +574,52 @@ class LotDao {
           .from('journal_entries')
           .select('id')
           .eq('source_type', 'lot_receipt')
-          .eq('source_id', lot.id!)
+          .eq('source_id', lot.id!.toString())
+          .isFilter('deleted_at', null)
+          .order('id', ascending: true)
+          .limit(1)
           .maybeSingle();
 
       if (existingJe != null && existingJe['id'] != null) {
+        final jeId = existingJe['id'];
         await _client.from('lot_receipts').update({
-          'journal_entry_id': existingJe['id'],
+          'journal_entry_id': jeId,
         }).eq('id', lot.id!);
+        debugPrint('✅ _ensureJournalEntryForLot: Linked existing JE $jeId to lot ${lot.lotNumber}');
         return;
       }
 
-      // 3. Post journal entry via RPC
-      final companyRes = await _client.from('sys_companies').select('id').limit(1).maybeSingle();
-      final companyId = companyRes?['id']?.toString();
-      if (companyId == null) return;
+      // 3. PostgreSQL trigger/function is the single source of truth.
+      // If the trigger was not executed automatically, call sync_supplier_ledger_for_lot RPC.
+      try {
+        await _client.rpc('sync_supplier_ledger_for_lot', params: {
+          'p_lot_id': lot.id!,
+          'p_action': 'INSERT',
+        });
+      } catch (rpcErr) {
+        debugPrint('⚠️ LotDao._ensureJournalEntryForLot: sync_supplier_ledger_for_lot RPC fallback: $rpcErr');
+      }
 
-      final invAcc = await _client
-          .from('accounts')
+      // 4. Check again if JE was created and link it to the lot
+      final jeAfterSync = await _client
+          .from('journal_entries')
           .select('id')
-          .eq('account_code', '1030')
+          .eq('source_type', 'lot_receipt')
+          .eq('source_id', lot.id!.toString())
+          .isFilter('deleted_at', null)
+          .order('id', ascending: true)
           .limit(1)
           .maybeSingle();
-      final invAccId = invAcc?['id'];
 
-      dynamic supplierAccId;
-      if (lot.supplierId != null) {
-        final suppRes = await _client
-            .from('suppliers')
-            .select('account_id')
-            .eq('id', lot.supplierId!)
-            .maybeSingle();
-        supplierAccId = suppRes?['account_id'];
+      if (jeAfterSync != null && jeAfterSync['id'] != null) {
+        final jeId = jeAfterSync['id'];
+        await _client.from('lot_receipts').update({
+          'journal_entry_id': jeId,
+        }).eq('id', lot.id!);
+        debugPrint('✅ _ensureJournalEntryForLot: Linked generated JE $jeId to lot ${lot.lotNumber}');
       }
-      if (supplierAccId == null) {
-        final defaultSuppAcc = await _client
-            .from('accounts')
-            .select('id')
-            .eq('account_code', '2000')
-            .limit(1)
-            .maybeSingle();
-        supplierAccId = defaultSuppAcc?['id'];
-      }
-
-      if (invAccId != null && supplierAccId != null) {
-        final totalEgp = lot.totalProductCost * (lot.exchangeRate > 0 ? lot.exchangeRate : 1.0);
-        final desc = 'شراء محصول خام ${lot.productName ?? "محصول"} - لوط رقم: ${lot.lotNumber}';
-
-        final jeId = await _client.rpc('post_journal_entry', params: {
-          'p_source_type': 'lot_receipt',
-          'p_description': desc,
-          'p_entry_date': AppUtils.formatDateForDb(lot.receiptDate),
-          'p_company_id': companyId,
-          'p_created_by': _client.auth.currentUser?.id,
-          'p_lines': [
-            {
-              'account_id': invAccId,
-              'debit': totalEgp,
-              'credit': 0,
-              'currency': lot.currency,
-              'description': 'شراء محصول رقم ${lot.lotNumber}',
-            },
-            {
-              'account_id': supplierAccId,
-              'debit': 0,
-              'credit': totalEgp,
-              'currency': lot.currency,
-              'description': 'مستحقات مورد عن شراء محصول رقم ${lot.lotNumber}',
-            }
-          ]
-        });
-
-        if (jeId != null) {
-          await _client.from('journal_entries').update({
-            'source_id': lot.id!,
-          }).eq('id', jeId);
-
-          await _client.from('lot_receipts').update({
-            'journal_entry_id': jeId,
-          }).eq('id', lot.id!);
-        }
-      }
-    } catch (e) {
-      debugPrint('Note: LotDao._ensureJournalEntryForLot (non-fatal): $e');
+    } catch (e, st) {
+      debugPrint('❌ LotDao._ensureJournalEntryForLot error: $e\n$st');
     }
   }
 
@@ -573,11 +638,113 @@ class LotDao {
   }
 
   Future<List<Map<String, dynamic>>> getJournalEntriesForLot(String lotId) async {
+    if (lotId.trim().isEmpty) return [];
     try {
-      final result = await _client.rpc('rpc_get_lot_journal_entries', params: {
-        'p_lot_id': lotId,
-      });
-      return (result as List).cast<Map<String, dynamic>>();
+      try {
+        final result = await _client.rpc('rpc_get_lot_journal_entries', params: {
+          'p_lot_id': lotId,
+        });
+        if (result is List && result.isNotEmpty) {
+          return result.cast<Map<String, dynamic>>();
+        }
+      } catch (rpcError) {
+        debugPrint('⚠️ LotDao.getJournalEntriesForLot RPC warning (falling back to direct query): $rpcError');
+      }
+
+      // Fallback 1: Query journal_entries directly by linked journal_entry_id or source_id
+      final lotRow = await _client
+          .from('lot_receipts')
+          .select('id, lot_number, is_confirmed, journal_entry_id, total_fruit_cost')
+          .eq('id', lotId)
+          .maybeSingle();
+
+      if (lotRow != null) {
+        final jeId = lotRow['journal_entry_id'];
+        if (jeId != null) {
+          final directJe = await _client
+              .from('journal_entries')
+              .select('id, entry_number, entry_date, description, source_type, source_id, created_at')
+              .eq('id', jeId)
+              .maybeSingle();
+          if (directJe != null) {
+            final lines = await _client
+                .from('account_ledger_entries')
+                .select('debit, credit, currency')
+                .eq('journal_entry_id', jeId);
+            double totalDebit = 0;
+            double totalCredit = 0;
+            String cur = 'EGP';
+            for (final line in (lines as List)) {
+              totalDebit += (line['debit'] as num?)?.toDouble() ?? 0;
+              totalCredit += (line['credit'] as num?)?.toDouble() ?? 0;
+              if (line['currency'] != null) cur = line['currency'].toString();
+            }
+            return [
+              {
+                'journal_entry_id': directJe['id'],
+                'entry_number': directJe['entry_number'] ?? 'LOT-$jeId',
+                'entry_date': directJe['entry_date'],
+                'description': directJe['description'],
+                'source_type': directJe['source_type'] ?? 'lot_receipt',
+                'source_id': directJe['source_id'] ?? lotId,
+                'total_debit': totalDebit > 0 ? totalDebit : (lotRow['total_fruit_cost'] ?? 0),
+                'total_credit': totalCredit > 0 ? totalCredit : (lotRow['total_fruit_cost'] ?? 0),
+                'currency': cur,
+                'created_at': directJe['created_at'],
+              }
+            ];
+          }
+        }
+
+        // Fallback 2: Self-healing. If lot is confirmed but has no JE, generate it on the fly!
+        if (lotRow['is_confirmed'] == true && ((lotRow['total_fruit_cost'] as num?)?.toDouble() ?? 0) > 0) {
+          final lotObj = await getById(lotId);
+          if (lotObj != null) {
+            await _ensureJournalEntryForLot(lotObj);
+            // Re-fetch after healing: first try RPC safely
+            try {
+              final healed = await _client.rpc('rpc_get_lot_journal_entries', params: {
+                'p_lot_id': lotId,
+              });
+              if (healed is List && healed.isNotEmpty) {
+                return healed.cast<Map<String, dynamic>>();
+              }
+            } catch (_) {}
+            // If still empty from RPC, check lot_receipts.journal_entry_id directly
+            final reLot = await _client
+                .from('lot_receipts')
+                .select('journal_entry_id')
+                .eq('id', lotId)
+                .maybeSingle();
+            final newJeId = reLot?['journal_entry_id'];
+            if (newJeId != null) {
+              final directJe = await _client
+                  .from('journal_entries')
+                  .select('id, entry_number, entry_date, description, source_type, source_id, created_at')
+                  .eq('id', newJeId)
+                  .maybeSingle();
+              if (directJe != null) {
+                return [
+                  {
+                    'journal_entry_id': directJe['id'],
+                    'entry_number': directJe['entry_number'] ?? 'LOT-$newJeId',
+                    'entry_date': directJe['entry_date'],
+                    'description': directJe['description'],
+                    'source_type': directJe['source_type'] ?? 'lot_receipt',
+                    'source_id': directJe['source_id'] ?? lotId,
+                    'total_debit': (lotRow['total_fruit_cost'] ?? 0),
+                    'total_credit': (lotRow['total_fruit_cost'] ?? 0),
+                    'currency': lotObj.currency.isNotEmpty ? lotObj.currency : 'EGP',
+                    'created_at': directJe['created_at'],
+                  }
+                ];
+              }
+            }
+          }
+        }
+      }
+
+      return [];
     } catch (e) {
       debugPrint('LotDao.getJournalEntriesForLot error: $e');
       return [];

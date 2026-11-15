@@ -58,10 +58,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     return BlocBuilder<DashboardCubit, DashboardState>(
       builder: (context, state) {
         final authState = context.watch<AuthCubit>().state;
-        final userName = authState is AuthAuthenticated
-            ? (authState.fullName ?? authState.email ?? 'مستخدم')
-            : 'مستخدم';
-            
         bool hasHomeAccess = true;
         if (authState is AuthAuthenticated && !authState.isAdmin) {
           hasHomeAccess = authState.allowedPages.contains('/home');
@@ -98,7 +94,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
             body: Column(
               children: [
                 Expanded(
-                  child: state.loading ? _buildLoading() : _buildContent(state),
+                  child: state.loading ? _buildLoading(Theme.of(context).brightness == Brightness.dark) : _buildContent(state),
                 ),
               ],
             ),
@@ -108,7 +104,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildLoading() {
+  Widget _buildLoading(bool isDark) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -122,9 +118,9 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 child: Container(
                   height: 60,
                   decoration: BoxDecoration(
-                    color: const Color(0x1A0A1E3A),
+                    color: isDark ? const Color(0x1A0A1E3A) : Colors.white,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(color: AppTheme.glassBorder.withAlpha(60)),
+                    border: Border.all(color: isDark ? AppTheme.glassBorder.withAlpha(60) : AppTheme.lightBorder),
                   ),
                 ),
               ),
@@ -193,6 +189,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildSectionHeader(String title, IconData icon) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12, top: 16),
       child: Row(
@@ -201,8 +198,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
           const SizedBox(width: 8),
           Text(
             title,
-            style: const TextStyle(
-              color: Colors.white,
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
               fontSize: 14,
               fontWeight: FontWeight.bold,
               fontFamily: 'Cairo',
@@ -410,6 +407,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildQuickActions() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
@@ -417,9 +415,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0x1A0A1E3A),
+            color: isDark ? const Color(0x1A0A1E3A) : Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.glassBorder.withAlpha(60)),
+            border: Border.all(color: isDark ? AppTheme.glassBorder.withAlpha(60) : AppTheme.lightBorder),
+            boxShadow: isDark
+                ? []
+                : const [
+                    BoxShadow(
+                      color: Color(0x0A0F172A),
+                      blurRadius: 12,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
           ),
           child: const QuickActionsGrid(),
         ),
@@ -428,6 +435,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
   }
 
   Widget _buildChartCard(Widget child) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
@@ -435,9 +443,18 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0x1A0A1E3A),
+            color: isDark ? const Color(0x1A0A1E3A) : Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.glassBorder.withAlpha(60)),
+            border: Border.all(color: isDark ? AppTheme.glassBorder.withAlpha(60) : AppTheme.lightBorder),
+            boxShadow: isDark
+                ? []
+                : const [
+                    BoxShadow(
+                      color: Color(0x0A0F172A),
+                      blurRadius: 12,
+                      offset: Offset(0, 4),
+                    ),
+                  ],
           ),
           height: 300,
           child: child,

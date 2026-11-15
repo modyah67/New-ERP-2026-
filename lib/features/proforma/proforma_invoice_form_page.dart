@@ -1,4 +1,3 @@
-import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
@@ -9,7 +8,6 @@ import '../../ui/widgets/app_text_field.dart';
 import '../../ui/widgets/app_search_field.dart';
 import 'proforma_invoice_cubit.dart';
 import '../exports/shipment_constants.dart';
-import '../../core/utils.dart';
 import 'proforma_invoice_word_service.dart';
 
 class ProformaInvoiceFormPage extends StatefulWidget {
@@ -172,22 +170,26 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.cyberBg,
+        backgroundColor: isDark ? AppTheme.cyberBg : const Color(0xFFF8FAFC),
         appBar: AppBar(
-          backgroundColor: AppTheme.cyberSurface,
+          backgroundColor: isDark ? AppTheme.cyberSurface : Colors.white,
+          elevation: isDark ? 0 : 1,
+          shadowColor: Colors.black.withValues(alpha: 0.1),
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios_new, color: Colors.white),
+            icon: Icon(Icons.arrow_back_ios_new,
+                color: isDark ? Colors.white : const Color(0xFF0F172A)),
             onPressed: () => Navigator.pop(context),
           ),
           title: Text(
             widget.invoice != null
                 ? 'تعديل فاتورة مبدئية'
                 : 'فاتورة مبدئية جديدة',
-            style: const TextStyle(
-                color: Colors.white,
+            style: TextStyle(
+                color: isDark ? Colors.white : const Color(0xFF0F172A),
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.bold,
                 fontSize: 16),
@@ -195,8 +197,12 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
             overflow: TextOverflow.ellipsis,
           ),
           actions: [
+            if (widget.invoice != null) ...[
+              _buildWordButton(),
+              const SizedBox(width: 8),
+            ],
             _buildSaveButton(),
-            const SizedBox(width: 4),
+            const SizedBox(width: 8),
           ],
         ),
         body: BlocListener<ProformaInvoiceCubit, ProformaInvoiceState>(
@@ -274,11 +280,14 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildWideLayout() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(width: 320, child: _buildSidebar()),
-        const VerticalDivider(width: 1),
+        VerticalDivider(
+            width: 1,
+            color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         Expanded(child: _buildMainContent()),
       ],
     );
@@ -298,6 +307,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildSidebar() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final st = context.watch<ProformaInvoiceCubit>().state;
     final customers =
         st is ProformaInvoiceFormLoaded ? st.customers : <CustomerModel>[];
@@ -307,7 +317,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
     final bank = _currency != null ? BankDetails.forCurrency(_currency!) : null;
 
     return Container(
-      color: AppTheme.cyberSurface,
+      color: isDark ? AppTheme.cyberSurface : Colors.white,
       padding: const EdgeInsets.all(16),
       child: SingleChildScrollView(
         child: Column(
@@ -319,13 +329,20 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                color: AppTheme.neonCyan.withAlpha(8),
+                color: isDark
+                    ? AppTheme.neonCyan.withAlpha(8)
+                    : const Color(0xFFE0F2FE),
                 borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: AppTheme.neonCyan.withAlpha(50)),
+                border: Border.all(
+                    color: isDark
+                        ? AppTheme.neonCyan.withAlpha(50)
+                        : const Color(0xFFBAE6FD)),
               ),
               child: Row(
                 children: [
-                  Icon(Icons.tag, color: AppTheme.neonCyan, size: 18),
+                  Icon(Icons.tag,
+                      color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
+                      size: 18),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Directionality(
@@ -334,7 +351,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                         _invoiceNo,
                         textAlign: TextAlign.right,
                         style: TextStyle(
-                          color: AppTheme.neonCyan,
+                          color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
                           fontFamily: 'Cairo',
                           fontWeight: FontWeight.bold,
                           fontSize: 14,
@@ -346,12 +363,15 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                     padding:
                         const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
-                      color: AppTheme.success.withAlpha(20),
+                      color: isDark
+                          ? AppTheme.success.withAlpha(20)
+                          : const Color(0xFFDCFCE7),
                       borderRadius: BorderRadius.circular(6),
                     ),
                     child: const Text('تلقائي',
                         style: TextStyle(
-                            color: AppTheme.success,
+                            color: Color(0xFF16A34A),
+                            fontWeight: FontWeight.bold,
                             fontSize: 10,
                             fontFamily: 'Cairo')),
                   ),
@@ -374,6 +394,14 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                   initialDate: _invoiceDate ?? DateTime.now(),
                   firstDate: DateTime(2020),
                   lastDate: DateTime(2030),
+                  builder: (ctx, child) => Theme(
+                    data: Theme.of(ctx).copyWith(
+                      colorScheme: isDark
+                          ? const ColorScheme.dark(primary: AppTheme.primary)
+                          : const ColorScheme.light(primary: AppTheme.primary),
+                    ),
+                    child: child!,
+                  ),
                 );
                 if (picked != null) {
                   setState(() => _invoiceDate = picked);
@@ -384,14 +412,18 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
-                  color: AppTheme.cyberSurface,
+                  color: isDark
+                      ? AppTheme.cyberSurface
+                      : const Color(0xFFF8FAFC),
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: AppTheme.border),
+                  border: Border.all(
+                      color: isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
                 ),
                 child: Row(
                   children: [
                     Icon(Icons.calendar_today,
-                        color: AppTheme.textMuted, size: 18),
+                        color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                        size: 18),
                     const SizedBox(width: 8),
                     Text(
                       _invoiceDate != null
@@ -399,8 +431,9 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                           : 'اختر التاريخ',
                       style: TextStyle(
                           color: _invoiceDate != null
-                              ? AppTheme.textPrimary
-                              : AppTheme.textMuted,
+                              ? (isDark ? AppTheme.textPrimary : const Color(0xFF0F172A))
+                              : (isDark ? AppTheme.textMuted : const Color(0xFF64748B)),
+                          fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo',
                           fontSize: 13),
                     ),
@@ -423,9 +456,15 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
               },
               itemBuilder: (context, c) => ListTile(
                 title:
-                    Text(c.name, style: const TextStyle(fontFamily: 'Cairo')),
+                    Text(c.name, style: TextStyle(
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo')),
                 subtitle: Text(c.code,
-                    style: const TextStyle(fontFamily: 'Cairo', fontSize: 11)),
+                    style: TextStyle(
+                        color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                        fontFamily: 'Cairo',
+                        fontSize: 11)),
               ),
               onSelected: (c) {
                 setState(() {
@@ -498,7 +537,10 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
               },
               itemBuilder: (context, a) => ListTile(
                 title: Text('${a.code} - ${a.name}',
-                    style: const TextStyle(fontFamily: 'Cairo')),
+                    style: TextStyle(
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo')),
               ),
               onSelected: (a) {
                 setState(() {
@@ -530,8 +572,9 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildMainContent() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      color: AppTheme.cyberBg,
+      color: isDark ? AppTheme.cyberBg : const Color(0xFFF8FAFC),
       padding: const EdgeInsets.all(20),
       child: SingleChildScrollView(
         child: Column(
@@ -564,7 +607,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
               maxLines: 2,
             ),
             const SizedBox(height: 20),
-            const Divider(),
+            Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
             _sectionTitle('الأصناف المشحونة'),
             const SizedBox(height: 12),
             _buildItemsTable(),
@@ -573,7 +616,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
             const SizedBox(height: 20),
             _buildTotalsSummary(),
             const SizedBox(height: 20),
-            const Divider(),
+            Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
             _sectionTitle('الشروط والأحكام'),
             const SizedBox(height: 12),
             _buildTermsSection(),
@@ -585,8 +628,9 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildMainContentStacked() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      color: AppTheme.cyberBg,
+      color: isDark ? AppTheme.cyberBg : const Color(0xFFF8FAFC),
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -618,7 +662,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
             maxLines: 2,
           ),
           const SizedBox(height: 20),
-          const Divider(),
+          Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
           _sectionTitle('الأصناف المشحونة'),
           const SizedBox(height: 12),
           _buildItemsTable(),
@@ -627,7 +671,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
           const SizedBox(height: 20),
           _buildTotalsSummary(),
           const SizedBox(height: 20),
-          const Divider(),
+          Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
           _sectionTitle('الشروط والأحكام'),
           const SizedBox(height: 12),
           _buildTermsSection(),
@@ -638,24 +682,26 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _sectionTitle(String title) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Text(title,
-        style: const TextStyle(
-            color: Colors.white,
+        style: TextStyle(
+            color: isDark ? Colors.white : const Color(0xFF0F172A),
             fontSize: 18,
             fontWeight: FontWeight.bold,
             fontFamily: 'Cairo'));
   }
 
   Widget _formLabel(String label, {bool required = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: Row(
         children: [
           Text(label,
               style: TextStyle(
-                  color: AppTheme.textSecondary,
+                  color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
                   fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                  fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo')),
           if (required) ...[
             const SizedBox(width: 4),
@@ -716,6 +762,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
 
   Widget _buildRadioOption(
       String label, String value, bool selected, VoidCallback onTap) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: onTap,
       child: AnimatedContainer(
@@ -723,12 +770,13 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(
           color: selected
-              ? AppTheme.neonCyan.withAlpha(20)
-              : AppTheme.cyberSurface,
+              ? (isDark ? AppTheme.neonCyan.withAlpha(20) : const Color(0xFFE0F2FE))
+              : (isDark ? AppTheme.cyberSurface : Colors.white),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color:
-                selected ? AppTheme.neonCyan.withAlpha(180) : AppTheme.border,
+            color: selected
+                ? (isDark ? AppTheme.neonCyan.withAlpha(180) : const Color(0xFF0284C7))
+                : (isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
             width: selected ? 1.5 : 1.0,
           ),
         ),
@@ -737,14 +785,17 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
           children: [
             Icon(
               selected ? Icons.radio_button_checked : Icons.radio_button_off,
-              color: selected ? AppTheme.neonCyan : AppTheme.textMuted,
+              color: selected
+                  ? (isDark ? AppTheme.neonCyan : const Color(0xFF0284C7))
+                  : (isDark ? AppTheme.textMuted : const Color(0xFF64748B)),
               size: 16,
             ),
             const SizedBox(width: 6),
             Text(label,
                 style: TextStyle(
-                    color:
-                        selected ? AppTheme.neonCyan : AppTheme.textSecondary,
+                    color: selected
+                        ? (isDark ? AppTheme.neonCyan : const Color(0xFF0284C7))
+                        : (isDark ? AppTheme.textSecondary : const Color(0xFF334155)),
                     fontSize: 13,
                     fontWeight: selected ? FontWeight.bold : FontWeight.normal,
                     fontFamily: 'Cairo')),
@@ -755,12 +806,13 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildCustomerCard(CustomerModel c) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('بيانات العميل',
+        Text('بيانات العميل',
             style: TextStyle(
-                color: AppTheme.neonCyan,
+                color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo')),
@@ -769,9 +821,14 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
-            color: AppTheme.neonCyan.withAlpha(15),
+            color: isDark
+                ? AppTheme.neonCyan.withAlpha(15)
+                : const Color(0xFFF8FAFC),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppTheme.neonCyan.withAlpha(50)),
+            border: Border.all(
+                color: isDark
+                    ? AppTheme.neonCyan.withAlpha(50)
+                    : const Color(0xFFCBD5E1)),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -782,10 +839,12 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
               if (c.city.isNotEmpty) _customerInfoRow('المدينة', c.city),
               if (c.country.isNotEmpty) _customerInfoRow('الدولة', c.country),
               if (c.addresses.isNotEmpty) ...[
-                const Divider(height: 16, color: AppTheme.glassBorder),
-                const Text('العناوين',
+                Divider(
+                    height: 16,
+                    color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
+                Text('العناوين',
                     style: TextStyle(
-                        color: AppTheme.neonCyan,
+                        color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                         fontFamily: 'Cairo')),
@@ -796,8 +855,9 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                           '• ${a['full_address'] ?? a['address_line_1'] ?? a['address'] ?? ''}',
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                              color: AppTheme.textPrimary,
+                          style: TextStyle(
+                              color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                              fontWeight: FontWeight.w600,
                               fontSize: 12,
                               fontFamily: 'Cairo')),
                     )),
@@ -807,9 +867,9 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
         ),
         if (c.addresses.isNotEmpty) ...[
           const SizedBox(height: 16),
-          const Text('اختيار عنوان الشحن',
+          Text('اختيار عنوان الشحن',
               style: TextStyle(
-                  color: AppTheme.neonCyan,
+                  color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
                   fontSize: 14,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo')),
@@ -817,9 +877,10 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(
+                  color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
               borderRadius: BorderRadius.circular(12),
-              color: AppTheme.cyberSurface,
+              color: isDark ? AppTheme.cyberSurface : Colors.white,
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
@@ -833,7 +894,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                         color: AppTheme.textMuted,
                         fontSize: 13,
                         fontFamily: 'Cairo')),
-                dropdownColor: AppTheme.cyberSurface,
+                dropdownColor: isDark ? AppTheme.cyberSurface : Colors.white,
                 items: List.generate(c.addresses.length, (i) {
                   final addr = c.addresses[i];
                   final addrText =
@@ -841,8 +902,9 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                   return DropdownMenuItem(
                     value: i.toString(),
                     child: Text(addrText,
-                        style: const TextStyle(
-                            color: AppTheme.textPrimary,
+                        style: TextStyle(
+                            color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                            fontWeight: FontWeight.bold,
                             fontSize: 13,
                             fontFamily: 'Cairo')),
                   );
@@ -868,42 +930,55 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _customerInfoRow(String label, String value) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Text('$label: ',
-            style: const TextStyle(
-                color: AppTheme.textSecondary,
+            style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                fontWeight: FontWeight.w600,
                 fontSize: 11,
                 fontFamily: 'Cairo')),
         Expanded(
             child: Text(value,
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 11, fontFamily: 'Cairo'))),
+                style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                    fontFamily: 'Cairo'))),
       ]),
     );
   }
 
   Widget _buildClearingAgentCard(ClearingAgentModel a) {
     if (a.id == null) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.neonCyan.withAlpha(15),
+        color: isDark
+            ? AppTheme.neonCyan.withAlpha(15)
+            : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.neonCyan.withAlpha(50)),
+        border: Border.all(
+            color: isDark
+                ? AppTheme.neonCyan.withAlpha(50)
+                : const Color(0xFFCBD5E1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            Icon(Icons.support_agent, size: 14, color: AppTheme.neonCyan),
+            Icon(Icons.support_agent,
+                size: 14,
+                color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7)),
             const SizedBox(width: 6),
             Expanded(
               child: Text('${a.code} - ${a.name}',
-                  style: const TextStyle(
-                      color: AppTheme.neonCyan,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo')),
@@ -912,11 +987,14 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
           if (a.phone.isNotEmpty) ...[
             const SizedBox(height: 4),
             Row(children: [
-              const Icon(Icons.phone, size: 12, color: AppTheme.textSecondary),
+              Icon(Icons.phone,
+                  size: 12,
+                  color: isDark ? AppTheme.textSecondary : const Color(0xFF475569)),
               const SizedBox(width: 6),
               Text(a.phone,
-                  style: const TextStyle(
-                      color: AppTheme.textSecondary,
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                      fontWeight: FontWeight.bold,
                       fontSize: 11,
                       fontFamily: 'Cairo')),
             ]),
@@ -927,24 +1005,31 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildBankInfo(BankDetails bank) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.neonCyan.withAlpha(15),
+        color: isDark
+            ? AppTheme.neonCyan.withAlpha(15)
+            : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.neonCyan.withAlpha(50)),
+        border: Border.all(
+            color: isDark
+                ? AppTheme.neonCyan.withAlpha(50)
+                : const Color(0xFFCBD5E1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(children: [
-            const Icon(Icons.account_balance,
-                size: 14, color: AppTheme.neonCyan),
+            Icon(Icons.account_balance,
+                size: 14,
+                color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7)),
             const SizedBox(width: 6),
             Text('الحساب البنكي (${bank.currency})',
-                style: const TextStyle(
-                  color: AppTheme.neonCyan,
+                style: TextStyle(
+                  color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
                   fontSize: 12,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo',
@@ -961,20 +1046,25 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _bankRow(String label, String value) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Row(children: [
         Text('$label: ',
-            style: const TextStyle(
-                color: AppTheme.textSecondary,
+            style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                fontWeight: FontWeight.w600,
                 fontSize: 11,
                 fontFamily: 'Cairo')),
         Expanded(
             child: Text(value,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 11, fontFamily: 'Cairo'))),
+                style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    fontWeight: FontWeight.bold,
+                    fontSize: 11,
+                    fontFamily: 'Cairo'))),
       ]),
     );
   }
@@ -996,11 +1086,12 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildItemsTable() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.cyberSurface,
+        color: isDark ? AppTheme.cyberSurface : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.glassBorder),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(12),
@@ -1013,7 +1104,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   decoration: BoxDecoration(
-                    color: AppTheme.neonCyan.withAlpha(10),
+                    color: isDark ? AppTheme.neonCyan.withAlpha(10) : const Color(0xFFF1F5F9),
                   ),
                   child: Row(
                     children: [
@@ -1038,6 +1129,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _tableHeader(String text, double width) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return SizedBox(
       width: width,
       child: Text(text,
@@ -1046,7 +1138,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
           style: TextStyle(
-              color: AppTheme.neonCyan,
+              color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
               fontSize: 11,
               fontWeight: FontWeight.bold,
               fontFamily: 'Cairo')),
@@ -1054,6 +1146,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildItemRow(int index, _ProformaItem item) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final qty = double.tryParse(item.qtyCtrl.text) ?? 0;
     final price = double.tryParse(item.priceCtrl.text) ?? 0;
     final total = qty * price;
@@ -1063,7 +1156,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
         border: Border(
-            bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(100))),
+            bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(100) : const Color(0xFFE2E8F0))),
       ),
       child: Row(
         children: [
@@ -1138,10 +1231,10 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                 maxLines: 1,
                 softWrap: false,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: AppTheme.textPrimary,
+                style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                     fontSize: 12,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo'),
               ),
             ),
@@ -1167,25 +1260,26 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildAddItemButton() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: () => setState(() => _items.add(_ProformaItem())),
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.symmetric(vertical: 12),
         decoration: BoxDecoration(
-          color: AppTheme.neonCyan.withAlpha(15),
+          color: isDark ? AppTheme.neonCyan.withAlpha(15) : const Color(0xFFE0F2FE),
           borderRadius: BorderRadius.circular(10),
           border:
-              Border.all(color: AppTheme.neonCyan.withAlpha(60), width: 1.5),
+              Border.all(color: isDark ? AppTheme.neonCyan.withAlpha(60) : const Color(0xFF0284C7), width: 1.5),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.add_circle_outline, color: AppTheme.neonCyan, size: 20),
+            Icon(Icons.add_circle_outline, color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7), size: 20),
             const SizedBox(width: 8),
             Text('إضافة صنف آخر',
                 style: TextStyle(
-                    color: AppTheme.neonCyan,
+                    color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo')),
@@ -1196,6 +1290,7 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildTotalsSummary() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     int totalItems = _items.length;
     int totalCartons = 0;
     double totalNet = 0;
@@ -1220,20 +1315,20 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppTheme.primary.withAlpha(20),
+        color: isDark ? AppTheme.primary.withAlpha(20) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.primary.withAlpha(50)),
+        border: Border.all(color: isDark ? AppTheme.primary.withAlpha(50) : const Color(0xFFCBD5E1)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Icon(Icons.calculate_outlined, color: AppTheme.primary, size: 16),
+              Icon(Icons.calculate_outlined, color: isDark ? AppTheme.primary : const Color(0xFF0284C7), size: 16),
               const SizedBox(width: 6),
               Text('ملخص الفاتورة ككل',
                   style: TextStyle(
-                      color: AppTheme.primary,
+                      color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
                       fontWeight: FontWeight.bold,
                       fontSize: 14,
                       fontFamily: 'Cairo')),
@@ -1260,18 +1355,20 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _totalItem(String label, String value) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(label,
             style: TextStyle(
-                color: AppTheme.textSecondary,
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                 fontSize: 11,
+                fontWeight: FontWeight.w600,
                 fontFamily: 'Cairo')),
         const SizedBox(width: 4),
         Text(value,
-            style: const TextStyle(
-                color: AppTheme.textPrimary,
+            style: TextStyle(
+                color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                 fontWeight: FontWeight.bold,
                 fontSize: 12,
                 fontFamily: 'Cairo')),
@@ -1280,15 +1377,16 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildTermsSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: AppTheme.cyberSurface,
+          color: isDark ? AppTheme.cyberSurface : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.glassBorder),
+          border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1296,12 +1394,12 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.only(bottom: 8),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppTheme.glassBorder)),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0))),
               ),
-              child: const Text('TERMS OF SALE AND OTHER COMMENTS',
+              child: Text('TERMS OF SALE AND OTHER COMMENTS',
                   style: TextStyle(
-                      color: AppTheme.textPrimary,
+                      color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                       fontWeight: FontWeight.bold,
                       fontSize: 14)),
             ),
@@ -1309,19 +1407,19 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.only(bottom: 6),
-              decoration: const BoxDecoration(
-                border: Border(bottom: BorderSide(color: AppTheme.glassBorder)),
+              decoration: BoxDecoration(
+                border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0))),
               ),
-              child: const Text('TERMS AND CONDITIONS',
+              child: Text('TERMS AND CONDITIONS',
                   style: TextStyle(
-                      color: AppTheme.textSecondary,
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                       fontWeight: FontWeight.bold,
                       fontSize: 12)),
             ),
             const SizedBox(height: 6),
-            const Text('Fruity Farms',
+            Text('Fruity Farms',
                 style: TextStyle(
-                    color: AppTheme.textPrimary,
+                    color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                     fontWeight: FontWeight.w600,
                     fontSize: 13)),
             const SizedBox(height: 12),
@@ -1336,13 +1434,13 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
                 TextEditingController(
                     text: _transportMode == 'sea' ? 'By Sea' : 'By Air')),
             const SizedBox(height: 12),
-            const Text(
+            Text(
                 'All Banking Charges Out Of Egypt Including Remitting Charges Are On Applicants Account',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
+                style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontSize: 11)),
             const SizedBox(height: 6),
-            const Text(
+            Text(
                 'I Certify The Above To Be True And Correct To The Best Of My Knowledge',
-                style: TextStyle(color: AppTheme.textSecondary, fontSize: 11)),
+                style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontSize: 11)),
           ],
         ),
       ),
@@ -1350,30 +1448,34 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _termsField(String label, TextEditingController ctrl) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
-            style: const TextStyle(
-                color: AppTheme.textSecondary,
+            style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                 fontWeight: FontWeight.w600,
                 fontSize: 12)),
         const SizedBox(height: 2),
         TextField(
           controller: ctrl,
           textAlign: TextAlign.left,
-          style: const TextStyle(
-              color: AppTheme.textPrimary, fontSize: 13, fontFamily: 'Cairo'),
-          decoration: const InputDecoration(
+          style: TextStyle(
+              color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+              fontSize: 13,
+              fontFamily: 'Cairo',
+              fontWeight: FontWeight.w600),
+          decoration: InputDecoration(
             isDense: true,
-            contentPadding: EdgeInsets.symmetric(horizontal: 0, vertical: 6),
+            contentPadding: const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
             filled: false,
             border: UnderlineInputBorder(
-                borderSide: BorderSide(color: AppTheme.glassBorder)),
+                borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
             enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: AppTheme.glassBorder)),
+                borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
             focusedBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: AppTheme.primary, width: 1.5)),
+                borderSide: BorderSide(color: isDark ? AppTheme.primary : const Color(0xFF0284C7), width: 1.5)),
           ),
         ),
       ],
@@ -1381,24 +1483,25 @@ class _ProformaInvoiceFormPageState extends State<ProformaInvoiceFormPage> {
   }
 
   Widget _buildSaveButton() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ElevatedButton.icon(
       onPressed: _isSaving ? null : _save,
       icon: _isSaving
-          ? const SizedBox(
+          ? SizedBox(
               height: 16,
               width: 16,
               child: CircularProgressIndicator(
-                  color: AppTheme.primary, strokeWidth: 2))
+                  color: isDark ? AppTheme.primary : Colors.white, strokeWidth: 2))
           : const Icon(Icons.save_outlined, size: 16),
       label: Text(_isSaving ? 'جاري...' : 'حفظ',
-          style: const TextStyle(
-              color: AppTheme.primary,
+          style: TextStyle(
+              color: isDark ? AppTheme.primary : Colors.white,
               fontSize: 11,
               fontWeight: FontWeight.bold,
               fontFamily: 'Cairo')),
       style: ElevatedButton.styleFrom(
-        backgroundColor: Colors.white,
-        foregroundColor: AppTheme.primary,
+        backgroundColor: isDark ? Colors.white : AppTheme.primary,
+        foregroundColor: isDark ? AppTheme.primary : Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),

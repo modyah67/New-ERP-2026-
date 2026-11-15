@@ -3,8 +3,6 @@ library;
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:accounting_system/core/utils/file_helper.dart';
-import 'package:flutter/services.dart';
-import 'package:printing/printing.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../accounting/reporting/models/report_models.dart';
@@ -121,7 +119,7 @@ class TrialBalanceConfig {
             : Icons.warning_amber_outlined,
         color: report.isBalanced ? AppTheme.success : AppTheme.danger,
       ),
-      MetricData(
+      const MetricData(
         title: 'العملة',
         value: 'الكل (ج.م)',
         icon: Icons.monetization_on_outlined,
@@ -151,7 +149,7 @@ class TrialBalanceConfig {
               
               // ignore: use_build_context_synchronously
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
+                const SnackBar(
                   content: Text('تم حفظ ملف الإكسيل بنجاح في المستندات'),
                   backgroundColor: AppTheme.success,
                 ),

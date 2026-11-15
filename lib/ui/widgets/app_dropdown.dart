@@ -35,16 +35,26 @@ class AppDropdown<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryTextColor = isDark ? Colors.white : AppTheme.lightTextPrimary;
+    final secondaryTextColor = isDark ? AppTheme.textSecondary : AppTheme.lightTextSecondary;
+    final mutedTextColor = isDark ? Colors.white.withValues(alpha: 0.35) : AppTheme.lightTextMuted;
+    final fieldBg = isDark ? Colors.white.withValues(alpha: 0.06) : Colors.white;
+    final fieldBorder = isDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1);
+    final menuBg = isDark ? const Color(0xFF0A1E38) : Colors.white;
+    final menuBorder = isDark ? AppTheme.glassBorder : AppTheme.lightBorder;
+    final activeColor = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         RichText(
           text: TextSpan(
             text: label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textSecondary,
+              fontWeight: isDark ? FontWeight.w600 : FontWeight.bold,
+              color: isDark ? secondaryTextColor : Colors.black,
               fontFamily: 'Cairo',
             ),
             children: isRequired
@@ -68,39 +78,49 @@ class AppDropdown<T> extends StatelessWidget {
           popupProps: PopupProps.menu(
             showSearchBox: showSearch || items.length > 5,
             searchFieldProps: TextFieldProps(
-              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+              style: TextStyle(
+                color: primaryTextColor,
+                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                fontFamily: 'Cairo',
+              ),
               decoration: InputDecoration(
                 hintText: 'بحث...',
-                hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35)),
+                hintStyle: TextStyle(
+                  color: mutedTextColor,
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                ),
                 filled: true,
-                fillColor: const Color(0x1A00E5FF),
+                fillColor: isDark ? const Color(0x1A00E5FF) : const Color(0xFFF1F5F9),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                  borderSide: BorderSide(color: fieldBorder),
                 ),
                 enabledBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                  borderSide: BorderSide(color: fieldBorder),
                 ),
                 focusedBorder: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
-                  borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                  borderSide: BorderSide(color: activeColor, width: 1.5),
                 ),
               ),
             ),
             menuProps: MenuProps(
-              elevation: 8,
-              borderRadius: BorderRadius.circular(16),
-              color: const Color(0xFF0A1E38),
-              shadowColor: Colors.black.withValues(alpha: 0.4),
+              elevation: isDark ? 8 : 4,
+              color: menuBg,
+              shadowColor: Colors.black.withValues(alpha: isDark ? 0.4 : 0.1),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: menuBorder),
+              ),
             ),
             itemBuilder: (context, item, isSelected, isHighlighted) {
               return Container(
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                 decoration: BoxDecoration(
                   color: isHighlighted
-                      ? AppTheme.primary.withValues(alpha: 0.12)
+                      ? activeColor.withValues(alpha: 0.10)
                       : null,
                 ),
                 child: Text(
@@ -108,7 +128,7 @@ class AppDropdown<T> extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                    color: isSelected ? AppTheme.primary : Colors.white,
+                    color: isSelected ? activeColor : primaryTextColor,
                     fontFamily: 'Cairo',
                   ),
                 ),
@@ -116,26 +136,33 @@ class AppDropdown<T> extends StatelessWidget {
             },
           ),
           decoratorProps: DropDownDecoratorProps(
+            baseStyle: TextStyle(
+              color: primaryTextColor,
+              fontSize: 14,
+              fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+              fontFamily: 'Cairo',
+            ),
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: TextStyle(
                 fontFamily: 'Cairo',
-                color: Colors.white.withValues(alpha: 0.35),
+                color: mutedTextColor,
+                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
               ),
               filled: true,
-              fillColor: Colors.white.withValues(alpha: 0.06),
+              fillColor: fieldBg,
               contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                borderSide: BorderSide(color: fieldBorder),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+                borderSide: BorderSide(color: fieldBorder),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),
-                borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
+                borderSide: BorderSide(color: activeColor, width: 1.5),
               ),
               errorBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(14),

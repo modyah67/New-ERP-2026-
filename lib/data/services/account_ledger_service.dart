@@ -18,6 +18,7 @@ import '../../accounting/reporting/utils/account_classifier.dart';
 import '../../core/utils.dart';
 import '../models/account_ledger_result.dart';
 import '../models/account_model.dart';
+import '../models/cost_center.dart';
 
 class AccountLedgerService {
   final ReportDao _reportDao = ReportDao();
@@ -31,6 +32,8 @@ class AccountLedgerService {
   /// [accountType] - The account type string (asset, liability, equity, revenue, expense).
   /// [fromDate] / [toDate] - Optional date range filter.
   /// [currency] - Optional currency filter.
+  /// [entityId] - Optional filter by entity UUID/ID (e.g. supplier ID) for shared accounts.
+  /// [entityType] - Optional filter by entity type ('supplier', 'customer', etc.).
   ///
   /// Returns an [AccountLedgerResult] with pre-computed opening balance,
   /// running balances, totals, and deterministically sorted entries.
@@ -40,6 +43,8 @@ class AccountLedgerService {
     DateTime? fromDate,
     DateTime? toDate,
     String? currency,
+    String? entityId,
+    String? entityType,
   }) async {
     if (accountIds.isEmpty) return AccountLedgerResult.empty;
 
@@ -80,6 +85,8 @@ class AccountLedgerService {
           fromDate: fromDate,
           toDate: toDate,
           currency: currency,
+          entityId: entityId,
+          entityType: entityType,
         );
         rawEntries.addAll(entries);
       } catch (e) {
@@ -116,13 +123,34 @@ class AccountLedgerService {
     final entries = <AccountLedgerEntry>[];
 
     for (final raw in rawEntries) {
-      double debit = (raw['debit'] as num?)?.toDouble() ?? 0.0;
-      double credit = (raw['credit'] as num?)?.toDouble() ?? 0.0;
+      final rawDebit = (raw['debit'] as num?)?.toDouble() ?? 0.0;
+      final rawCredit = (raw['credit'] as num?)?.toDouble() ?? 0.0;
+      final rawCur = raw['currency']?.toString() ?? 'EGP';
+      final isForeign = rawCur != 'EGP' && rawCur != 'ج.م' && rawCur.isNotEmpty;
+
+      double debit = rawDebit;
+      double credit = rawCredit;
+      double? foreignDebit;
+      double? foreignCredit;
+      String? foreignCurrency;
+      double? exchangeRate;
+
+      if (isForeign) {
+        foreignDebit = rawDebit > 0 ? rawDebit : null;
+        foreignCredit = rawCredit > 0 ? rawCredit : null;
+        foreignCurrency = rawCur;
+      }
 
       if (isBaseMode) {
         final baseAmount = (raw['amount_in_base_currency'] as num?)?.toDouble() ?? (debit > 0 ? debit : credit);
         if (debit > 0) debit = baseAmount;
         if (credit > 0) credit = baseAmount;
+        if (isForeign) {
+          final origAmt = (rawDebit > 0 ? rawDebit : rawCredit);
+          if (origAmt > 0 && baseAmount > 0) {
+            exchangeRate = baseAmount / origAmt;
+          }
+        }
       }
 
       totalDebit += debit;
@@ -151,7 +179,16 @@ class AccountLedgerService {
         currency: isBaseMode ? 'ج.م' : (raw['currency']?.toString() ?? currency),
         accountCode: raw['account_code']?.toString() ?? '',
         accountName: raw['account_name']?.toString() ?? '',
+        costCenterId: raw['cost_center_id']?.toString(),
+        costCenterName: raw['cost_center_name']?.toString() ??
+            (raw['cost_center_id'] != null && raw['cost_center_id'].toString().isNotEmpty
+                ? CostCenterHelper.fromId(raw['cost_center_id'].toString()).nameAr
+                : null),
         createdAt: raw['created_at']?.toString() ?? '',
+        foreignDebit: foreignDebit,
+        foreignCredit: foreignCredit,
+        foreignCurrency: foreignCurrency,
+        exchangeRate: exchangeRate,
       ));
     }
 
@@ -177,6 +214,8 @@ class AccountLedgerService {
     DateTime? fromDate,
     DateTime? toDate,
     String? currency,
+    String? entityId,
+    String? entityType,
   }) async {
     // Use v_journal_entry_lines view which joins account_ledger_entries + journal_entries + accounts
     var query = _client.from('v_journal_entry_lines').select('*');
@@ -218,7 +257,50 @@ class AccountLedgerService {
       } catch (_) {}
     }
 
-    return (data as List).map((row) {
+    // Filter by entityId if provided to protect shared sub-ledger control accounts
+    final filteredRows = (data as List).where((row) {
+      if (entityId == null || entityId.trim().isEmpty) return true;
+      final targetId = entityId.trim().toLowerCase();
+      final rowEntityId = (row['entity_id']?.toString() ?? '').trim().toLowerCase();
+      // If row has an explicit entity_id, it must match
+      if (rowEntityId.isNotEmpty && rowEntityId != 'null') {
+        return rowEntityId == targetId;
+      }
+      return true;
+    }).toList();
+
+    // Lookup packing_order_cost_items to enrich descriptions for cost settlement entries
+    final settlementOrderIds = <String>{};
+    for (final row in filteredRows) {
+      final sType = row['source_type']?.toString().toLowerCase();
+      final sId = row['source_id']?.toString();
+      if ((sType == 'packing_cost_settlement' || sType == 'cost_settlement') &&
+          sId != null &&
+          sId.isNotEmpty) {
+        settlementOrderIds.add(sId);
+      }
+    }
+
+    final Map<String, List<Map<String, dynamic>>> costItemsByOrderId = {};
+    if (settlementOrderIds.isNotEmpty) {
+      try {
+        final costData = await _client
+            .from('packing_order_cost_items')
+            .select('id, packing_order_id, name, actual_amount, actual_quantity, actual_unit_price, detailed_notes, settlement_notes, invoice_ref')
+            .inFilter('packing_order_id', settlementOrderIds.toList());
+        for (final item in (costData as List)) {
+          final m = Map<String, dynamic>.from(item as Map);
+          final poId = m['packing_order_id']?.toString();
+          if (poId != null) {
+            costItemsByOrderId.putIfAbsent(poId, () => []).add(m);
+          }
+        }
+      } catch (e) {
+        debugPrint('AccountLedgerService: error fetching cost settlement notes: $e');
+      }
+    }
+
+    return filteredRows.map((row) {
       final flat = Map<String, dynamic>.from(row as Map);
       final accId = flat['account_id']?.toString();
       final account = accId != null ? accountsMap[accId] : null;
@@ -227,6 +309,20 @@ class AccountLedgerService {
       final acCode = flat['account_code']?.toString();
       final acName = flat['account_name']?.toString();
 
+      final ccId = flat['cost_center_id']?.toString();
+      final rawCcName = flat['cost_center_name']?.toString();
+      final ccName = (rawCcName != null && rawCcName.isNotEmpty)
+          ? rawCcName
+          : (ccId != null && ccId.isNotEmpty ? CostCenterHelper.fromId(ccId).nameAr : '');
+
+      final sType = flat['source_type']?.toString().toLowerCase();
+      final sId = flat['source_id']?.toString();
+      final enrichedDesc = enrichCostSettlementLedgerDescription(
+        rawDescription: flat['description']?.toString() ?? '',
+        sourceType: sType,
+        orderItems: sId != null ? costItemsByOrderId[sId] : null,
+      );
+
       return {
         'id': flat['id']?.toString(),
         'date': flat['transaction_date']?.toString() ?? '',
@@ -234,7 +330,9 @@ class AccountLedgerService {
         'account_id': flat['account_id']?.toString(),
         'account_code': (acCode != null && acCode.isNotEmpty) ? acCode : accountModel.code,
         'account_name': (acName != null && acName.isNotEmpty) ? acName : accountModel.displayName,
-        'description': flat['description']?.toString() ?? '',
+        'cost_center_id': ccId,
+        'cost_center_name': ccName,
+        'description': enrichedDesc,
         'debit': (flat['debit'] as num?)?.toDouble() ?? 0.0,
         'credit': (flat['credit'] as num?)?.toDouble() ?? 0.0,
         'amount_in_base_currency': (flat['amount_in_base_currency'] as num?)?.toDouble(),
@@ -244,6 +342,47 @@ class AccountLedgerService {
         'created_at': flat['created_at']?.toString() ?? '',
       };
     }).toList();
+  }
+
+  /// Enriches a general ledger entry description with detailed settlement notes
+  /// from packing_order_cost_items when the database description is generic or incomplete.
+  static String enrichCostSettlementLedgerDescription({
+    required String rawDescription,
+    required String? sourceType,
+    List<Map<String, dynamic>>? orderItems,
+  }) {
+    String desc = rawDescription.trim();
+    final sType = sourceType?.toLowerCase() ?? '';
+    if ((sType != 'packing_cost_settlement' && sType != 'cost_settlement') ||
+        orderItems == null ||
+        orderItems.isEmpty) {
+      return desc;
+    }
+
+    for (final item in orderItems) {
+      final notes = (item['detailed_notes'] ??
+              item['settlement_notes'] ??
+              item['notes'])
+          ?.toString()
+          .trim();
+      final invRef = item['invoice_ref']?.toString().trim();
+      final itemName = item['name']?.toString().trim() ?? '';
+
+      final matchesItem = orderItems.length == 1 ||
+          (itemName.isNotEmpty && desc.contains(itemName));
+
+      if (matchesItem) {
+        if (notes != null && notes.isNotEmpty && !desc.contains(notes)) {
+          desc = desc.isNotEmpty
+              ? '$desc - $notes'
+              : 'تسوية تكلفة فعلية${itemName.isNotEmpty ? ' ($itemName)' : ''} - $notes';
+        }
+        if (invRef != null && invRef.isNotEmpty && !desc.contains(invRef)) {
+          desc = desc.isNotEmpty ? '$desc - مستند: $invRef' : 'مستند: $invRef';
+        }
+      }
+    }
+    return desc;
   }
 
   /// Build a display-friendly description from raw entry data
@@ -266,26 +405,17 @@ class AccountLedgerService {
       case 'sales_invoice':
       case 'invoice':
         return 'فاتورة مبيعات';
+      case 'packing_order_costs':
+      case 'packing_cost':
+        return 'استحقاق تكلفة أمر تعبئة';
+      case 'packing_cost_settlement':
+      case 'cost_settlement':
+        return 'تسوية تكلفة فعلية';
       case 'manual':
       case 'manual_journal':
         return 'قيد يدوي';
       default:
         return 'قيد محاسبي';
     }
-  }
-
-  /// Detect the dominant currency from entries
-  String _detectCurrency(List<AccountLedgerEntry> entries) {
-    if (entries.isEmpty) return 'EGP';
-    // Use the currency of the first entry (all entries for a leaf account
-    // should have the same currency)
-    final currencies = <String, int>{};
-    for (final e in entries) {
-      currencies[e.currency] = (currencies[e.currency] ?? 0) + 1;
-    }
-    // Return the most common currency
-    final sorted = currencies.entries.toList()
-      ..sort((a, b) => b.value.compareTo(a.value));
-    return sorted.first.key;
   }
 }

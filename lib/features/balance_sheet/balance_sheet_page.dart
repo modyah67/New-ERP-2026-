@@ -46,7 +46,6 @@ class BalanceSheetPage extends StatelessWidget {
     final report = state.report;
 
     final gridRows = _buildGridRows(report, state);
-
     final depthMap = _buildDepthMap(state.hierarchy);
 
     return ReportingScaffold(
@@ -57,14 +56,17 @@ class BalanceSheetPage extends StatelessWidget {
           report.equity.lines.length,
       headerCountLabel: 'حساب',
       headerActions: [
-        IconButton(
-          onPressed: () => cubit.toggleFullscreen(),
-          icon: Icon(
-            state.isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-            color: AppTheme.textSecondary,
-          ),
-          tooltip: 'شاشة كاملة',
-        ),
+        Builder(builder: (ctx) {
+          final iconColor = AppTheme.getTextSecondary(ctx);
+          return IconButton(
+            onPressed: () => cubit.toggleFullscreen(),
+            icon: Icon(
+              state.isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
+              color: iconColor,
+            ),
+            tooltip: 'شاشة كاملة',
+          );
+        }),
       ],
 
       filterBar: ReportingFilterBar(
@@ -123,6 +125,8 @@ class BalanceSheetPage extends StatelessWidget {
 
   Widget _buildFilterContent(
       BuildContext context, BalanceSheetLoaded state, BalanceSheetCubit cubit) {
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     return Row(
       children: [
         ReportingPresetButton(
@@ -161,24 +165,24 @@ class BalanceSheetPage extends StatelessWidget {
           },
         ),
         const SizedBox(width: 16),
-        // ReportingToggleButton(
-        //   label: 'إخفاء الأصفار',
-        //   isActive: state.hideZeroBalances,
-        //   onPressed: () => cubit.toggleHideZeroBalances(),
-        // ),
         const SizedBox(width: 12),
-        IconButton(
-          onPressed: () => cubit.expandAll(),
-          icon: Icon(Icons.unfold_more, size: 18, color: AppTheme.textSecondary),
-          tooltip: 'توسيع الكل',
-        ),
-        IconButton(
-          onPressed: () => cubit.collapseAll(),
-          icon: Icon(Icons.unfold_less, size: 18, color: AppTheme.textSecondary),
-          tooltip: 'طي الكل',
-        ),
+        Builder(builder: (ctx) {
+          final iconColor = AppTheme.getTextSecondary(ctx);
+          return Row(mainAxisSize: MainAxisSize.min, children: [
+            IconButton(
+              onPressed: () => cubit.expandAll(),
+              icon: Icon(Icons.unfold_more, size: 18, color: iconColor),
+              tooltip: 'توسيع الكل',
+            ),
+            IconButton(
+              onPressed: () => cubit.collapseAll(),
+              icon: Icon(Icons.unfold_less, size: 18, color: iconColor),
+              tooltip: 'طي الكل',
+            ),
+          ]);
+        }),
         const SizedBox(width: 12),
-        Text('بتاريخ:', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Text('بتاريخ:', style: TextStyle(fontSize: 12, color: textSecondary)),
         const SizedBox(width: 6),
         ReportingDateChip(
           label: state.filter.toDate != null
@@ -199,125 +203,137 @@ class BalanceSheetPage extends StatelessWidget {
       ],
     );
   }
+
   Widget _buildFooter(BalanceSheetReport report) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      decoration: BoxDecoration(
-        color: AppTheme.primary.withAlpha(20),
-        border: Border(
-            top: BorderSide(color: AppTheme.border.withAlpha(80), width: 1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const SizedBox(width: 130),
-              Expanded(
-                flex: 3,
-                child: Text(
-                  'إجمالي الأصول',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary,
+    return Builder(builder: (context) {
+      final isDark = AppTheme.isDark(context);
+      final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+      final borderColor = AppTheme.getBorderColor(context);
+      final textPrimary = AppTheme.getTextPrimary(context);
+
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: primary.withAlpha(20),
+          border: Border(
+              top: BorderSide(color: borderColor.withAlpha(80), width: 1)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const SizedBox(width: 130),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    'إجمالي الأصول',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: textPrimary,
+                    ),
                   ),
                 ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  AppUtils.formatNumber(report.totalAssets),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.primary,
-                    fontFamily: 'monospace',
-                  ),
-                  textAlign: TextAlign.right,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const SizedBox(width: 130),
-              Expanded(
-                flex: 3,
-                child: Text(
-                  'إجمالي الخصوم وحقوق الملكية',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary,
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    AppUtils.formatNumber(report.totalAssets),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: primary,
+                      fontFamily: 'monospace',
+                    ),
+                    textAlign: TextAlign.right,
                   ),
                 ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  AppUtils.formatNumber(report.totalLiabilitiesAndEquity),
-                  style: const TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.accent,
-                    fontFamily: 'monospace',
-                  ),
-                  textAlign: TextAlign.right,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              const SizedBox(width: 130),
-              Expanded(
-                flex: 3,
-                child: Text(
-                  'الفرق',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary,
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const SizedBox(width: 130),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    'إجمالي الخصوم وحقوق الملكية',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: textPrimary,
+                    ),
                   ),
                 ),
-              ),
-              Expanded(
-                flex: 2,
-                child: Text(
-                  AppUtils.formatNumber(report.difference),
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    color: report.isBalanced ? AppTheme.success : AppTheme.danger,
-                    fontFamily: 'monospace',
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    AppUtils.formatNumber(report.totalLiabilitiesAndEquity),
+                    style: const TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.accent,
+                      fontFamily: 'monospace',
+                    ),
+                    textAlign: TextAlign.right,
                   ),
-                  textAlign: TextAlign.right,
                 ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                const SizedBox(width: 130),
+                Expanded(
+                  flex: 3,
+                  child: Text(
+                    'الفرق',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: textPrimary,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  flex: 2,
+                  child: Text(
+                    AppUtils.formatNumber(report.difference),
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.bold,
+                      color: report.isBalanced ? AppTheme.success : AppTheme.danger,
+                      fontFamily: 'monospace',
+                    ),
+                    textAlign: TextAlign.right,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+    });
   }
 
   Widget _buildLoadingOrError(BuildContext context, BalanceSheetState state) {
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final textColor = AppTheme.getTextSecondary(context);
+
     if (state is BalanceSheetLoading) {
-      return const Scaffold(
+      return Scaffold(
         backgroundColor: Colors.transparent,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(color: Color(0xFF16D5FF)),
-              SizedBox(height: 16),
+              CircularProgressIndicator(color: primary),
+              const SizedBox(height: 16),
               Text(
                 'جاري تحميل الميزانية العامة...',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
+                style: TextStyle(color: textColor, fontSize: 14),
               ),
             ],
           ),
@@ -373,7 +389,7 @@ class BalanceSheetPage extends StatelessWidget {
         {bool isSectionHeader = true}) {
       if (isSectionHeader) {
         result.add(ReportingRowData(
-          id: 'section_${title}',
+          id: 'section_$title',
           cells: {'code': '', 'name': titleAr, 'amount': section.total},
           hasChildren: false,
           isParent: true,
@@ -394,7 +410,7 @@ class BalanceSheetPage extends StatelessWidget {
       }
 
       result.add(ReportingRowData(
-        id: 'total_${title}',
+        id: 'total_$title',
         cells: {
           'code': '',
           'name': 'إجمالي $titleAr',

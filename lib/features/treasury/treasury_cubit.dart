@@ -9,6 +9,7 @@ import '../../data/models/treasury_stats_model.dart';
 import '../../data/models/purchase_model.dart';
 import '../../data/services/supplier_settlement_service.dart';
 import '../../data/services/chart_of_accounts_cache_service.dart';
+import '../../data/dao/account_dao.dart';
 import '../../core/data_change_event_bus.dart';
 import 'treasury_state.dart';
 
@@ -22,17 +23,21 @@ class TreasuryCubit extends Cubit<TreasuryState> {
   static const Duration _throttle = Duration(seconds: 2);
 
   RealtimeChannel? _realtimeChannel;
+  StreamSubscription? _eventBusSub;
 
   TreasuryCubit() : super(TreasuryInitial());
 
   void init() {
     loadAll();
     _subscribe();
+    _eventBusSub?.cancel();
+    _eventBusSub = DataChangeEventBus.instance.treasuriesStream.listen((_) => loadAll());
   }
 
   @override
   Future<void> close() {
     _refreshDebounce?.cancel();
+    _eventBusSub?.cancel();
     _unsubscribe();
     return super.close();
   }
@@ -173,7 +178,7 @@ class TreasuryCubit extends Cubit<TreasuryState> {
 
       if (isAdmin || hasOwnerSafe) {
         dataFutures.add(_dao.getExpenseCategories().catchError((_) => <ExpenseCategoryModel>[]));
-        dataFutures.add(ChartOfAccountsCacheService().getExpenseAccounts(forceRefresh: true).catchError((_) => <Map<String, dynamic>>[]));
+        dataFutures.add(ChartOfAccountsCacheService().getAdminExpenseAccounts(forceRefresh: true).catchError((_) => <Map<String, dynamic>>[]));
         dataFutures.add(_dao.getTreasuryStats(
           mainTreasuryId: mainTreasury.isNotEmpty ? mainTreasury.first.id! : '',
           allTreasuries: isAdmin,
@@ -368,6 +373,10 @@ class TreasuryCubit extends Cubit<TreasuryState> {
     required double amount,
     String description = '',
     String? notes,
+    String? costCenterId,
+    dynamic branchId,
+    dynamic toBranchId,
+    String? toCostCenterId,
   }) async {
     if (state is! TreasuryLoaded) return;
     final loaded = state as TreasuryLoaded;
@@ -381,6 +390,10 @@ class TreasuryCubit extends Cubit<TreasuryState> {
         amount: amount,
         description: description,
         notes: notes,
+        costCenterId: costCenterId,
+        branchId: branchId,
+        toBranchId: toBranchId,
+        toCostCenterId: toCostCenterId,
       );
       await loadAll(reset: true);
     } catch (e) {
@@ -407,6 +420,8 @@ class TreasuryCubit extends Cubit<TreasuryState> {
     String? shareholderId,
     PurchaseModel? invoice,
     String? notes,
+    String? costCenterId,
+    dynamic branchId,
   }) async {
     debugPrint('═══════════════════════════════════════════════');
     debugPrint('💥 TREASURY_CUBIT.spend() ENTRY');
@@ -415,6 +430,8 @@ class TreasuryCubit extends Cubit<TreasuryState> {
     debugPrint('  currency         = "$currency"');
     debugPrint('  amount           = $amount');
     debugPrint('  supplierId       = "$supplierId"');
+    debugPrint('  costCenterId     = "$costCenterId"');
+    debugPrint('  branchId         = "$branchId"');
     debugPrint('═══════════════════════════════════════════════');
 
     if (state is! TreasuryLoaded) return;
@@ -452,6 +469,8 @@ class TreasuryCubit extends Cubit<TreasuryState> {
         shareholderId: shareholderId,
         invoice: invoice,
         notes: notes,
+        costCenterId: costCenterId,
+        branchId: branchId,
       );
       await loadAll(reset: true);
       _notifyCounterpartyChanged(
@@ -486,6 +505,8 @@ class TreasuryCubit extends Cubit<TreasuryState> {
     String? shareholderId,
     PurchaseModel? invoice,
     String? notes,
+    String? costCenterId,
+    dynamic branchId,
   }) async {
     debugPrint('💥 spendWithCategory ENTERED (state=${state.runtimeType})');
     debugPrint('═══════════════════════════════════════════════');
@@ -496,6 +517,8 @@ class TreasuryCubit extends Cubit<TreasuryState> {
     debugPrint('  amount           = $amount');
     debugPrint('  categoryId       = $categoryId');
     debugPrint('  supplierId       = "$supplierId"');
+    debugPrint('  costCenterId     = "$costCenterId"');
+    debugPrint('  branchId         = "$branchId"');
     debugPrint('═══════════════════════════════════════════════');
     if (state is! TreasuryLoaded) {
       debugPrint('💥 EARLY RETURN: state is ${state.runtimeType}, not TreasuryLoaded');
@@ -536,6 +559,8 @@ class TreasuryCubit extends Cubit<TreasuryState> {
         shareholderId: shareholderId,
         invoice: invoice,
         notes: notes,
+        costCenterId: costCenterId,
+        branchId: branchId,
       );
       debugPrint('💰 spendWithCategory: RPC OK, reloading stats...');
       await loadAll(reset: true);
@@ -659,6 +684,7 @@ class TreasuryCubit extends Cubit<TreasuryState> {
     double? amount,
     String? transactionType,
     int? treasuryId,
+    String? currency,
   }) async {
     if (state is! TreasuryLoaded) return;
     final loaded = state as TreasuryLoaded;
@@ -672,6 +698,7 @@ class TreasuryCubit extends Cubit<TreasuryState> {
         amount: amount,
         transactionType: transactionType,
         treasuryId: treasuryId?.toString(),
+        currency: currency,
       );
       await loadAll(reset: true);
       _notifyAllCounterpartiesChanged();
@@ -680,6 +707,7 @@ class TreasuryCubit extends Cubit<TreasuryState> {
         isSaving: false,
         errorMessage: 'فشل تحديث الحركة: $e',
       ));
+      rethrow;
     }
   }
 
@@ -971,6 +999,10 @@ class TreasuryCubit extends Cubit<TreasuryState> {
     String? shareholderId,
     String? notes,
     PurchaseModel? invoice,
+    String? costCenterId,
+    dynamic branchId,
+    dynamic toBranchId,
+    String? toCostCenterId,
   }) async {
     if (state is! TreasuryLoaded) return;
     final loaded = state as TreasuryLoaded;
@@ -1010,6 +1042,10 @@ class TreasuryCubit extends Cubit<TreasuryState> {
         shippingCompanyId: shippingCompanyId,
         shareholderId: shareholderId,
         payload: payload,
+        costCenterId: costCenterId,
+        branchId: branchId,
+        toBranchId: toBranchId,
+        toCostCenterId: toCostCenterId,
       );
 
       await loadAll(reset: true);
@@ -1172,6 +1208,10 @@ class TreasuryCubit extends Cubit<TreasuryState> {
     int? shippingCompanyId,
     String? shareholderId,
     Map<String, dynamic>? payload,
+    String? costCenterId,
+    dynamic branchId,
+    dynamic toBranchId,
+    String? toCostCenterId,
   }) async {
     if (state is! TreasuryLoaded) return;
     final loaded = state as TreasuryLoaded;
@@ -1194,6 +1234,10 @@ class TreasuryCubit extends Cubit<TreasuryState> {
         shippingCompanyId: shippingCompanyId,
         shareholderId: shareholderId,
         payload: payload,
+        costCenterId: costCenterId,
+        branchId: branchId,
+        toBranchId: toBranchId,
+        toCostCenterId: toCostCenterId,
       );
       await loadAll(reset: true);
     } catch (e) {
@@ -1234,6 +1278,38 @@ class TreasuryCubit extends Cubit<TreasuryState> {
         isSaving: false,
         errorMessage: 'فشل تأكيد المسودة: $e',
       ));
+    }
+  }
+
+  /// Create dynamic expense sub-account in Chart of Accounts and reload cache
+  Future<Map<String, dynamic>?> createExpenseSubAccount({
+    required String parentCode,
+    required String nameAr,
+    String? nameEn,
+    String? costCenterId,
+    String? customCode,
+  }) async {
+    try {
+      final res = await AccountDao().createExpenseSubAccount(
+        parentCode: parentCode,
+        nameAr: nameAr,
+        nameEn: nameEn,
+        costCenterId: costCenterId,
+        customCode: customCode,
+      );
+
+      ChartOfAccountsCacheService().invalidate();
+      final updatedAccounts = await ChartOfAccountsCacheService().getAdminExpenseAccounts(forceRefresh: true);
+
+      if (state is TreasuryLoaded) {
+        final loaded = state as TreasuryLoaded;
+        emit(loaded.copyWith(expenseAccounts: updatedAccounts));
+      }
+
+      return res;
+    } catch (e) {
+      debugPrint('Error creating expense sub-account in cubit: $e');
+      return null;
     }
   }
 }

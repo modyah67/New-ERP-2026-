@@ -30,6 +30,9 @@ class _MetricCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textPrimary = AppTheme.getTextPrimary(context);
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     return Container(
       width: 160,
       padding: const EdgeInsets.all(14),
@@ -57,7 +60,7 @@ class _MetricCard extends StatelessWidget {
                   data.title,
                   style: TextStyle(
                     fontSize: 11,
-                    color: AppTheme.textSecondary,
+                    color: textSecondary,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
@@ -68,7 +71,7 @@ class _MetricCard extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 14,
                     fontWeight: FontWeight.bold,
-                    color: AppTheme.textPrimary,
+                    color: textPrimary,
                   ),
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,

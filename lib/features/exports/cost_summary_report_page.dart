@@ -1,3 +1,5 @@
+// ignore_for_file: unused_element, unused_field, unused_element_parameter
+import 'dart:async';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
@@ -9,12 +11,16 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:excel/excel.dart' hide Border;
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/data_change_event_bus.dart';
 import '../../core/theme.dart';
 import '../../core/constants.dart';
 import '../../data/dao/cost_report_dao.dart';
+import '../../data/models/cost_center.dart';
 import '../../data/services/currency_conversion_service.dart';
 import '../../features/auth/auth_cubit.dart';
 import 'cost_details_report_page.dart';
+import 'widgets/cost_center_form_dialog.dart';
+import 'widgets/season_rollover_dialog.dart';
 
 class CostSummaryReportPage extends StatefulWidget {
   const CostSummaryReportPage({super.key});
@@ -32,10 +38,18 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
   List<Map<String, dynamic>> _allDetails = [];
   List<String> _customers = [];
   List<Map<String, dynamic>> _costCategories = [];
+  List<Map<String, dynamic>> _costCenterBreakdown = [];
+  List<CostCenter> _activeCostCenters = [];
+  List<CostCenter> _allCostCenters = []; // includes closed seasons
+  List<Map<String, dynamic>> _expenseBranches = [];
 
   String? _selectedCustomer;
+  String? _selectedCostCenter;
   final _fromCtrl = TextEditingController();
   final _toCtrl = TextEditingController();
+  final _branchSearchCtrl = TextEditingController();
+  bool _showOnlyActiveBranches = false;
+  StreamSubscription? _eventSubscription;
 
   String _fmtCurrency(double v) {
     return 'EGP ${NumberFormat('#,##0.00').format(v)}';
@@ -47,12 +61,19 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _load();
     });
+
+    _eventSubscription = DataChangeEventBus.instance.costCentersStream.listen((_) {
+      CostReportDao.clearCostCenterCache();
+      if (mounted) _load();
+    });
   }
 
   @override
   void dispose() {
+    _eventSubscription?.cancel();
     _fromCtrl.dispose();
     _toCtrl.dispose();
+    _branchSearchCtrl.dispose();
     super.dispose();
   }
 
@@ -61,35 +82,106 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
     try {
       final from = _fromCtrl.text.isNotEmpty ? _fromCtrl.text : null;
       final to = _toCtrl.text.isNotEmpty ? _toCtrl.text : null;
-      final results = await Future.wait([
-        _dao.getSummary(
-            fromDate: from, toDate: to, customer: _selectedCustomer),
-        _dao.getDetails(
-            fromDate: from, toDate: to, customer: _selectedCustomer),
+
+      // 1. Fetch metadata and cost centers in parallel (lightweight)
+      final metaResults = await Future.wait([
+        _dao.getAllCostCenters(),
         _dao.getDistinctCustomers(),
         Supabase.instance.client
             .from('cost_report_categories')
-            .select('id, name, type')
+            .select('id, name, type, account_id, cost_center_id')
             .order('name'),
       ]);
+
+      final allCenters = metaResults[0] as List<CostCenter>;
+      final activeCenters = allCenters.where((c) => !c.isClosed).toList();
+      final customers = metaResults[1] as List<String>;
+      final rawCats = metaResults[2] as List;
+      final costCategories = rawCats.map((e) => Map<String, dynamic>.from(e)).toList();
+
+      // 2. Fetch baseline details EXACTLY ONCE (Unconstrained across cost centers)
+      final allBaselineDetails = await _dao.getDetails(
+        fromDate: from,
+        toDate: to,
+        customer: _selectedCustomer,
+        costCenter: null,
+        activeCenters: activeCenters,
+        allCenters: allCenters,
+      );
+
+      final breakdownDetails = allBaselineDetails;
+
+      // Filter in-memory with zero redundant DB queries if a specific cost center is selected
+      List<Map<String, dynamic>> allDetails = allBaselineDetails;
+      if (_selectedCostCenter != null && _selectedCostCenter!.isNotEmpty && _selectedCostCenter != 'all') {
+        final cleanCc = _selectedCostCenter!.trim();
+        allDetails = allBaselineDetails.where((r) {
+          final rCcId = r['cost_center_id']?.toString().trim();
+          final rCcName = r['cost_center_name']?.toString().trim();
+          final rCode = r['cost_center_code']?.toString().trim();
+          return rCcId == cleanCc || rCcName == cleanCc || rCode == cleanCc;
+        }).toList();
+      }
+
+      await Future.delayed(Duration.zero);
+
+      // 3. Derive summary, breakdown, and expense branches in memory with zero redundant DB hits
+      final summary = await _dao.getSummary(
+        preloadedDetails: allDetails,
+        fromDate: from,
+        toDate: to,
+        customer: _selectedCustomer,
+        costCenter: _selectedCostCenter,
+        activeCenters: activeCenters,
+        allCenters: allCenters,
+      );
+
+      await Future.delayed(Duration.zero);
+
+      final breakdown = await _dao.getCostCenterBreakdown(
+        fromDate: from,
+        toDate: to,
+        customer: _selectedCustomer,
+        preloadedDetails: breakdownDetails,
+        allCenters: allCenters,
+        activeCenters: activeCenters,
+      );
+
+      await Future.delayed(Duration.zero);
+
+      final branches = await _dao.getExpenseBranchVariance(
+        costCenterId: _selectedCostCenter,
+        fromDate: from,
+        toDate: to,
+        customer: _selectedCustomer,
+        preloadedDetails: allDetails,
+        activeCenters: activeCenters,
+        allCenters: allCenters,
+        preloadedCategories: costCategories,
+      );
+
       if (mounted) {
         setState(() {
-          _summary = (results[0] as List<Map<String, dynamic>>);
-          _allDetails = results[1] as List<Map<String, dynamic>>;
-          _recent = _allDetails.take(15).toList();
-          _customers = results[2] as List<String>;
-          _costCategories = (results[3] as List)
-              .map((e) => Map<String, dynamic>.from(e))
-              .toList();
+          _summary = summary;
+          _allDetails = allDetails;
+          _recent = allDetails.take(15).toList();
+          _customers = customers;
+          _costCategories = costCategories;
+          _costCenterBreakdown = breakdown;
+          _activeCostCenters = activeCenters;
+          _allCostCenters = allCenters;
+          _expenseBranches = branches;
           _loading = false;
         });
       }
-    } catch (_) {
+    } catch (e) {
+      debugPrint('❌ CostSummaryReportPage _load error: $e');
       if (mounted) setState(() => _loading = false);
     }
   }
 
   Future<void> _pickDate(TextEditingController ctrl) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final d = await showDatePicker(
       context: context,
       initialDate: DateTime.now(),
@@ -97,8 +189,13 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
       lastDate: DateTime(2030),
       builder: (ctx, child) => Theme(
         data: Theme.of(ctx).copyWith(
-          colorScheme: const ColorScheme.dark(
-              primary: AppTheme.primary, surface: AppTheme.background),
+          colorScheme: isDark
+              ? const ColorScheme.dark(
+                  primary: AppTheme.primary, surface: AppTheme.background)
+              : const ColorScheme.light(
+                  primary: AppTheme.primary,
+                  surface: Colors.white,
+                  onSurface: Color(0xFF0F172A)),
         ),
         child: child!,
       ),
@@ -112,17 +209,20 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: ui.TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
         body: Container(
-          decoration: AppTheme.backgroundGradient,
+          decoration: isDark ? AppTheme.backgroundGradient : null,
+          color: isDark ? null : const Color(0xFFF8FAFC),
           child: Stack(
             children: [
               Column(
                 children: [
                   _buildHeader(),
+                  _buildFilters(),
                   Expanded(
                     child: _loading
                         ? const Center(
@@ -157,111 +257,189 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
     );
   }
 
+  void _openAddCostCenterDialog() {
+    CostCenterFormDialog.show(
+      context,
+      onSaved: (_) {
+        CostReportDao.clearCostCenterCache();
+        _load();
+      },
+    );
+  }
+
   Widget _buildHeader() {
-    return Container(
-      padding: EdgeInsets.only(
-          top: MediaQuery.of(context).padding.top + 12,
-          bottom: 12,
-          left: 12,
-          right: 12),
-      decoration: BoxDecoration(
-        border: Border(
-            bottom:
-                BorderSide(color: AppTheme.glassBorder.withValues(alpha: 40))),
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final isNarrow = constraints.maxWidth < 500;
-          if (isNarrow) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Icon(Icons.analytics_outlined,
-                      color: AppTheme.primary, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text('تقارير التكاليف',
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenW = MediaQuery.sizeOf(context).width;
+        final isMobile = constraints.maxWidth < 750 || screenW < 750;
+        final isVeryNarrow = isMobile;
+        final topPad = MediaQuery.of(context).padding.top + (isMobile ? 54.0 : 12.0);
+        return Container(
+          padding: EdgeInsets.only(
+              top: topPad,
+              bottom: 12,
+              left: 12,
+              right: 12),
+          decoration: BoxDecoration(
+            color: isDark ? null : Colors.white,
+            border: Border(
+                bottom:
+                    BorderSide(color: isDark ? AppTheme.glassBorder.withValues(alpha: 40) : const Color(0xFFE2E8F0))),
+          ),
+          child: isVeryNarrow
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(Icons.analytics_outlined, color: AppTheme.primary, size: 22),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'مراكز التكلفة والتقارير',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Cairo',
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton.icon(
+                            onPressed: () {
+                              SeasonRolloverDialog.show(
+                                context,
+                                activeCostCenters: _activeCostCenters,
+                                onRolloverCompleted: () {
+                                  CostReportDao.clearCostCenterCache();
+                                  _load();
+                                },
+                              );
+                            },
+                            icon: const Icon(Icons.published_with_changes_rounded, size: 14, color: Color(0xFFF59E0B)),
+                            label: const Text(
+                              'ترحيل موسم',
+                              style: TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFF59E0B),
+                              ),
+                            ),
+                            style: OutlinedButton.styleFrom(
+                              side: const BorderSide(color: Color(0xFFF59E0B)),
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _openAddCostCenterDialog,
+                            icon: const Icon(Icons.add_circle_outline, size: 14),
+                            label: const Text(
+                              'مركز تكلفة',
+                              style: TextStyle(
+                                fontFamily: 'Cairo',
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                              elevation: 2,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                )
+              : Row(
+                  children: [
+                    const Icon(Icons.analytics_outlined, color: AppTheme.primary, size: 22),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'مراكز التكلفة والتقارير',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            color: AppTheme.textPrimary,
-                            fontSize: 16,
+                        style: TextStyle(
+                            color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                            fontSize: 18,
                             fontWeight: FontWeight.bold,
-                            fontFamily: 'Cairo')),
-                  ),
-                  // Text('${_summary.fold<int>(0, (s, e) => s + (e['transaction_count'] as int))} معاملة',
-                  //     maxLines: 1, overflow: TextOverflow.ellipsis,
-                  //     style: const TextStyle(color: Colors.white70, fontSize: 11, fontFamily: 'Cairo')),
-                ]),
-                // const SizedBox(height: 8),
-                // Row(children: [
-                //   _actionBtn(Icons.picture_as_pdf_outlined, 'PDF', _exportPdf),
-                //   const SizedBox(width: 6),
-                //   _actionBtn(Icons.print_outlined, 'طباعة', _printReport),
-                //   const SizedBox(width: 6),
-                //   _actionBtn(Icons.table_chart_outlined, 'Excel', _exportExcel),
-                //   const Spacer(),
-                //   GestureDetector(
-                //     onTap: _load,
-                //     child: Container(
-                //       padding: const EdgeInsets.all(6),
-                //       decoration: BoxDecoration(
-                //         borderRadius: BorderRadius.circular(8),
-                //         border: Border.all(color: AppTheme.glassBorder),
-                //       ),
-                //       child: const Icon(Icons.refresh_rounded, color: Colors.white, size: 16),
-                //     ),
-                //   ),
-                // ]),
-              ],
-            );
-          }
-          return Row(
-            children: [
-              Icon(Icons.analytics_outlined, color: AppTheme.primary, size: 22),
-              const SizedBox(width: 10),
-              const Expanded(
-                child: Text('تقارير التكاليف',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        color: AppTheme.textPrimary,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Cairo')),
-              ),
-              // _actionBtn(Icons.picture_as_pdf_outlined, 'PDF', _exportPdf),
-              // const SizedBox(width: 6),
-              // _actionBtn(Icons.print_outlined, 'طباعة', _printReport),
-              // const SizedBox(width: 6),
-              // _actionBtn(Icons.table_chart_outlined, 'Excel', _exportExcel),
-              // const SizedBox(width: 12),
-              // Text('${_summary.fold<int>(0, (s, e) => s + (e['transaction_count'] as int))} معاملة',
-              //     style: const TextStyle(color: Colors.white70, fontSize: 12, fontFamily: 'Cairo')),
-              // const SizedBox(width: 12),
-              // Tooltip(
-              //   message: 'تحديث البيانات',
-              //   child: GestureDetector(
-              //     onTap: _load,
-              //     child: Container(
-              //       padding: const EdgeInsets.all(8),
-              //       decoration: BoxDecoration(
-              //         borderRadius: BorderRadius.circular(8),
-              //         border: Border.all(color: AppTheme.glassBorder),
-              //       ),
-              //       child: const Icon(Icons.refresh_rounded, color: Colors.white, size: 18),
-              //     ),
-              //   ),
-              // ),
-            ],
-          );
-        },
-      ),
+                            fontFamily: 'Cairo'),
+                      ),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () {
+                        SeasonRolloverDialog.show(
+                          context,
+                          activeCostCenters: _activeCostCenters,
+                          onRolloverCompleted: () {
+                            CostReportDao.clearCostCenterCache();
+                            _load();
+                          },
+                        );
+                      },
+                      icon: const Icon(Icons.published_with_changes_rounded, size: 16, color: Color(0xFFF59E0B)),
+                      label: Text(
+                        isMobile ? 'ترحيل موسم' : 'إقفال وترحيل الموسم',
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFF59E0B),
+                        ),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        side: const BorderSide(color: Color(0xFFF59E0B)),
+                        padding: EdgeInsets.symmetric(horizontal: isMobile ? 10 : 14, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    ElevatedButton.icon(
+                      onPressed: _openAddCostCenterDialog,
+                      icon: const Icon(Icons.add_circle_outline, size: 16),
+                      label: Text(
+                        isMobile ? 'مركز تكلفة' : 'إنشاء مركز تكلفة',
+                        style: const TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: AppTheme.primary,
+                        foregroundColor: Colors.white,
+                        padding: EdgeInsets.symmetric(horizontal: isMobile ? 10 : 14, vertical: 8),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                        elevation: 2,
+                      ),
+                    ),
+                  ],
+                ),
+        );
+      },
     );
   }
 
   Widget _actionBtn(IconData icon, String label, VoidCallback onTap) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Tooltip(
       message: label,
       child: GestureDetector(
@@ -269,8 +447,9 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
+            color: isDark ? null : Colors.white,
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppTheme.glassBorder),
+            border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
@@ -278,10 +457,10 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
               Icon(icon, color: AppTheme.primary, size: 16),
               const SizedBox(width: 4),
               Text(label,
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 11,
                       fontFamily: 'Cairo',
-                      color: Colors.white,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
                       fontWeight: FontWeight.w600)),
             ],
           ),
@@ -291,38 +470,336 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
   }
 
   Widget _buildFilters() {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-      decoration: BoxDecoration(
-        border: Border(
-            bottom:
-                BorderSide(color: AppTheme.glassBorder.withValues(alpha: 15))),
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final resetBtn = (_fromCtrl.text.isNotEmpty ||
+            _toCtrl.text.isNotEmpty ||
+            _selectedCostCenter != null)
+        ? Tooltip(
+            message: 'إعادة ضبط الفلاتر',
+            child: GestureDetector(
+              onTap: () {
+                _fromCtrl.clear();
+                _toCtrl.clear();
+                setState(() => _selectedCostCenter = null);
+                _load();
+              },
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: Colors.redAccent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(Icons.filter_alt_off_outlined, size: 14, color: Colors.redAccent),
+                    SizedBox(width: 4),
+                    Text('إلغاء الفلتر',
+                        style: TextStyle(
+                            fontSize: 11,
+                            fontFamily: 'Cairo',
+                            color: Colors.redAccent,
+                            fontWeight: FontWeight.w600)),
+                  ],
+                ),
+              ),
+            ),
+          )
+        : null;
+
+    final refreshBtn = Tooltip(
+      message: 'تحديث البيانات',
+      child: GestureDetector(
+        onTap: _load,
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF1F5F9),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+          ),
+          child: Icon(Icons.refresh_rounded,
+              color: isDark ? Colors.white : const Color(0xFF475569), size: 16),
+        ),
       ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          if (constraints.maxWidth < 500) {
-            return Wrap(
-              spacing: 6,
-              runSpacing: 6,
+    );
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final screenW = MediaQuery.sizeOf(context).width;
+        final isMobile = constraints.maxWidth < 850 || screenW < 850;
+
+        if (isMobile) {
+          return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.cardBg.withValues(alpha: 0.5) : Colors.white,
+              border: Border(
+                  bottom:
+                      BorderSide(color: isDark ? AppTheme.glassBorder.withValues(alpha: 25) : const Color(0xFFE2E8F0))),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _filterBtn(_fromCtrl, 'من تاريخ'),
-                _filterBtn(_toCtrl, 'إلى تاريخ'),
+                Row(
+                  children: [
+                    Expanded(child: _filterBtn(_fromCtrl, 'من تاريخ')),
+                    const SizedBox(width: 8),
+                    Expanded(child: _filterBtn(_toCtrl, 'إلى تاريخ')),
+                    const SizedBox(width: 8),
+                    refreshBtn,
+                    if (resetBtn != null) ...[
+                      const SizedBox(width: 6),
+                      resetBtn,
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 8),
+                _costCenterDropdown(),
               ],
-            );
-          }
-          return Row(
+            ),
+          );
+        }
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+          decoration: BoxDecoration(
+            color: isDark ? AppTheme.cardBg.withValues(alpha: 0.5) : Colors.white,
+            border: Border(
+                bottom:
+                    BorderSide(color: isDark ? AppTheme.glassBorder.withValues(alpha: 25) : const Color(0xFFE2E8F0))),
+          ),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               _filterBtn(_fromCtrl, 'من تاريخ'),
-              const SizedBox(width: 6),
               _filterBtn(_toCtrl, 'إلى تاريخ'),
+              _costCenterDropdown(),
+              if (resetBtn != null) resetBtn,
+              refreshBtn,
             ],
-          );
-        },
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _costCenterDropdown() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final seenIds = <String>{};
+    final uniqueList = <CostCenter>[];
+    for (final cc in _allCostCenters) {
+      final code = (cc.code ?? cc.id).trim();
+      // Strictly exclude Level 3 (3 digits) and Level 4 (4 digits)
+      if (code.length == 3 || code.length == 4) continue;
+      if (seenIds.add(cc.id)) {
+        uniqueList.add(cc);
+      }
+    }
+
+    if (_selectedCostCenter != null && !seenIds.contains(_selectedCostCenter)) {
+      uniqueList.add(
+        CostCenter(
+          id: _selectedCostCenter!,
+          nameAr: _selectedCostCenter!,
+          nameEn: _selectedCostCenter!,
+          type: CostCenterType.variety,
+          color: CostCenterHelper.resolveColor(null, _selectedCostCenter!),
+          icon: Icons.hub_outlined,
+          code: _selectedCostCenter,
+        ),
+      );
+    }
+
+    final screenW = MediaQuery.sizeOf(context).width;
+    final maxDropdownW = screenW < 850 ? double.infinity : 340.0;
+
+    return ConstrainedBox(
+      constraints: BoxConstraints(maxWidth: maxDropdownW),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+        decoration: BoxDecoration(
+          color: _selectedCostCenter != null
+              ? AppTheme.primary.withValues(alpha: 0.15)
+              : (isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF1F5F9)),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: _selectedCostCenter != null
+                ? AppTheme.primary
+                : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+          ),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<String?>(
+            value: _selectedCostCenter,
+            isExpanded: true,
+            dropdownColor: isDark ? const Color(0xFF0F2238) : Colors.white,
+            icon: const Icon(Icons.arrow_drop_down,
+                color: AppTheme.primary, size: 18),
+            hint: Row(
+              children: [
+                const Icon(Icons.hub_outlined, size: 14, color: AppTheme.primary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'مراكز التكلفة والمحاصيل',
+                    overflow: TextOverflow.ellipsis,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : const Color(0xFF475569),
+                      fontSize: 11,
+                      fontFamily: 'Cairo',
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            selectedItemBuilder: (context) {
+              return [
+                Row(
+                  children: [
+                    Icon(Icons.all_inclusive, size: 14, color: isDark ? Colors.white70 : const Color(0xFF64748B)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'جميع مراكز التكلفة والمحاصيل (الكل)',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          fontSize: 12,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                ...uniqueList.map((cc) {
+                  final ccIsClosed = cc.isClosed;
+                  return Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: cc.color,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      ccIsClosed
+                          ? const Icon(Icons.lock_rounded, size: 14, color: Color(0xFF64748B))
+                          : Icon(cc.icon, size: 14, color: cc.color),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          cc.nameAr,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            fontSize: 12,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                      ),
+                    ],
+                  );
+                }),
+              ];
+            },
+            items: [
+              DropdownMenuItem<String?>(
+                value: null,
+                child: Row(
+                  children: [
+                    Icon(Icons.all_inclusive, size: 14, color: isDark ? Colors.white70 : const Color(0xFF64748B)),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text('جميع مراكز التكلفة والمحاصيل (الكل)',
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                              fontSize: 12,
+                              fontFamily: 'Cairo')),
+                    ),
+                  ],
+                ),
+              ),
+              ...uniqueList.map((cc) {
+                final ccIsClosed = cc.isClosed;
+                final isVariety = cc.type == CostCenterType.variety;
+                final badgeText = isVariety
+                    ? 'محصول'
+                    : ((cc.code?.startsWith('3') == true) ? 'فرع مصروفات' : 'تشغيلي');
+                return DropdownMenuItem<String?>(
+                  value: cc.id,
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 8,
+                        height: 8,
+                        decoration: BoxDecoration(
+                          color: cc.color,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      ccIsClosed
+                          ? const Icon(Icons.lock_rounded, size: 14, color: Color(0xFF64748B))
+                          : Icon(cc.icon, size: 14, color: cc.color),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          cc.nameAr,
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            fontSize: 12,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 4, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: cc.color.withValues(alpha: 0.15),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          badgeText,
+                          style: TextStyle(
+                            color: cc.color,
+                            fontSize: 9,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              }),
+            ],
+            onChanged: (val) {
+              setState(() => _selectedCostCenter = val);
+              _load();
+            },
+          ),
+        ),
       ),
     );
   }
 
   Widget _filterBtn(TextEditingController ctrl, String hint) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Tooltip(
       message: 'اختيار تاريخ',
       child: GestureDetector(
@@ -330,14 +807,14 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
           decoration: BoxDecoration(
-            color: Colors.white.withValues(alpha: 0.06),
+            color: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF1F5F9),
             borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: AppTheme.glassBorder),
+            border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.date_range, size: 14, color: Colors.white54),
+              Icon(Icons.date_range, size: 14, color: isDark ? Colors.white54 : const Color(0xFF64748B)),
               const SizedBox(width: 4),
               Text(ctrl.text.isEmpty ? hint : ctrl.text,
                   maxLines: 1,
@@ -346,8 +823,9 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
                       fontSize: 11,
                       fontFamily: 'Cairo',
                       color: ctrl.text.isEmpty
-                          ? Colors.white54
-                          : AppTheme.textPrimary)),
+                          ? (isDark ? Colors.white54 : const Color(0xFF64748B))
+                          : (isDark ? AppTheme.textPrimary : const Color(0xFF0F172A))),
+              ),
             ],
           ),
         ),
@@ -356,50 +834,17 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
   }
 
   String _getMajorCategory(Map<String, dynamic> row) {
-    final name = (row['item_name'] as String? ?? '').toLowerCase();
     final cat = (row['category'] as String? ?? '').trim();
-    final catLower = cat.toLowerCase();
+    final name = (row['item_name'] as String? ?? '').trim();
+    final code = (row['account_code'] ?? row['code'] ?? row['category_code'] ?? '').toString().trim();
+    final accName = (row['account_name'] ?? '').toString().trim();
 
-    if (cat == 'تكلفة شركات الشحن' ||
-        catLower == 'shipping_company' ||
-        catLower == 'freight' ||
-        catLower == 'shipping' ||
-        catLower == 'transport' ||
-        name.contains('شحن')) {
-      return 'تكلفة شركات الشحن';
-    }
-    if (cat == 'تكلفة المخلصين' ||
-        catLower == 'clearing_agent' ||
-        catLower == 'clearance' ||
-        catLower == 'clearing' ||
-        name.contains('تخليص') ||
-        name.contains('مخلص')) {
-      return 'تكلفة المخلصين';
-    }
-    if (cat == 'تكلفة المحاصيل' ||
-        cat == 'المحاصيل' ||
-        catLower == 'crop' ||
-        catLower == 'manual_crop' ||
-        name.contains('محصول')) {
-      return 'تكلفة المحاصيل';
-    }
-    if (cat == 'مواد التعبئة' ||
-        catLower == 'packing_material' ||
-        name.contains('ورق') ||
-        name.contains('كراتين')) {
-      return 'مواد التعبئة';
-    }
-    if (cat == 'تعبئة وتغليف' ||
-        catLower == 'packing' ||
-        catLower == 'packaging' ||
-        catLower == 'manual_packing' ||
-        name.contains('تعبئة')) {
-      return 'تعبئة وتغليف';
-    }
-    if (cat == 'مصاريف إدارية' || catLower == 'admin') return 'مصاريف إدارية';
-    if (cat == 'لوجستيك ونقل' || catLower == 'logistics') return 'لوجستيك ونقل';
-    if (catLower == 'general' || catLower == 'other' || cat.isEmpty) return 'أخرى';
-    return cat;
+    return CostReportDao.resolveExpenseBranchName(
+      category: cat,
+      itemName: name,
+      accountCode: code.isNotEmpty ? code : null,
+      accountName: accName.isNotEmpty ? accName : null,
+    );
   }
 
   Widget _buildContent() {
@@ -414,6 +859,14 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
     final lowestLabel = lowest != null ? (lowest['item_name'] as String) : '—';
     final lowestAmt = lowest != null ? (lowest['total_amount'] as double) : 0.0;
 
+    double totalOpeningBalance = 0.0;
+    for (final cc in _costCenterBreakdown) {
+      final ob = (cc['opening_balance'] as num?)?.toDouble() ??
+          (cc['carried_forward_amount'] as num?)?.toDouble() ??
+          0.0;
+      totalOpeningBalance += ob;
+    }
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
@@ -425,10 +878,12 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               _buildKpiRow(
-                  totalAmount, totalTx, highestLabel, lowestLabel, lowestAmt),
+                  totalAmount, totalTx, highestLabel, lowestLabel, lowestAmt,
+                  openingBalance: totalOpeningBalance),
               const SizedBox(height: 20),
-              _buildHighestCosts(),
-              const SizedBox(height: 16),
+              // Crop and operational cost centers cards
+              _buildCostCentersSection(totalAmount),
+              const SizedBox(height: 20),
               _buildMainCategoriesCards(totalAmount),
             ],
           ),
@@ -437,86 +892,552 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
     );
   }
 
+  Widget _buildCostCentersSection(double grandTotal) {
+    return _buildCostCentersSectionLegacy(grandTotal);
+  }
+
+  Widget _buildCostCentersSectionLegacy(double grandTotal) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Section Header
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final isMobile = constraints.maxWidth < 950;
+            final actionButtons = Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                if (_selectedCostCenter != null)
+                  GestureDetector(
+                    onTap: () {
+                      setState(() => _selectedCostCenter = null);
+                      _load();
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.close, size: 12, color: isDark ? Colors.white70 : const Color(0xFF475569)),
+                          const SizedBox(width: 4),
+                          Text('عرض الكل',
+                              style: TextStyle(
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                  fontSize: 11,
+                                  fontFamily: 'Cairo')),
+                        ],
+                      ),
+                    ),
+                  ),
+                _actionBtn(Icons.add_circle_outline, 'إضافة مركز تكلفة', _openAddCostCenterDialog),
+              ],
+            );
+
+            final titleWidget = Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.eco_rounded,
+                      color: AppTheme.primary, size: 18),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'مراكز تكلفة المحاصيل والخطوط الإنتاجية',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                      Text(
+                        _selectedCostCenter != null
+                            ? 'مفلتر حالياً: ${CostCenterHelper.fromId(_selectedCostCenter, _activeCostCenters).nameAr}'
+                            : 'اضغط على بطاقة المحصول لتصفية مصروفات وحسابات هذا المحصول تحديداً',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: _selectedCostCenter != null
+                              ? AppTheme.primary
+                              : (isDark ? Colors.white54 : const Color(0xFF64748B)),
+                          fontSize: 11,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+
+            if (isMobile) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  titleWidget,
+                  const SizedBox(height: 10),
+                  actionButtons,
+                ],
+              );
+            }
+
+            return Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(child: titleWidget),
+                const SizedBox(width: 12),
+                actionButtons,
+              ],
+            );
+          },
+        ),
+        const SizedBox(height: 12),
+
+        if (_costCenterBreakdown.isEmpty)
+          Container(
+            padding: const EdgeInsets.all(24),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.cardBg : Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.03),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
+            ),
+            child: Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.hub_outlined, color: isDark ? Colors.white38 : const Color(0xFF94A3B8), size: 40),
+                  const SizedBox(height: 12),
+                  Text(
+                    'لا توجد مراكز تكلفة مسجلة حالياً',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      fontSize: 15,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'يمكنك إنشاء مراكز تكلفة محصولية لكل موسم زراعي (مثل: مانجو موسم 2026-2027) أو مراكز تشغيلية وإدارية.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                      fontSize: 12,
+                      fontFamily: 'Cairo',
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  ElevatedButton.icon(
+                    onPressed: _openAddCostCenterDialog,
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text(
+                      'إنشاء مركز تكلفة الآن',
+                      style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primary,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          )
+        else
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final w = constraints.maxWidth;
+              final crossAxisCount = w > 900
+                  ? 3
+                  : w > 580
+                      ? 2
+                      : 1;
+              final itemWidth = crossAxisCount == 1
+                  ? w
+                  : ((w - (crossAxisCount - 1) * 10) / crossAxisCount).floorToDouble();
+
+              return Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: _costCenterBreakdown.map((cc) {
+                  final id = cc['id'] as String;
+                  final name = cc['name'] as String;
+                  final type = cc['type'] as String;
+                  final color = (cc['color'] as Color?) ?? AppTheme.primary;
+                  final icon = (cc['icon'] as IconData?) ?? Icons.hub_outlined;
+                  final total = (cc['total_amount'] as num?)?.toDouble() ?? 0.0;
+                  final ob = (cc['opening_balance'] as num?)?.toDouble() ??
+                      (cc['carried_forward_amount'] as num?)?.toDouble() ??
+                      0.0;
+                  final txCount = (cc['transaction_count'] as num?)?.toInt() ?? 0;
+                  final pct = (cc['percentage'] as num?)?.toDouble() ?? 0.0;
+                  final isSelected = _selectedCostCenter == id;
+                  // ── Season Locking ─────────────────────────────────────────────
+                  final isClosed = (cc['is_closed'] as bool?) ?? false;
+                  final effectiveColor = isClosed ? color.withValues(alpha: 0.4) : color;
+
+                  return SizedBox(
+                    width: itemWidth,
+                    height: isClosed ? 140 : (ob > 0 ? 134 : 124),
+                    child: InkWell(
+                      // CLOSED centers: open read-only details view instead of filtering
+                      onTap: isClosed
+                          ? () => Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => CostDetailsReportPage(
+                                  costCenter: id,
+                                  costCenterLabel: name,
+                                ),
+                              ),
+                            )
+                          : () {
+                              setState(() {
+                                if (_selectedCostCenter == id) {
+                                  _selectedCostCenter = null;
+                                } else {
+                                  _selectedCostCenter = id;
+                                }
+                              });
+                              _load();
+                            },
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          // Closed centers get a darkened, muted appearance
+                          color: isClosed
+                              ? (isDark ? const Color(0xFF0B1929) : const Color(0xFFF1F5F9))
+                              : (isSelected
+                                  ? effectiveColor.withValues(alpha: isDark ? 0.12 : 0.08)
+                                  : (isDark ? AppTheme.cardBg : Colors.white)),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isClosed
+                                ? (isDark ? const Color(0xFF3D5266) : const Color(0xFFCBD5E1))
+                                : (isSelected
+                                    ? effectiveColor
+                                    : (isDark ? effectiveColor.withValues(alpha: 0.25) : const Color(0xFFE2E8F0))),
+                            width: isSelected ? 1.8 : 1.0,
+                          ),
+                          boxShadow: isSelected && !isClosed
+                              ? [
+                                  BoxShadow(
+                                    color: color.withValues(alpha: 0.2),
+                                    blurRadius: 16,
+                                    offset: const Offset(0, 4),
+                                  ),
+                                ]
+                              : (isDark
+                                  ? null
+                                  : [
+                                      BoxShadow(
+                                        color: Colors.black.withValues(alpha: 0.03),
+                                        blurRadius: 6,
+                                        offset: const Offset(0, 2),
+                                      ),
+                                    ]),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            // ── Lock Banner (closed seasons only) ───────────────────────────────
+                            if (isClosed)
+                              Padding(
+                                padding: const EdgeInsets.only(bottom: 6),
+                                child: Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+                                  decoration: BoxDecoration(
+                                    color: isDark
+                                        ? const Color(0xFF334155).withValues(alpha: 0.5)
+                                        : const Color(0xFFE2E8F0),
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                        color: isDark
+                                            ? const Color(0xFF64748B).withValues(alpha: 0.6)
+                                            : const Color(0xFFCBD5E1)),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.lock_rounded,
+                                          size: 11,
+                                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569)),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        'موسم مقفل \u2014 للاطلاع فقط',
+                                        style: TextStyle(
+                                          fontFamily: 'Cairo',
+                                          fontSize: 10,
+                                          color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF475569),
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            // Card Header: Icon + Name + Type + Drill-down
+                            Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(5),
+                                  decoration: BoxDecoration(
+                                    color: effectiveColor.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Icon(icon, color: effectiveColor, size: 14),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                      fontSize: 12,
+                                      fontWeight: isSelected
+                                          ? FontWeight.bold
+                                          : FontWeight.w600,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: effectiveColor.withValues(alpha: 0.12),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(
+                                    type,
+                                    style: TextStyle(
+                                      color: effectiveColor,
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(width: 4),
+                                Tooltip(
+                                  message: 'عرض تفاصيل هذا المركز',
+                                  child: InkWell(
+                                    onTap: () {
+                                      Navigator.push(
+                                        context,
+                                        MaterialPageRoute(
+                                          builder: (_) => CostDetailsReportPage(
+                                            costCenter: id,
+                                            costCenterLabel: name,
+                                          ),
+                                        ),
+                                      );
+                                    },
+                                    borderRadius: BorderRadius.circular(6),
+                                    child: Container(
+                                      padding: const EdgeInsets.all(4),
+                                      child: Icon(
+                                        Icons.arrow_forward_ios_rounded,
+                                        size: 11,
+                                        color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // Card Financial Metrics
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'EGP ${_fmt(total)}',
+                                      style: TextStyle(
+                                        color: color,
+                                        fontSize: 13.5,
+                                        fontWeight: FontWeight.bold,
+                                        fontFamily: 'Cairo',
+                                      ),
+                                    ),
+                                    if (ob > 0)
+                                      Text(
+                                        'مرحل: EGP ${_fmt(ob)}',
+                                        style: const TextStyle(
+                                          color: Color(0xFFF59E0B),
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                                Text(
+                                  '${pct.toStringAsFixed(1)}%',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white70 : const Color(0xFF475569),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ],
+                            ),
+
+                            // Percentage Progress Bar
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(3),
+                              child: LinearProgressIndicator(
+                                value: (pct / 100.0).clamp(0.0, 1.0),
+                                minHeight: 4,
+                                backgroundColor: isDark
+                                    ? Colors.white.withValues(alpha: 0.08)
+                                    : const Color(0xFFE2E8F0),
+                                valueColor: AlwaysStoppedAnimation<Color>(effectiveColor),
+                              ),
+                            ),
+
+                            // Card Footer
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  '$txCount معاملة',
+                                  style: TextStyle(
+                                    color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                                    fontSize: 10,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                                Text(
+                                  isClosed ? 'عرض التفاصيل ←' : (isSelected ? 'نشط (مفلتر)' : 'انقر للتصفية'),
+                                  style: TextStyle(
+                                    color: isClosed
+                                        ? const Color(0xFF64748B)
+                                        : (isSelected
+                                            ? effectiveColor
+                                            : (isDark ? Colors.white38 : const Color(0xFF94A3B8))),
+                                    fontSize: 9.5,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              );
+            },
+          ),
+      ],
+    );
+  }
+
   Widget _buildKpiRow(
-      double total, int tx, String highest, String lowest, double lowestAmt) {
+      double total, int tx, String highest, String lowest, double lowestAmt,
+      {double openingBalance = 0.0}) {
+    final hasOpening = openingBalance != 0.0;
+    final totalLedger = total + openingBalance;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
-        if (width < 400) {
+        final isSmall = width < 480;
+
+        final cards = [
+          _kpiCard(
+              hasOpening ? 'مصاريف التشغيل للموسم' : 'إجمالي التكاليف',
+              'EGP ${_fmt(total)}',
+              AppTheme.primary,
+              Icons.monetization_on_outlined),
+          if (hasOpening)
+            _kpiCard('أرصدة افتتاحية مرحلة', 'EGP ${_fmt(openingBalance)}',
+                const Color(0xFFF59E0B), Icons.history_rounded),
+          if (hasOpening)
+            _kpiCard('الإجمالي الدفتري العام', 'EGP ${_fmt(totalLedger)}',
+                const Color(0xFF10B981), Icons.account_balance_wallet_outlined),
+          _kpiCard('عدد المعاملات التشغيلية', '$tx', AppTheme.info,
+              Icons.receipt_long_outlined),
+        ];
+
+        if (isSmall) {
           return Column(
             children: [
-              Row(children: [
-                Expanded(
-                    child: _kpiCard('إجمالي التكاليف', 'EGP ${_fmt(total)}',
-                        AppTheme.primary, Icons.monetization_on_outlined)),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: _kpiCard('عدد المعاملات', '$tx', AppTheme.info,
-                        Icons.receipt_long_outlined)),
-              ]),
-              const SizedBox(height: 10),
-              Row(children: [
-                Expanded(
-                    child: _kpiCard('أعلى بند تكلفة', highest, AppTheme.warning,
-                        Icons.trending_up)),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: _kpiCard(
-                        'أقل بند تكلفة',
-                        'EGP ${_fmt(lowestAmt)} — $lowest',
-                        AppTheme.accent,
-                        Icons.trending_down)),
-              ]),
+              for (int i = 0; i < cards.length; i += 2) ...[
+                if (i > 0) const SizedBox(height: 10),
+                Row(
+                  children: [
+                    Expanded(child: cards[i]),
+                    if (i + 1 < cards.length) ...[
+                      const SizedBox(width: 8),
+                      Expanded(child: cards[i + 1]),
+                    ],
+                  ],
+                ),
+              ],
             ],
           );
         }
-        if (width < 700) {
+
+        if (width < 850) {
           return Wrap(
             spacing: 10,
             runSpacing: 10,
-            children: [
-              SizedBox(
-                  width: (width - 10) / 2,
-                  child: _kpiCard('إجمالي التكاليف', 'EGP ${_fmt(total)}',
-                      AppTheme.primary, Icons.monetization_on_outlined)),
-              SizedBox(
-                  width: (width - 10) / 2,
-                  child: _kpiCard('عدد المعاملات', '$tx', AppTheme.info,
-                      Icons.receipt_long_outlined)),
-              SizedBox(
-                  width: (width - 10) / 2,
-                  child: _kpiCard('أعلى بند تكلفة', highest, AppTheme.warning,
-                      Icons.trending_up)),
-              SizedBox(
-                  width: (width - 10) / 2,
-                  child: _kpiCard(
-                      'أقل بند تكلفة',
-                      'EGP ${_fmt(lowestAmt)} — $lowest',
-                      AppTheme.accent,
-                      Icons.trending_down)),
-            ],
+            children: cards
+                .map((c) => SizedBox(width: (width - 10) / 2, child: c))
+                .toList(),
           );
         }
+
         return Row(
           children: [
-            Expanded(
-                child: _kpiCard('إجمالي التكاليف', 'EGP ${_fmt(total)}',
-                    AppTheme.primary, Icons.monetization_on_outlined)),
-            const SizedBox(width: 10),
-            Expanded(
-                child: _kpiCard('عدد المعاملات', '$tx', AppTheme.info,
-                    Icons.receipt_long_outlined)),
-            const SizedBox(width: 10),
-            Expanded(
-                child: _kpiCard('أعلى بند تكلفة', highest, AppTheme.warning,
-                    Icons.trending_up)),
-            const SizedBox(width: 10),
-            Expanded(
-                child: _kpiCard(
-                    'أقل بند تكلفة',
-                    'EGP ${_fmt(lowestAmt)} — $lowest',
-                    AppTheme.accent,
-                    Icons.trending_down)),
+            for (int i = 0; i < cards.length; i++) ...[
+              if (i > 0) const SizedBox(width: 10),
+              Expanded(child: cards[i]),
+            ],
           ],
         );
       },
@@ -524,6 +1445,7 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
   }
 
   Widget _kpiCard(String label, String value, Color color, IconData icon) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return LayoutBuilder(
       builder: (context, constraints) {
         final isSmall = constraints.maxWidth < 200;
@@ -531,13 +1453,15 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
           padding: EdgeInsets.fromLTRB(isSmall ? 10 : 14, isSmall ? 10 : 14,
               isSmall ? 10 : 14, isSmall ? 10 : 14),
           decoration: BoxDecoration(
-            color: AppTheme.cardBg,
+            color: isDark ? AppTheme.cardBg : Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: color.withValues(alpha: 25)),
+            border: Border.all(
+              color: isDark ? color.withValues(alpha: 0.25) : const Color(0xFFCBD5E1),
+            ),
             boxShadow: [
               BoxShadow(
-                  color: color.withValues(alpha: 0.10),
-                  blurRadius: 24,
+                  color: isDark ? color.withValues(alpha: 0.10) : Colors.black.withValues(alpha: 0.04),
+                  blurRadius: isDark ? 24 : 10,
                   offset: const Offset(0, 4)),
             ],
           ),
@@ -549,7 +1473,7 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
                   Container(
                     padding: const EdgeInsets.all(6),
                     decoration: BoxDecoration(
-                      color: color.withValues(alpha: 15),
+                      color: color.withValues(alpha: isDark ? 0.15 : 0.10),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Icon(icon, color: color, size: isSmall ? 14 : 16),
@@ -560,8 +1484,9 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
                         maxLines: 2,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                            color: Colors.white,
+                            color: isDark ? Colors.white : const Color(0xFF475569),
                             fontSize: isSmall ? 10 : 11,
+                            fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo')),
                   ),
                 ],
@@ -759,347 +1684,963 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
     );
   }
 
+  IconData _getBranchIcon(String branchName) {
+    final norm = branchName.trim();
+    if (norm.contains('مهندس') || norm.contains('engineer')) return Icons.engineering_rounded;
+    if (norm.contains('لوجستيك') || norm.contains('نقل') || norm.contains('transport')) return Icons.local_shipping_rounded;
+    if (norm.contains('مواد التعبئة') || norm.contains('material')) return Icons.inventory_2_rounded;
+    if (norm.contains('تعبئة') || norm.contains('packing')) return Icons.all_inbox_rounded;
+    if (norm.contains('محاصيل') || norm.contains('crop') || norm.contains('fruit')) return Icons.eco_rounded;
+    if (norm.contains('شحن') || norm.contains('freight') || norm.contains('shipping')) return Icons.directions_boat_rounded;
+    if (norm.contains('تخليص') || norm.contains('clearance')) return Icons.assignment_turned_in_rounded;
+    if (norm.contains('إدارية') || norm.contains('admin')) return Icons.business_rounded;
+    if (norm.contains('فرز') || norm.contains('sorting')) return Icons.filter_alt_rounded;
+    return Icons.account_balance_wallet_rounded;
+  }
+
+  Color _getBranchColor(String branchName) {
+    final norm = branchName.trim();
+    if (norm.contains('مهندس') || norm.contains('engineer')) return const Color(0xFF0284C7);
+    if (norm.contains('لوجستيك') || norm.contains('نقل') || norm.contains('transport')) return const Color(0xFFF59E0B);
+    if (norm.contains('مواد التعبئة') || norm.contains('material')) return const Color(0xFF8B5CF6);
+    if (norm.contains('تعبئة') || norm.contains('packing')) return const Color(0xFF06B6D4);
+    if (norm.contains('محاصيل') || norm.contains('crop') || norm.contains('fruit')) return const Color(0xFF10B981);
+    if (norm.contains('شحن') || norm.contains('freight') || norm.contains('shipping')) return const Color(0xFF3B82F6);
+    if (norm.contains('تخليص') || norm.contains('clearance')) return const Color(0xFFEC4899);
+    if (norm.contains('إدارية') || norm.contains('admin')) return const Color(0xFF64748B);
+    if (norm.contains('فرز') || norm.contains('sorting')) return const Color(0xFF14B8A6);
+    return AppTheme.primary;
+  }
+
   Widget _buildMainCategoriesCards(double total) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    // 1. Group details by major category as fallback / enrichment
     final Map<String, List<Map<String, dynamic>>> grouped = {};
-
-    final standardOrder = [
-      'تكلفة المحاصيل',
-      'مواد التعبئة',
-      'تعبئة وتغليف',
-      'تكلفة شركات الشحن',
-      'تكلفة المخلصين',
-    ];
-
-    for (final std in standardOrder) {
-      grouped[std] = [];
-    }
-
     for (final row in _allDetails) {
       final majorCat = _getMajorCategory(row);
       grouped.putIfAbsent(majorCat, () => []).add(row);
     }
 
-    for (final cat in _costCategories) {
-      final name = cat['name'] as String;
-      if (name != 'محاصيل' && name != 'crop' && name != 'packing') {
-        grouped.putIfAbsent(name, () => []);
+    final Map<String, Map<String, dynamic>> branchMap = {};
+
+    // 1. Populate from _expenseBranches (loaded dynamically from accounts + live transactions)
+    for (final eb in _expenseBranches) {
+      final bName = eb['branch_name']?.toString() ?? '';
+      final catCode = (eb['category_code'] ?? '').toString().trim();
+      
+      // Strictly exclude Level 3 (3 digits) and Level 4 (4 digits)
+      if (catCode.length == 3 || catCode.length == 4) continue;
+      if (!catCode.startsWith('3') && catCode != '31251' && catCode != 'engineer_expenses' && !bName.contains('مهندس')) continue;
+
+      final key = (catCode == 'engineer_expenses' || bName.contains('مهندس')) ? '31251' : catCode;
+      final mapEntry = Map<String, dynamic>.from(eb);
+      if (key == '31251') {
+        mapEntry['branch_name'] = '31251 - مصاريف مهندسين';
+        mapEntry['category_code'] = '31251';
+      }
+      mapEntry['level'] = 5;
+      branchMap[key] = mapEntry;
+    }
+
+    // 2. Ensure primary Level 5 account '31251 - مصاريف مهندسين' always exists
+    if (!branchMap.containsKey('31251')) {
+      final rows = grouped['31251 - مصاريف مهندسين'] ?? grouped['مصاريف المهندسين'] ?? [];
+      double act = 0.0;
+      double est = 0.0;
+      int settled = 0;
+      int pending = 0;
+      for (final r in rows) {
+        final a = (r['actual_amount'] as num?)?.toDouble() ?? (r['amount'] as num?)?.toDouble() ?? 0.0;
+        final e = (r['expected_amount'] as num?)?.toDouble() ?? a;
+        final status = r['cost_status']?.toString();
+        act += a;
+        est += e;
+        if (status == 'settled' || r['actual_amount'] != null) {
+          settled++;
+        } else {
+          pending++;
+        }
+      }
+      final varAmt = act - est;
+      final varPct = est > 0 ? (varAmt / est) * 100 : 0.0;
+
+      branchMap['31251'] = {
+        'branch_name': '31251 - مصاريف مهندسين',
+        'category_code': '31251',
+        'estimated_cost': est,
+        'actual_cost': act,
+        'variance_amount': varAmt,
+        'variance_percentage': varPct,
+        'transaction_count': rows.length,
+        'settled_count': settled,
+        'pending_count': pending,
+        'level': 5,
+      };
+    }
+
+    // 3. Add any Level 5 entries from grouped
+    for (final entry in grouped.entries) {
+      final name = entry.key;
+      final catCode = CostReportDao.branchToCategoryCode(name);
+      if (catCode.length == 3 || catCode.length == 4) continue;
+      if (!catCode.startsWith('3') && catCode != '31251') continue;
+
+      final key = catCode == 'engineer_expenses' ? '31251' : catCode;
+      if (!branchMap.containsKey(key)) {
+        final rows = entry.value;
+        double act = 0.0;
+        double est = 0.0;
+        int settled = 0;
+        int pending = 0;
+        for (final r in rows) {
+          final a = (r['actual_amount'] as num?)?.toDouble() ?? (r['amount'] as num?)?.toDouble() ?? 0.0;
+          final e = (r['expected_amount'] as num?)?.toDouble() ?? a;
+          final status = r['cost_status']?.toString();
+          act += a;
+          est += e;
+          if (status == 'settled' || r['actual_amount'] != null) {
+            settled++;
+          } else {
+            pending++;
+          }
+        }
+        branchMap[key] = {
+          'branch_name': name,
+          'category_code': key,
+          'estimated_cost': est,
+          'actual_cost': act,
+          'variance_amount': act - est,
+          'variance_percentage': est > 0 ? ((act - est) / est) * 100 : 0.0,
+          'transaction_count': rows.length,
+          'settled_count': settled,
+          'pending_count': pending,
+          'level': 5,
+        };
       }
     }
+
+    // Order branches: 31251 first, then ascending by code
+    final allBranches = branchMap.values.toList()..sort((a, b) {
+      final aCode = (a['category_code'] ?? '').toString();
+      final bCode = (b['category_code'] ?? '').toString();
+      if (aCode == '31251') return -1;
+      if (bCode == '31251') return 1;
+      return aCode.compareTo(bCode);
+    });
+
+    // 4. Compute totals strictly for Level 5
+    double totalEstimated = 0.0;
+    double totalActual = 0.0;
+    int totalPendingSettlement = 0;
+    int totalWithTransactions = 0;
+
+    for (final b in allBranches) {
+      final est = (b['estimated_cost'] as num?)?.toDouble() ?? 0.0;
+      final act = (b['actual_cost'] as num?)?.toDouble() ?? 0.0;
+      final tx = (b['transaction_count'] as num?)?.toInt() ?? 0;
+      totalEstimated += est;
+      totalActual += act;
+      totalPendingSettlement += (b['pending_count'] as num?)?.toInt() ?? 0;
+      if (tx > 0 || act > 0 || est > 0) {
+        totalWithTransactions++;
+      }
+    }
+
+    final totalVariance = totalActual - totalEstimated;
+    final totalVariancePct = totalEstimated > 0
+        ? (totalVariance / totalEstimated) * 100
+        : 0.0;
+
+    // 5. Filter branches according to search query and active toggle
+    final search = _branchSearchCtrl.text.trim().toLowerCase();
+    final displayedBranches = allBranches.where((b) {
+      final bName = (b['branch_name'] ?? '').toString().toLowerCase();
+      final bCode = (b['category_code'] ?? '').toString().toLowerCase();
+      final tx = (b['transaction_count'] as num?)?.toInt() ?? 0;
+      final act = (b['actual_cost'] as num?)?.toDouble() ?? 0.0;
+      final est = (b['estimated_cost'] as num?)?.toDouble() ?? 0.0;
+
+      if (_showOnlyActiveBranches && tx == 0 && act == 0 && est == 0 && bCode != '31251') {
+        return false;
+      }
+      if (search.isNotEmpty) {
+        return bName.contains(search) || bCode.contains(search);
+      }
+      return true;
+    }).toList();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Section Header
         LayoutBuilder(
-          builder: (context, constraints) {
-            if (constraints.maxWidth < 500) {
+          builder: (context, sectionConstraints) {
+            final isMobile = sectionConstraints.maxWidth < 950;
+            final titleWidget = Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: const Icon(Icons.account_tree_outlined,
+                      color: AppTheme.primary, size: 18),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'فروع وحسابات المصروفات (المستوى 5 - كود 3)',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          fontSize: 15,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                      Text(
+                        _selectedCostCenter != null
+                            ? 'مقارنة الميزانيات والانحراف للمركز: ${CostCenterHelper.fromId(_selectedCostCenter, _activeCostCenters).nameAr}'
+                            : 'مقارنة التقديري بالفعلي والانحراف لكافة حسابات وفروع المصروفات التي تبدأ بالكود 3',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                          fontSize: 11,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            );
+
+            final pendingBadge = totalPendingSettlement > 0
+                ? Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF59E0B).withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFF59E0B).withValues(alpha: 0.4)),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.pending_actions_rounded, size: 13, color: Color(0xFFF59E0B)),
+                        const SizedBox(width: 5),
+                        Text(
+                          '$totalPendingSettlement بند قيد التسوية',
+                          style: const TextStyle(
+                            color: Color(0xFFF59E0B),
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                      ],
+                    ),
+                  )
+                : null;
+
+            if (isMobile) {
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('تفاصيل البنود الأساسية',
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Cairo')),
-                  const SizedBox(height: 8),
-                  // SizedBox(
-                  //   width: double.infinity,
-                  //   child: ElevatedButton.icon(
-                  //     onPressed: _showAddCostDialog,
-                  //     icon:
-                  //         const Icon(Icons.add, size: 16, color: Colors.white),
-                  //     label: const Text('إضافة بند',
-                  //         style: TextStyle(
-                  //             fontFamily: 'Cairo',
-                  //             fontSize: 12,
-                  //             color: Colors.white)),
-                  //     style: ElevatedButton.styleFrom(
-                  //       backgroundColor: AppTheme.primary,
-                  //       minimumSize: const Size(0, 36),
-                  //       shape: RoundedRectangleBorder(
-                  //           borderRadius: BorderRadius.circular(8)),
-                  //     ),
-                  //   ),
-                  // ),
+                  titleWidget,
+                  if (pendingBadge != null) ...[
+                    const SizedBox(height: 8),
+                    pendingBadge,
+                  ],
                 ],
               );
             }
+
             return Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
-                const Text('تفاصيل البنود الأساسية',
-                    style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                        fontFamily: 'Cairo')),
-                // ElevatedButton.icon(
-                //   onPressed: _showAddCostDialog,
-                //   icon: const Icon(Icons.add, size: 16, color: Colors.white),
-                //   label: const Text('إضافة بند',
-                //       style: TextStyle(
-                //           fontFamily: 'Cairo',
-                //           fontSize: 12,
-                //           color: Colors.white)),
-                //   style: ElevatedButton.styleFrom(
-                //     backgroundColor: AppTheme.primary,
-                //     minimumSize: const Size(0, 36),
-                //     shape: RoundedRectangleBorder(
-                //         borderRadius: BorderRadius.circular(8)),
-                //   ),
-                // ),
+                Expanded(child: titleWidget),
+                if (pendingBadge != null) ...[
+                  const SizedBox(width: 8),
+                  pendingBadge,
+                ],
               ],
             );
           },
         ),
-        const SizedBox(height: 12),
-        ...grouped.entries.map((entry) {
-          final catName = entry.key;
-          final rows = entry.value;
-          final catTotal = rows.fold<double>(
-              0.0, (s, r) => s + ((r['amount'] as num?)?.toDouble() ?? 0));
-          final pct = total > 0 ? catTotal / total * 100 : 0.0;
-          final txCount = rows.length;
+        const SizedBox(height: 14),
 
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 12),
-            child: Material(
-              color: Colors.transparent,
-              child: InkWell(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (_) =>
-                          CostDetailsReportPage(majorCategory: catName),
-                    ),
-                  );
-                },
-                borderRadius: BorderRadius.circular(16),
-                hoverColor: Colors.white.withValues(alpha: 0.04),
-                child: Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                  decoration: BoxDecoration(
-                    color: AppTheme.cardBg,
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                        color: AppTheme.glassBorder.withValues(alpha: 40)),
+        // Variance KPI Hero Card
+        _buildVarianceKpiBanner(
+          isDark: isDark,
+          totalEstimated: totalEstimated,
+          totalActual: totalActual,
+          netVariance: totalVariance,
+          variancePct: totalVariancePct,
+        ),
+        const SizedBox(height: 16),
+
+        // Search & Filter controls for expense branches
+        Row(
+          children: [
+            Expanded(
+              child: Container(
+                height: 40,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : Colors.white,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: isDark ? AppTheme.glassBorder.withValues(alpha: 40) : const Color(0xFFCBD5E1),
                   ),
-                  child: LayoutBuilder(
-                    builder: (context, constraints) {
-                      if (constraints.maxWidth < 350) {
-                        return Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(children: [
-                              Container(
-                                padding: const EdgeInsets.all(10),
-                                decoration: BoxDecoration(
-                                  color:
-                                      AppTheme.primary.withValues(alpha: 0.1),
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                child: const Icon(Icons.category_outlined,
-                                    color: AppTheme.primary, size: 20),
-                              ),
-                              const SizedBox(width: 14),
-                              Expanded(
-                                child: Text(catName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        fontFamily: 'Cairo')),
-                              ),
-                            ]),
-                            const SizedBox(height: 10),
-                            Row(children: [
-                              Text('$txCount معاملة',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: Colors.white54,
-                                      fontSize: 12,
-                                      fontFamily: 'Cairo')),
-                              const Spacer(),
-                              Text(_fmt(catTotal),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: AppTheme.primary,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      fontFamily: 'Cairo')),
-                              const SizedBox(width: 8),
-                              Text('${pct.toStringAsFixed(1)}%',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      fontFamily: 'Cairo')),
-                            ]),
-                          ],
-                        );
-                      }
-                      return Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(10),
-                            decoration: BoxDecoration(
-                              color: AppTheme.primary.withValues(alpha: 0.1),
-                              borderRadius: BorderRadius.circular(12),
-                            ),
-                            child: const Icon(Icons.category_outlined,
-                                color: AppTheme.primary, size: 20),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(catName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        color: Colors.white,
-                                        fontSize: 14,
-                                        fontWeight: FontWeight.bold,
-                                        fontFamily: 'Cairo')),
-                                const SizedBox(height: 4),
-                                Text('$txCount معاملة',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        color: Colors.white54,
-                                        fontSize: 12,
-                                        fontFamily: 'Cairo')),
-                              ],
-                            ),
-                          ),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(_fmt(catTotal),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: AppTheme.primary,
-                                      fontSize: 14,
-                                      fontWeight: FontWeight.bold,
-                                      fontFamily: 'Cairo')),
-                              const SizedBox(height: 4),
-                              Text('${pct.toStringAsFixed(1)}%',
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                      fontFamily: 'Cairo')),
-                            ],
-                          ),
-                        ],
-                      );
-                    },
+                ),
+                child: TextField(
+                  controller: _branchSearchCtrl,
+                  onChanged: (_) => setState(() {}),
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontFamily: 'Cairo',
+                    color: isDark ? Colors.white : Colors.black87,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: 'ابحث في فروع المصروفات بالكود أو الاسم (مثل 31113، 31251، مرتبات)...',
+                    hintStyle: TextStyle(
+                      fontSize: 11,
+                      fontFamily: 'Cairo',
+                      color: isDark ? Colors.white38 : Colors.black38,
+                    ),
+                    prefixIcon: const Icon(Icons.search, size: 18, color: AppTheme.primary),
+                    suffixIcon: _branchSearchCtrl.text.isNotEmpty
+                        ? IconButton(
+                            icon: const Icon(Icons.close, size: 16),
+                            onPressed: () {
+                              _branchSearchCtrl.clear();
+                              setState(() {});
+                            },
+                          )
+                        : null,
+                    border: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(vertical: 10),
                   ),
                 ),
               ),
             ),
-          );
-        }),
+            const SizedBox(width: 8),
+            FilterChip(
+              selected: !_showOnlyActiveBranches,
+              onSelected: (val) {
+                if (val) setState(() => _showOnlyActiveBranches = false);
+              },
+              label: Text('جميع الفروع (${allBranches.length})',
+                  style: const TextStyle(fontSize: 11, fontFamily: 'Cairo')),
+              selectedColor: AppTheme.primary.withValues(alpha: 0.2),
+              checkmarkColor: AppTheme.primary,
+            ),
+            const SizedBox(width: 6),
+            FilterChip(
+              selected: _showOnlyActiveBranches,
+              onSelected: (val) {
+                setState(() => _showOnlyActiveBranches = val);
+              },
+              label: Text('ذات الحركات ($totalWithTransactions)',
+                  style: const TextStyle(fontSize: 11, fontFamily: 'Cairo')),
+              selectedColor: const Color(0xFF10B981).withValues(alpha: 0.2),
+              checkmarkColor: const Color(0xFF10B981),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        // Expense Branch Cards Grid
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final w = constraints.maxWidth;
+            final isMobile = w < 650;
+            final cardWidth = isMobile ? w : (w - 12) / 2;
+
+            if (displayedBranches.isEmpty) {
+              return Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 30),
+                  child: Column(
+                    children: [
+                      Icon(Icons.search_off_rounded, size: 40, color: isDark ? Colors.white24 : Colors.black26),
+                      const SizedBox(height: 8),
+                      Text(
+                        'لا توجد فروع مصروفات مطابقة للبحث',
+                        style: TextStyle(
+                          color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                          fontFamily: 'Cairo',
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: displayedBranches.map((branch) {
+                final bName = branch['branch_name']?.toString() ?? '';
+                final est = (branch['estimated_cost'] as num?)?.toDouble() ?? 0.0;
+                final act = (branch['actual_cost'] as num?)?.toDouble() ?? 0.0;
+                final varianceAmt = (branch['variance_amount'] as num?)?.toDouble() ?? (act - est);
+                final variancePct = (branch['variance_percentage'] as num?)?.toDouble() ??
+                    (est > 0 ? ((act - est) / est) * 100 : 0.0);
+                final txCount = (branch['transaction_count'] as num?)?.toInt() ?? 0;
+                final pendingCount = (branch['pending_count'] as num?)?.toInt() ?? 0;
+
+                final color = _getBranchColor(bName);
+                final icon = _getBranchIcon(bName);
+
+                // Progress ratio: actual / estimated
+                final progressRatio = est > 0 ? (act / est) : (act > 0 ? 1.0 : 0.0);
+                final isOverrun = act > est && est > 0;
+                final isSaving = act < est && est > 0;
+
+                final statusColor = pendingCount > 0
+                    ? const Color(0xFFF59E0B)
+                    : (act > 0 ? const Color(0xFF10B981) : const Color(0xFF64748B));
+                final statusLabel = pendingCount > 0
+                    ? 'قيد التسوية ($pendingCount معلق)'
+                    : (act > 0 ? 'مسوى بالكامل' : 'مقدر معلق');
+
+                return SizedBox(
+                  width: cardWidth,
+                  child: InkWell(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => CostDetailsReportPage(
+                            majorCategory: bName,
+                            costCenter: _selectedCostCenter,
+                            costCenterLabel: _selectedCostCenter != null
+                                ? CostCenterHelper.fromId(_selectedCostCenter, _activeCostCenters).nameAr
+                                : null,
+                          ),
+                        ),
+                      );
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppTheme.cardBg : Colors.white,
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isDark
+                              ? AppTheme.glassBorder.withValues(alpha: 40)
+                              : const Color(0xFFCBD5E1),
+                        ),
+                        boxShadow: isDark
+                            ? null
+                            : [
+                                BoxShadow(
+                                  color: Colors.black.withValues(alpha: 0.03),
+                                  blurRadius: 8,
+                                  offset: const Offset(0, 2),
+                                ),
+                              ],
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          // Card Header: Icon, Name, and Status Chip
+                          Row(
+                            children: [
+                              Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: color.withValues(alpha: isDark ? 0.2 : 0.12),
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                child: Icon(icon, color: color, size: 19),
+                              ),
+                              const SizedBox(width: 10),
+                              Expanded(
+                                child: Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        bName,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                      decoration: BoxDecoration(
+                                        color: AppTheme.primary.withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(4),
+                                        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.3)),
+                                      ),
+                                      child: const Text(
+                                        'مستوى 5',
+                                        style: TextStyle(
+                                          color: AppTheme.primary,
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: statusColor.withValues(alpha: 0.12),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: statusColor.withValues(alpha: 0.3)),
+                                ),
+                                child: Text(
+                                  statusLabel,
+                                  style: TextStyle(
+                                    color: statusColor,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+
+                          // 3-Metric Comparison Grid (Estimated vs Actual vs Variance)
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? Colors.white.withValues(alpha: 0.03)
+                                  : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isDark
+                                    ? Colors.white.withValues(alpha: 0.05)
+                                    : const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                // Estimated
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'المقدر',
+                                        style: TextStyle(
+                                          color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                                          fontSize: 10,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          'EGP ${_fmt(est)}',
+                                          style: TextStyle(
+                                            color: isDark ? Colors.white70 : const Color(0xFF334155),
+                                            fontSize: 12.5,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  width: 1,
+                                  height: 28,
+                                  color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+                                  margin: const EdgeInsets.symmetric(horizontal: 8),
+                                ),
+                                // Actual
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'الفعلي',
+                                        style: TextStyle(
+                                          color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                                          fontSize: 10,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          'EGP ${_fmt(act)}',
+                                          style: TextStyle(
+                                            color: color,
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  width: 1,
+                                  height: 28,
+                                  color: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+                                  margin: const EdgeInsets.symmetric(horizontal: 8),
+                                ),
+                                // Variance & %
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        'الانحراف',
+                                        style: TextStyle(
+                                          color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                                          fontSize: 10,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      FittedBox(
+                                        fit: BoxFit.scaleDown,
+                                        alignment: Alignment.centerRight,
+                                        child: Text(
+                                          '${varianceAmt >= 0 ? '+' : ''}${_fmt(varianceAmt)}',
+                                          style: TextStyle(
+                                            color: isOverrun
+                                                ? const Color(0xFFEF4444)
+                                                : (isSaving
+                                                    ? const Color(0xFF10B981)
+                                                    : (isDark ? Colors.white70 : const Color(0xFF475569))),
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Progress Bar & Percentage Pill
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                est > 0
+                                    ? 'نسبة التنفيذ: ${(progressRatio * 100).toStringAsFixed(1)}%'
+                                    : (act > 0 ? 'تكلفة فعلية غير مقدرة' : 'لا توجد تكلفة'),
+                                style: TextStyle(
+                                  color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                                  fontSize: 10.5,
+                                  fontFamily: 'Cairo',
+                                ),
+                              ),
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isOverrun
+                                      ? const Color(0xFFEF4444).withValues(alpha: 0.12)
+                                      : (isSaving
+                                          ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                                          : (isDark ? Colors.white10 : const Color(0xFFF1F5F9))),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Text(
+                                  est > 0
+                                      ? (isOverrun
+                                          ? '+${variancePct.abs().toStringAsFixed(1)}% تجاوز'
+                                          : (isSaving
+                                              ? '-${variancePct.abs().toStringAsFixed(1)}% وفر'
+                                              : 'متطابق'))
+                                      : '—',
+                                  style: TextStyle(
+                                    color: isOverrun
+                                        ? const Color(0xFFEF4444)
+                                        : (isSaving
+                                            ? const Color(0xFF10B981)
+                                            : (isDark ? Colors.white60 : const Color(0xFF64748B))),
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(4),
+                            child: LinearProgressIndicator(
+                              value: progressRatio.clamp(0.0, 1.0),
+                              minHeight: 5,
+                              backgroundColor: isDark
+                                  ? Colors.white.withValues(alpha: 0.08)
+                                  : const Color(0xFFE2E8F0),
+                              valueColor: AlwaysStoppedAnimation<Color>(
+                                isOverrun
+                                    ? const Color(0xFFEF4444)
+                                    : (isSaving ? const Color(0xFF10B981) : color),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Card Footer: Transactions Count + Drill-down Action
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Text(
+                                '$txCount معاملة مسجلة',
+                                style: TextStyle(
+                                  color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
+                                  fontSize: 10,
+                                  fontFamily: 'Cairo',
+                                ),
+                              ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'عرض التفاصيل',
+                                    style: TextStyle(
+                                      color: color,
+                                      fontSize: 10.5,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Icon(Icons.arrow_back_ios_new_rounded, size: 10, color: color),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            );
+          },
+        ),
       ],
     );
   }
 
-  Future<void> _showAddCostDialog() async {
-    final nameCtrl = TextEditingController();
+  Widget _buildVarianceKpiBanner({
+    required bool isDark,
+    required double totalEstimated,
+    required double totalActual,
+    required double netVariance,
+    required double variancePct,
+  }) {
+    final isOverrun = netVariance > 0;
+    final isSaving = netVariance < 0;
 
-    await showDialog(
-      context: context,
-      builder: (ctx) => Directionality(
-        textDirection: ui.TextDirection.rtl,
-        child: AlertDialog(
-          backgroundColor: AppTheme.cardBg,
-          title: const Text('إضافة بند جديد',
-              style: TextStyle(
-                  color: Colors.white, fontFamily: 'Cairo', fontSize: 16)),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: nameCtrl,
-                style:
-                    const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
-                decoration: const InputDecoration(
-                  labelText: 'اسم البند',
-                  labelStyle:
-                      TextStyle(color: Colors.white54, fontFamily: 'Cairo'),
-                  enabledBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: Colors.white24)),
-                  focusedBorder: UnderlineInputBorder(
-                      borderSide: BorderSide(color: AppTheme.primary)),
-                ),
-                autofocus: true,
-                onSubmitted: (_) {
-                  if (nameCtrl.text.trim().isNotEmpty) {
-                    _addCategory(nameCtrl.text.trim(), ctx);
-                  }
-                },
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx),
-              child: const Text('إلغاء',
-                  style: TextStyle(color: Colors.white54, fontFamily: 'Cairo')),
-            ),
-            ElevatedButton(
-              onPressed: () {
-                if (nameCtrl.text.trim().isNotEmpty) {
-                  _addCategory(nameCtrl.text.trim(), ctx);
-                }
-              },
-              style:
-                  ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
-              child: const Text('إضافة',
-                  style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
-            ),
-          ],
+    final varianceColor = isOverrun
+        ? const Color(0xFFEF4444)
+        : (isSaving ? const Color(0xFF10B981) : const Color(0xFF3B82F6));
+
+    final varianceStatusLabel = isOverrun
+        ? 'تجاوز في الميزانية التقديرية (+)'
+        : (isSaving ? 'وفورات تشغيلية محققة (-)' : 'مطابق للميزانية التقديرية');
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F172A).withValues(alpha: 0.8) : Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark
+              ? AppTheme.primary.withValues(alpha: 0.25)
+              : const Color(0xFFCBD5E1),
+          width: 1.2,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: (isDark ? Colors.black : Colors.blueGrey).withValues(alpha: 0.06),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final isSmall = constraints.maxWidth < 600;
+
+          final items = [
+            _varianceBannerMetric(
+              label: 'إجمالي المقدر',
+              value: 'EGP ${_fmt(totalEstimated)}',
+              color: const Color(0xFF64748B),
+              icon: Icons.assignment_outlined,
+              isDark: isDark,
+            ),
+            _varianceBannerMetric(
+              label: 'إجمالي الفعلي',
+              value: 'EGP ${_fmt(totalActual)}',
+              color: AppTheme.primary,
+              icon: Icons.account_balance_wallet_outlined,
+              isDark: isDark,
+            ),
+            _varianceBannerMetric(
+              label: 'صافي الانحراف',
+              value: '${netVariance >= 0 ? '+' : ''}EGP ${_fmt(netVariance.abs())}',
+              subtitle: varianceStatusLabel,
+              color: varianceColor,
+              icon: isOverrun
+                  ? Icons.trending_up_rounded
+                  : (isSaving ? Icons.trending_down_rounded : Icons.check_circle_outline_rounded),
+              isDark: isDark,
+            ),
+            _varianceBannerMetric(
+              label: 'نسبة الانحراف',
+              value: '${variancePct >= 0 ? '+' : ''}${variancePct.toStringAsFixed(1)}%',
+              color: varianceColor,
+              icon: Icons.percent_rounded,
+              isDark: isDark,
+            ),
+          ];
+
+          if (isSmall) {
+            return Column(
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: items[0]),
+                    const SizedBox(width: 10),
+                    Expanded(child: items[1]),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(child: items[2]),
+                    const SizedBox(width: 10),
+                    Expanded(child: items[3]),
+                  ],
+                ),
+              ],
+            );
+          }
+
+          return Row(
+            children: [
+              Expanded(child: items[0]),
+              Container(width: 1, height: 42, color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+              Expanded(child: items[1]),
+              Container(width: 1, height: 42, color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+              Expanded(child: items[2]),
+              Container(width: 1, height: 42, color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+              Expanded(child: items[3]),
+            ],
+          );
+        },
       ),
     );
   }
 
-  Future<void> _addCategory(String name, BuildContext ctx) async {
-    try {
-      await Supabase.instance.client.from('cost_report_categories').insert({
-        'name': name,
-        'type': 'direct',
-      });
-      if (mounted) {
-        Navigator.pop(ctx);
-        _load();
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('خطأ: $e')));
-      }
-    }
+  Widget _varianceBannerMetric({
+    required String label,
+    required String value,
+    String? subtitle,
+    required Color color,
+    required IconData icon,
+    required bool isDark,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: color),
+              const SizedBox(width: 5),
+              Text(
+                label,
+                style: TextStyle(
+                  color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                  fontSize: 11,
+                  fontFamily: 'Cairo',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerRight,
+            child: Text(
+              value,
+              style: TextStyle(
+                color: color,
+                fontSize: 15,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Cairo',
+              ),
+            ),
+          ),
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: color.withValues(alpha: 0.85),
+                fontSize: 9.5,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'Cairo',
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
+
+
 
   // ── Report helpers ──
 
   String _generatedBy() {
     final auth = context.read<AuthCubit>().state;
-    if (auth is AuthAuthenticated)
+    if (auth is AuthAuthenticated) {
       return auth.fullName ?? auth.email ?? 'مستخدم';
+    }
     return 'مستخدم';
   }
 
@@ -1179,7 +2720,7 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
           pageTheme: pw.PageTheme(
             pageFormat: PdfPageFormat.a4,
             textDirection: pw.TextDirection.rtl,
-            margin: pw.EdgeInsets.all(20),
+            margin: const pw.EdgeInsets.all(20),
             buildBackground: (context) => pw.FullPage(
               ignoreMargins: true,
               child: pw.Image(bgImage, fit: pw.BoxFit.cover),
@@ -1370,7 +2911,7 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
   pw.Widget _pdfStatCard(
       pw.Font font, pw.Font fontBold, String label, String value) {
     return pw.Container(
-      padding: pw.EdgeInsets.all(8),
+      padding: const pw.EdgeInsets.all(8),
       decoration: pw.BoxDecoration(
         border: pw.Border.all(color: PdfColors.grey300),
         borderRadius: pw.BorderRadius.circular(6),
@@ -1418,7 +2959,7 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
           final pct = amt / total * 100;
           final color = barColors[i % barColors.length];
           return pw.Container(
-            margin: pw.EdgeInsets.only(bottom: 8),
+            margin: const pw.EdgeInsets.only(bottom: 8),
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.start,
               children: [
@@ -1509,7 +3050,7 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
           cellStyle:
               pw.TextStyle(font: font, fontSize: 9, color: PdfColors.black),
           headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey),
-          cellDecoration: (row, col, isHeader) => pw.BoxDecoration(
+          cellDecoration: (row, col, isHeader) => const pw.BoxDecoration(
               border:
                   pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300))),
           headers: headers,
@@ -1572,7 +3113,7 @@ class _CostSummaryReportPageState extends State<CostSummaryReportPage> {
             cellStyle:
                 pw.TextStyle(font: font, fontSize: 8, color: PdfColors.black),
             headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey),
-            cellDecoration: (row, col, isHeader) => pw.BoxDecoration(
+            cellDecoration: (row, col, isHeader) => const pw.BoxDecoration(
                 border:
                     pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300))),
             headers: headers,

@@ -5,6 +5,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../core/constants.dart';
+import '../../core/widgets/read_only_guard.dart';
 import '../../data/models/cashbox_model.dart';
 import 'cashbox_cubit.dart';
 import 'cashbox_state.dart';
@@ -79,15 +80,18 @@ class _CashboxScaffold extends StatelessWidget {
             style: OutlinedButton.styleFrom(
               side: const BorderSide(color: AppTheme.danger),
             ),
-            onPressed: () => showDialog(
-              context: context,
-              builder: (_) => BlocProvider.value(
-                value: controller,
-                child: const CashboxEntryDialog(
-                  initialType: TransactionType.credit,
+            onPressed: () {
+              if (!ReadOnlyGuard.check(context)) return;
+              showDialog(
+                context: context,
+                builder: (_) => BlocProvider.value(
+                  value: controller,
+                  child: const CashboxEntryDialog(
+                    initialType: TransactionType.credit,
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
           const SizedBox(width: 10),
           ElevatedButton.icon(
@@ -97,15 +101,18 @@ class _CashboxScaffold extends StatelessWidget {
             style: ElevatedButton.styleFrom(
               backgroundColor: AppTheme.success,
             ),
-            onPressed: () => showDialog(
-              context: context,
-              builder: (_) => BlocProvider.value(
-                value: controller,
-                child: const CashboxEntryDialog(
-                  initialType: TransactionType.debit,
+            onPressed: () {
+              if (!ReadOnlyGuard.check(context)) return;
+              showDialog(
+                context: context,
+                builder: (_) => BlocProvider.value(
+                  value: controller,
+                  child: const CashboxEntryDialog(
+                    initialType: TransactionType.debit,
+                  ),
                 ),
-              ),
-            ),
+              );
+            },
           ),
         ],
       );

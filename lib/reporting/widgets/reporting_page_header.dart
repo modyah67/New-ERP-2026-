@@ -22,6 +22,10 @@ class ReportingPageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final textPrimary = AppTheme.getTextPrimary(context);
+
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: Row(
@@ -30,10 +34,10 @@ class ReportingPageHeader extends StatelessWidget {
             width: 48,
             height: 48,
             decoration: BoxDecoration(
-              color: AppTheme.primary.withAlpha(25),
+              color: primary.withAlpha(25),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(icon, color: AppTheme.primary, size: 26),
+            child: Icon(icon, color: primary, size: 26),
           ),
           const SizedBox(width: 14),
           Text(
@@ -41,7 +45,7 @@ class ReportingPageHeader extends StatelessWidget {
             style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.bold,
-              color: AppTheme.textPrimary,
+              color: textPrimary,
             ),
           ),
           if (count != null) ...[
@@ -49,14 +53,14 @@ class ReportingPageHeader extends StatelessWidget {
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
               decoration: BoxDecoration(
-                color: AppTheme.primary.withAlpha(20),
+                color: primary.withAlpha(20),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 '${countLabel ?? ''} ${count!}',
                 style: TextStyle(
                   fontSize: 12,
-                  color: AppTheme.primary,
+                  color: primary,
                   fontWeight: FontWeight.w600,
                 ),
               ),

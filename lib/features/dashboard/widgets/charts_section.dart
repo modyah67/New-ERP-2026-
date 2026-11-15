@@ -14,8 +14,11 @@ class LineChartWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryTextColor = isDark ? Colors.white : Colors.black;
+
     if (data.isEmpty) {
-      return _buildEmpty('لا توجد بيانات مبيعات');
+      return _buildEmpty('لا توجد بيانات مبيعات', isDark);
     }
     final maxVal = data.fold<double>(
         0, (s, e) => ((e['sales'] ?? 0) as num).toDouble() > s ? ((e['sales'] ?? 0) as num).toDouble() : s);
@@ -26,10 +29,10 @@ class LineChartWidget extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'المبيعات آخر 30 يوم',
           style: TextStyle(
-            color: Colors.white,
+            color: primaryTextColor,
             fontSize: 13,
             fontWeight: FontWeight.bold,
             fontFamily: 'Cairo',
@@ -46,6 +49,7 @@ class LineChartWidget extends StatelessWidget {
                 maxVal: maxVal,
                 minVal: minVal,
                 range: range,
+                isDark: isDark,
               ),
             );
           }),
@@ -54,10 +58,13 @@ class LineChartWidget extends StatelessWidget {
     );
   }
 
-  Widget _buildEmpty(String msg) {
+  Widget _buildEmpty(String msg, bool isDark) {
     return Center(
       child: Text(msg,
-          style: const TextStyle(color: AppTheme.textMuted, fontFamily: 'Cairo')),
+          style: TextStyle(
+              color: isDark ? AppTheme.textMuted : Colors.black,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo')),
     );
   }
 }
@@ -68,6 +75,7 @@ class _LineChartPainter extends CustomPainter {
   final double maxVal;
   final double minVal;
   final double range;
+  final bool isDark;
 
   _LineChartPainter({
     required this.data,
@@ -75,6 +83,7 @@ class _LineChartPainter extends CustomPainter {
     required this.maxVal,
     required this.minVal,
     required this.range,
+    this.isDark = true,
   });
 
   @override
@@ -94,7 +103,7 @@ class _LineChartPainter extends CustomPainter {
       ).createShader(Rect.fromLTWH(0, 0, size.width, size.height));
 
     final gridPaint = Paint()
-      ..color = Colors.white.withAlpha(10)
+      ..color = isDark ? Colors.white.withAlpha(10) : const Color(0x180F172A)
       ..strokeWidth = 0.5;
 
     // Grid lines
@@ -156,20 +165,27 @@ class DonutChartWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryTextColor = isDark ? Colors.white : Colors.black;
+    final secondaryTextColor = isDark ? AppTheme.textSecondary : Colors.black;
+
     if (data.isEmpty) {
       return Center(
         child: Text('لا توجد بيانات',
-            style: const TextStyle(color: AppTheme.textMuted, fontFamily: 'Cairo')),
+            style: TextStyle(
+                color: isDark ? AppTheme.textMuted : Colors.black,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Cairo')),
       );
     }
     final total = data.fold<double>(0, (s, e) => s + ((e['value'] ?? 0) as num).toDouble());
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'توزيع المصروفات',
           style: TextStyle(
-            color: Colors.white,
+            color: primaryTextColor,
             fontSize: 13,
             fontWeight: FontWeight.bold,
             fontFamily: 'Cairo',
@@ -213,9 +229,10 @@ class DonutChartWidget extends StatelessWidget {
                           Expanded(
                             child: Text(
                               '${e['name']}',
-                              style: const TextStyle(
-                                color: AppTheme.textSecondary,
+                              style: TextStyle(
+                                color: secondaryTextColor,
                                 fontSize: 10,
+                                fontWeight: FontWeight.bold,
                                 fontFamily: 'Cairo',
                               ),
                               overflow: TextOverflow.ellipsis,
@@ -223,10 +240,10 @@ class DonutChartWidget extends StatelessWidget {
                           ),
                           Text(
                             '${pct.toStringAsFixed(0)}%',
-                            style: const TextStyle(
-                              color: Colors.white,
+                            style: TextStyle(
+                              color: primaryTextColor,
                               fontSize: 10,
-                              fontWeight: FontWeight.w600,
+                              fontWeight: FontWeight.bold,
                               fontFamily: 'Cairo',
                             ),
                           ),
@@ -288,46 +305,50 @@ class DestinationsMapWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final top5 = destinations.take(5).toList();
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: Container(
-        decoration: const BoxDecoration(
-          color: Color(0xFF0b1a2e),
-          borderRadius: BorderRadius.all(Radius.circular(16)),
+        decoration: BoxDecoration(
+          color: isDark ? const Color(0xFF0b1a2e) : Colors.white,
+          borderRadius: const BorderRadius.all(Radius.circular(16)),
+          border: isDark ? null : Border.all(color: AppTheme.lightBorder, width: 1.5),
         ),
         child: Stack(
           children: [
-            // Triple glow border — outer (widest, lowest opacity)
-            Positioned.fill(
-              child: Container(
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _cyan.withValues(alpha: 0.05), width: 10),
+            if (isDark) ...[
+              // Triple glow border — outer (widest, lowest opacity)
+              Positioned.fill(
+                child: Container(
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(color: _cyan.withValues(alpha: 0.05), width: 10),
+                  ),
                 ),
               ),
-            ),
-            // Triple glow border — middle
-            Positioned.fill(
-              child: Container(
-                margin: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(11),
-                  border: Border.all(color: _cyan.withValues(alpha: 0.12), width: 5),
+              // Triple glow border — middle
+              Positioned.fill(
+                child: Container(
+                  margin: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(11),
+                    border: Border.all(color: _cyan.withValues(alpha: 0.12), width: 5),
+                  ),
                 ),
               ),
-            ),
-            // Triple glow border — inner (thinnest, highest opacity)
-            Positioned.fill(
-              child: Container(
-                margin: const EdgeInsets.all(15),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: _cyan.withValues(alpha: 0.90), width: 1.5),
+              // Triple glow border — inner (thinnest, highest opacity)
+              Positioned.fill(
+                child: Container(
+                  margin: const EdgeInsets.all(15),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: _cyan.withValues(alpha: 0.90), width: 1.5),
+                  ),
                 ),
               ),
-            ),
+            ],
             // Content
             Padding(
               padding: const EdgeInsets.all(18),
@@ -337,11 +358,11 @@ class DestinationsMapWidget extends StatelessWidget {
                   // Header
                   Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Text(
                           'الدول المصدر لها',
                           style: TextStyle(
-                            color: Colors.white,
+                            color: isDark ? Colors.white : Colors.black,
                             fontSize: 13,
                             fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo',
@@ -353,7 +374,7 @@ class DestinationsMapWidget extends StatelessWidget {
                         width: 28,
                         height: 28,
                         decoration: BoxDecoration(
-                          color: const Color(0xFF0d2138),
+                          color: isDark ? const Color(0xFF0d2138) : const Color(0xFFE0F2FE),
                           shape: BoxShape.circle,
                           border: Border.all(color: _cyan, width: 1.5),
                         ),
@@ -369,10 +390,14 @@ class DestinationsMapWidget extends StatelessWidget {
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
-                                Icon(Icons.public, color: AppTheme.textMuted, size: 36),
+                                Icon(Icons.public, color: isDark ? AppTheme.textMuted : Colors.black87, size: 36),
                                 const SizedBox(height: 8),
                                 Text('لا توجد وجهات تصدير بعد',
-                                    style: TextStyle(color: AppTheme.textMuted, fontFamily: 'Cairo')),
+                                    style: TextStyle(
+                                      color: isDark ? AppTheme.textMuted : Colors.black,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    )),
                               ],
                             ),
                           )
@@ -442,12 +467,18 @@ class _CountryRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final itemBg = isDark ? const Color(0xFF0a1a30) : const Color(0xFFF8FAFC);
+    final itemBorder = isDark ? const Color(0xFF1c3a52) : const Color(0xFFCBD5E1);
+    final primaryTextColor = isDark ? Colors.white : Colors.black;
+    final secondaryTextColor = isDark ? const Color(0xFF8fa5bd) : Colors.black;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: const Color(0xFF0a1a30),
+        color: itemBg,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFF1c3a52), width: 1),
+        border: Border.all(color: itemBorder, width: 1),
       ),
       child: Row(
         children: [
@@ -463,7 +494,7 @@ class _CountryRow extends StatelessWidget {
             child: Text(
               '$rank',
               style: const TextStyle(
-                color: Color(0xFF0b1a2e),
+                color: Colors.black,
                 fontSize: 11,
                 fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
@@ -475,10 +506,10 @@ class _CountryRow extends StatelessWidget {
           Expanded(
             child: Text(
               name,
-              style: const TextStyle(
-                color: Colors.white,
+              style: TextStyle(
+                color: primaryTextColor,
                 fontSize: 12,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
               ),
               overflow: TextOverflow.ellipsis,
@@ -488,9 +519,10 @@ class _CountryRow extends StatelessWidget {
           if (totalValue > 0 || totalWeight > 0)
             Text(
               '${_fmtValue(totalValue)} EGP · ${_fmtWeight(totalWeight)}',
-              style: const TextStyle(
-                color: Color(0xFF8fa5bd),
+              style: TextStyle(
+                color: secondaryTextColor,
                 fontSize: 10,
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
               ),
             ),
@@ -508,10 +540,11 @@ class _FlatWorldMap extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return LayoutBuilder(
       builder: (context, constraints) {
         return CustomPaint(
-          painter: _WorldMapPainter(),
+          painter: _WorldMapPainter(isDark: isDark),
           size: Size(constraints.maxWidth, constraints.maxHeight),
         );
       },
@@ -520,19 +553,20 @@ class _FlatWorldMap extends StatelessWidget {
 }
 
 class _WorldMapPainter extends CustomPainter {
-  _WorldMapPainter();
+  final bool isDark;
+  _WorldMapPainter({this.isDark = true});
 
   @override
   void paint(Canvas canvas, Size size) {
     // Background (ocean)
     final oceanPaint = Paint()
-      ..color = const Color(0xFF0d2138)
+      ..color = isDark ? const Color(0xFF0d2138) : const Color(0xFFF1F5F9)
       ..style = PaintingStyle.fill;
     canvas.drawRect(Rect.fromLTWH(0, 0, size.width, size.height), oceanPaint);
 
     // Graticule grid (~20° step)
     final gratPaint = Paint()
-      ..color = const Color(0xFF1e3a54).withValues(alpha: 0.4)
+      ..color = isDark ? const Color(0xFF1e3a54).withValues(alpha: 0.4) : const Color(0xFFCBD5E1).withValues(alpha: 0.5)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.4;
 
@@ -556,11 +590,11 @@ class _WorldMapPainter extends CustomPainter {
 
     // Continent fill
     final mapPaint = Paint()
-      ..color = const Color(0xFF15304a)
+      ..color = isDark ? const Color(0xFF15304a) : const Color(0xFFCBD5E1)
       ..style = PaintingStyle.fill;
 
     final borderPaint = Paint()
-      ..color = const Color(0xFF0d2138)
+      ..color = isDark ? const Color(0xFF0d2138) : const Color(0xFF94A3B8)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 0.7;
 

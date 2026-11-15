@@ -372,19 +372,6 @@ class TransferCubit extends Cubit<TransferState> {
     emit(_formState);
 
     try {
-      final transfer = StockTransferModel(
-        fromStationId: _fromStationId!,
-        toStationId: _toStationId!,
-        productCode: _selectedProductCode ?? '',
-        productName: _selectedProductName ?? '',
-        quantity: quantity,
-        notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
-        transferredBy: userId,
-        createdAt: DateTime.now().toIso8601String(),
-      );
-
-      await _transferDao.insert(transfer);
-
       final product = _formState.sourceProducts.firstWhere(
         (p) => p.productName == _selectedProductName && p.productCode == (_selectedProductCode ?? ''),
         orElse: () => StationProductModel(
@@ -404,6 +391,26 @@ class TransferCubit extends Cubit<TransferState> {
         rawMaterialId: product.rawMaterialId,
         fruitTypeId: product.fruitTypeId,
       );
+
+      final double totalCost = deductions.fold<double>(0.0, (sum, d) => sum + d.totalCost);
+      final double unitCost = quantity > 0 ? totalCost / quantity : 0.0;
+      final String currency = deductions.isNotEmpty ? deductions.first.currency : 'EGP';
+
+      final transfer = StockTransferModel(
+        fromStationId: _fromStationId!,
+        toStationId: _toStationId!,
+        productCode: _selectedProductCode ?? '',
+        productName: _selectedProductName ?? '',
+        quantity: quantity,
+        notes: notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+        transferredBy: userId,
+        createdAt: DateTime.now().toIso8601String(),
+        unitCost: unitCost,
+        totalCost: totalCost,
+        currency: currency,
+      );
+
+      final transferId = await _transferDao.insert(transfer);
 
       await _stationProductDao.upsertQuantity(
         stationId: _fromStationId!,
@@ -445,6 +452,14 @@ class TransferCubit extends Cubit<TransferState> {
         );
       }
 
+      // Automatically generate & link balanced double-entry journal entry
+      try {
+        final jeId = await _transferDao.processTransferJournalEntry(transferId);
+        debugPrint('TransferCubit: generated journal entry #$jeId for transfer #$transferId');
+      } catch (jeErr) {
+        debugPrint('TransferCubit: warning while posting journal entry: $jeErr');
+      }
+
       _clearForm();
       await loadAll(reset: true);
 
@@ -460,7 +475,7 @@ class TransferCubit extends Cubit<TransferState> {
   }
 
   Future<bool> deleteTransfer(int id) async {
-    Future<void> _reverseDestinationBatches(StockTransferModel transfer) async {
+    Future<void> reverseDestinationBatches(StockTransferModel transfer) async {
       try {
         var query = _client
             .from('station_product_batches')
@@ -536,8 +551,19 @@ class TransferCubit extends Cubit<TransferState> {
             delta: -transfer.quantity,
           ),
         if (transfer.toStationId > 0)
-          _reverseDestinationBatches(transfer),
+          reverseDestinationBatches(transfer),
       ]);
+
+      // Clean up linked journal entry and ledger entries if present
+      if (transfer.journalEntryId != null) {
+        try {
+          await _client.from('account_ledger_entries').delete().eq('journal_entry_id', transfer.journalEntryId!);
+          await _client.from('journal_entries').delete().eq('id', transfer.journalEntryId!);
+        } catch (jeErr) {
+          debugPrint('⚠️ Failed to delete transfer journal entry: $jeErr');
+        }
+      }
+
       await _transferDao.delete(id);
       await loadAll(reset: true);
 
@@ -668,6 +694,10 @@ class TransferCubit extends Cubit<TransferState> {
         );
       }
 
+      final double totalCost = deductions.fold<double>(0.0, (sum, d) => sum + d.totalCost);
+      final double unitCost = quantity > 0 ? totalCost / quantity : 0.0;
+      final String currency = deductions.isNotEmpty ? deductions.first.currency : 'EGP';
+
       // 4. Update transfer record
       await _transferDao.update(transferId, {
         'from_station_id': _fromStationId,
@@ -676,7 +706,20 @@ class TransferCubit extends Cubit<TransferState> {
         'product_name': _selectedProductName ?? '',
         'quantity': quantity,
         'notes': notesController.text.trim().isEmpty ? null : notesController.text.trim(),
+        'unit_cost': unitCost,
+        'total_cost': totalCost,
+        'currency': currency,
       });
+
+      // 5. Clean up old journal entry and re-generate
+      if (oldTransfer.journalEntryId != null) {
+        try {
+          await _client.from('account_ledger_entries').delete().eq('journal_entry_id', oldTransfer.journalEntryId!);
+          await _client.from('journal_entries').delete().eq('id', oldTransfer.journalEntryId!);
+          await _transferDao.update(transferId, {'journal_entry_id': null});
+        } catch (_) {}
+      }
+      await _transferDao.processTransferJournalEntry(transferId);
 
       _clearForm();
       await loadAll(reset: true);

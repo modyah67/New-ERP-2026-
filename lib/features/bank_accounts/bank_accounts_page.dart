@@ -31,6 +31,9 @@ import '../treasury/treasury_pdf_service.dart';
 import 'bank_accounts_cubit.dart';
 import 'bank_accounts_state.dart';
 import 'bank_account_export_service.dart';
+import '../../core/widgets/password_verification_dialog.dart';
+import 'widgets/edit_confirmed_bank_transaction_dialog.dart';
+import '../../core/widgets/beneficiary_selector_field.dart';
 
 class BankAccountsPage extends StatelessWidget {
   const BankAccountsPage({super.key});
@@ -62,6 +65,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
       body: Padding(
         padding: const EdgeInsets.all(24),
@@ -72,13 +76,13 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
               children: [
                 Icon(Icons.account_balance, color: AppTheme.primary, size: 28),
                 const SizedBox(width: 12),
-                const Text('الحسابات البنكية',
+                Text('الحسابات البنكية',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: TextStyle(
                         fontSize: 26,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: isDark ? Colors.white : Colors.black,
                         fontFamily: 'Cairo')),
               ],
             ),
@@ -112,6 +116,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
   }
 
   Widget _buildContent(BankAccountsLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final accounts = state.accounts;
     if (accounts.isEmpty) {
       return const Center(
@@ -222,7 +227,8 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                 'اضغط على حساب لعرض الحركات',
                 style: TextStyle(
                     fontSize: 14,
-                    color: AppTheme.textMuted,
+                    color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                    fontWeight: FontWeight.w600,
                     fontFamily: 'Cairo'),
               ),
             ),
@@ -235,6 +241,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
     required BankAccountModel account,
     required BankAccountsLoaded state,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final Color cardColor;
     switch (account.currency) {
       case 'EGP':
@@ -266,18 +273,32 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
           child: Container(
             decoration: BoxDecoration(
               gradient: LinearGradient(
-                colors: [
-                  cardColor.withValues(alpha: isSelected ? 0.25 : 0.15),
-                  cardColor.withValues(alpha: isSelected ? 0.10 : 0.05),
-                ],
+                colors: isDark
+                    ? [
+                        cardColor.withValues(alpha: isSelected ? 0.25 : 0.15),
+                        cardColor.withValues(alpha: isSelected ? 0.10 : 0.05),
+                      ]
+                    : [
+                        cardColor.withValues(alpha: isSelected ? 0.18 : 0.08),
+                        Colors.white,
+                      ],
                 begin: Alignment.topLeft,
                 end: Alignment.bottomRight,
               ),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: cardColor.withValues(alpha: isSelected ? 0.2 : 0.08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 4),
+                      ),
+                    ],
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                 color: isSelected
-                    ? cardColor.withValues(alpha: 0.6)
-                    : cardColor.withValues(alpha: 0.3),
+                    ? cardColor.withValues(alpha: isDark ? 0.6 : 0.9)
+                    : cardColor.withValues(alpha: isDark ? 0.3 : 0.35),
                 width: isSelected ? 2 : 1,
               ),
             ),
@@ -316,8 +337,9 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                           Text(account.name,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                  color: AppTheme.textSecondary,
+                              style: TextStyle(
+                                  color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
+                                  fontWeight: FontWeight.w600,
                                   fontSize: 14,
                                   fontFamily: 'Cairo')),
                         ],
@@ -335,8 +357,8 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                       child: Text(
                         AppUtils.formatNumber(account.balance),
                         maxLines: 1,
-                        style: const TextStyle(
-                          color: Colors.white,
+                        style: TextStyle(
+                          color: isDark ? Colors.white : Colors.black,
                           fontWeight: FontWeight.bold,
                           fontSize: 24,
                           fontFamily: 'Cairo',
@@ -379,6 +401,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
   }
 
   Widget _buildTransactionsHeader(BankAccountsLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final account = state.accounts.firstWhere(
       (a) => a.id == state.selectedAccountId,
       orElse: () => state.accounts.first,
@@ -401,10 +424,10 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                   color: AppTheme.accent, size: 22),
               const SizedBox(width: 8),
               Text('حركات ${account.name}',
-                  style: const TextStyle(
+                  style: TextStyle(
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: isDark ? Colors.white : Colors.black,
                       fontFamily: 'Cairo')),
               const SizedBox(width: 8),
               Container(
@@ -430,9 +453,11 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
               // _currencyFilterDropdown(state),
               // const SizedBox(width: 10),
               _dateFilterBtn(
-                label: state.startDate != null
-                    ? 'من: ${DateFormat('MM/dd').format(state.startDate!)}'
-                    : 'التاريخ',
+                label: state.startDate != null && state.endDate != null
+                    ? 'من: ${DateFormat('yyyy/MM/dd').format(state.startDate!)} إلى: ${DateFormat('yyyy/MM/dd').format(state.endDate!)}'
+                    : (state.startDate != null
+                        ? 'من: ${DateFormat('yyyy/MM/dd').format(state.startDate!)}'
+                        : 'تصفية بالتاريخ (من - إلى)'),
                 isActive: state.startDate != null || state.endDate != null,
                 onTap: () => _showDateRangePicker(state),
                 showClear: state.startDate != null || state.endDate != null,
@@ -441,10 +466,18 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                     .setDateFilter(null, null, clear: true),
               ),
               const SizedBox(width: 10),
-            //  _exportBtn(Icons.picture_as_pdf, 'PDF', () => _exportPdf(state)),
+              _exportBtn(
+                Icons.picture_as_pdf_rounded,
+                'طباعة PDF',
+                () => _exportPdf(state),
+                color: const Color(0xFFEF4444),
+              ),
               const SizedBox(width: 8),
-              _exportBtn(Icons.table_chart_outlined, 'Excel',
-                  () => _exportExcel(state)),
+              _exportBtn(
+                Icons.table_chart_outlined,
+                'Excel',
+                () => _exportExcel(state),
+              ),
             ],
           ),
         ),
@@ -453,23 +486,26 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
           height: 38,
           child: TextField(
             controller: _searchController,
-            style: const TextStyle(
-                color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+            style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+                fontFamily: 'Cairo',
+                fontSize: 13,
+                fontWeight: FontWeight.w600),
             onChanged: (val) =>
                 context.read<BankAccountsCubit>().setSearchQuery(val),
             decoration: InputDecoration(
               hintText:
                   'بحث في رقم القيد، البيان، اسم الحساب، المورد أو العميل...',
               hintStyle: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.4),
+                  color: isDark ? Colors.white.withValues(alpha: 0.4) : const Color(0xFF64748B),
                   fontSize: 11.5,
                   fontFamily: 'Cairo'),
               prefixIcon: const Icon(Icons.search_rounded,
                   color: AppTheme.accent, size: 18),
               suffixIcon: _searchController.text.isNotEmpty
                   ? IconButton(
-                      icon: const Icon(Icons.close_rounded,
-                          color: Colors.white70, size: 16),
+                      icon: Icon(Icons.close_rounded,
+                          color: isDark ? Colors.white70 : Colors.black54, size: 16),
                       onPressed: () {
                         _searchController.clear();
                         context.read<BankAccountsCubit>().setSearchQuery('');
@@ -479,16 +515,16 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
               isDense: true,
               contentPadding: const EdgeInsets.symmetric(vertical: 8),
               filled: true,
-              fillColor: Colors.white.withValues(alpha: 0.05),
+              fillColor: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF8FAFC),
               border: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: BorderSide(
-                    color: AppTheme.glassBorder.withValues(alpha: 0.3)),
+                    color: isDark ? AppTheme.glassBorder.withValues(alpha: 0.3) : const Color(0xFFCBD5E1)),
               ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
                 borderSide: BorderSide(
-                    color: AppTheme.glassBorder.withValues(alpha: 0.3)),
+                    color: isDark ? AppTheme.glassBorder.withValues(alpha: 0.3) : const Color(0xFFCBD5E1)),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(10),
@@ -552,6 +588,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
   }
 
   Widget _accountFilterDropdown(BankAccountsLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final hasFilter = state.accountFilter != null;
     return PopupMenuButton<int?>(
       initialValue: state.accountFilter,
@@ -561,22 +598,24 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
       },
       offset: const Offset(0, 30),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      color: AppTheme.surface,
+      color: isDark ? AppTheme.surface : Colors.white,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: hasFilter
               ? AppTheme.primary.withValues(alpha: 0.2)
-              : Colors.white.withValues(alpha: 0.08),
+              : (isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFF1F5F9)),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-              color: hasFilter ? AppTheme.primary : AppTheme.glassBorder),
+              color: hasFilter
+                  ? AppTheme.primary
+                  : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.account_balance,
-                size: 18, color: hasFilter ? AppTheme.primary : Colors.white70),
+                size: 18, color: hasFilter ? AppTheme.primary : (isDark ? Colors.white70 : Colors.black87)),
             const SizedBox(width: 6),
             Text(
               hasFilter
@@ -587,34 +626,36 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                   : 'الحساب',
               style: TextStyle(
                 fontSize: 12,
-                color: hasFilter ? AppTheme.primary : Colors.white70,
+                color: hasFilter ? AppTheme.primary : (isDark ? Colors.white70 : Colors.black87),
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
               ),
             ),
             const SizedBox(width: 2),
             Icon(Icons.arrow_drop_down,
-                size: 18, color: hasFilter ? AppTheme.primary : Colors.white70),
+                size: 18, color: hasFilter ? AppTheme.primary : (isDark ? Colors.white70 : Colors.black87)),
           ],
         ),
       ),
       itemBuilder: (context) => [
-        const PopupMenuItem(
+        PopupMenuItem(
           value: null,
           child: Text('جميع الحسابات',
               style: TextStyle(
-                  fontFamily: 'Cairo', fontSize: 13, color: Colors.white)),
+                  fontFamily: 'Cairo', fontSize: 13, color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
         ),
         ...state.accounts.map((acc) => PopupMenuItem(
               value: acc.id,
               child: Text('${acc.name} (${acc.currency})',
-                  style: const TextStyle(
-                      fontFamily: 'Cairo', fontSize: 13, color: Colors.white)),
+                  style: TextStyle(
+                      fontFamily: 'Cairo', fontSize: 13, color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
             )),
       ],
     );
   }
 
   Widget _currencyFilterDropdown(BankAccountsLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final hasFilter =
         state.currencyFilter != null && state.currencyFilter!.isNotEmpty;
     const currencies = ['EGP', 'USD', 'EUR', 'GBP'];
@@ -626,55 +667,59 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
       },
       offset: const Offset(0, 30),
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      color: AppTheme.surface,
+      color: isDark ? AppTheme.surface : Colors.white,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: hasFilter
               ? AppTheme.primary.withValues(alpha: 0.2)
-              : Colors.white.withValues(alpha: 0.08),
+              : (isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFF1F5F9)),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-              color: hasFilter ? AppTheme.primary : AppTheme.glassBorder),
+              color: hasFilter
+                  ? AppTheme.primary
+                  : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.monetization_on_outlined,
-                size: 18, color: hasFilter ? AppTheme.primary : Colors.white70),
+                size: 18, color: hasFilter ? AppTheme.primary : (isDark ? Colors.white70 : Colors.black87)),
             const SizedBox(width: 6),
             Text(
               hasFilter ? state.currencyFilter! : 'العملة',
               style: TextStyle(
                 fontSize: 12,
-                color: hasFilter ? AppTheme.primary : Colors.white70,
+                color: hasFilter ? AppTheme.primary : (isDark ? Colors.white70 : Colors.black87),
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
               ),
             ),
             const SizedBox(width: 2),
             Icon(Icons.arrow_drop_down,
-                size: 18, color: hasFilter ? AppTheme.primary : Colors.white70),
+                size: 18, color: hasFilter ? AppTheme.primary : (isDark ? Colors.white70 : Colors.black87)),
           ],
         ),
       ),
       itemBuilder: (context) => [
-        const PopupMenuItem(
+        PopupMenuItem(
           value: null,
           child: Text('الكل',
               style: TextStyle(
-                  fontFamily: 'Cairo', fontSize: 13, color: Colors.white)),
+                  fontFamily: 'Cairo', fontSize: 13, color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
         ),
         ...currencies.map((cur) => PopupMenuItem(
               value: cur,
               child: Text(cur,
-                  style: const TextStyle(
-                      fontFamily: 'Cairo', fontSize: 13, color: Colors.white)),
+                  style: TextStyle(
+                      fontFamily: 'Cairo', fontSize: 13, color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
             )),
       ],
     );
   }
 
   Future<void> _showDateRangePicker(BankAccountsLoaded state) async {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final now = DateTime.now();
     final picked = await showDateRangePicker(
       context: context,
@@ -687,12 +732,19 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
       builder: (context, child) {
         return Theme(
           data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppTheme.primary,
-              onPrimary: Colors.white,
-              surface: AppTheme.cardBg,
-              onSurface: Colors.white,
-            ),
+            colorScheme: isDark
+                ? const ColorScheme.dark(
+                    primary: AppTheme.primary,
+                    onPrimary: Colors.white,
+                    surface: AppTheme.cardBg,
+                    onSurface: Colors.white,
+                  )
+                : const ColorScheme.light(
+                    primary: AppTheme.primary,
+                    onPrimary: Colors.white,
+                    surface: Colors.white,
+                    onSurface: Colors.black,
+                  ),
           ),
           child: child!,
         );
@@ -728,24 +780,37 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
     );
   }
 
-  Widget _exportBtn(IconData icon, String label, VoidCallback onTap) {
+  Widget _exportBtn(IconData icon, String label, VoidCallback onTap, {Color? color}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final defaultIconColor = color ?? (isDark ? Colors.white70 : Colors.black87);
+    final defaultTextColor = color ?? (isDark ? Colors.white70 : Colors.black87);
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.08),
+          color: color != null
+              ? color.withValues(alpha: isDark ? 0.15 : 0.08)
+              : (isDark
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : const Color(0xFFF1F5F9)),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.glassBorder),
+          border: Border.all(
+              color: color != null
+                  ? color.withValues(alpha: 0.5)
+                  : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 16, color: Colors.white70),
+            Icon(icon, size: 16, color: defaultIconColor),
             const SizedBox(width: 5),
             Text(label,
-                style: const TextStyle(
-                    fontSize: 11, color: Colors.white70, fontFamily: 'Cairo')),
+                style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: defaultTextColor,
+                    fontFamily: 'Cairo')),
           ],
         ),
       ),
@@ -759,6 +824,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
     bool showClear = false,
     VoidCallback? onClear,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -766,24 +832,26 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
         decoration: BoxDecoration(
           color: isActive
               ? AppTheme.primary.withValues(alpha: 0.2)
-              : Colors.white.withValues(alpha: 0.08),
+              : (isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFF1F5F9)),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-              color: isActive ? AppTheme.primary : AppTheme.glassBorder),
+              color: isActive
+                  ? AppTheme.primary
+                  : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(Icons.date_range,
-                size: 18, color: isActive ? AppTheme.primary : Colors.white70),
+                size: 18, color: isActive ? AppTheme.primary : (isDark ? Colors.white70 : Colors.black87)),
             const SizedBox(width: 6),
             Text(label,
                 style: TextStyle(
                     fontSize: 12,
-                    color: isActive ? AppTheme.primary : Colors.white70,
+                    color: isActive ? AppTheme.primary : (isDark ? Colors.white70 : Colors.black87),
                     fontFamily: 'Cairo',
                     fontWeight:
-                        isActive ? FontWeight.bold : FontWeight.normal)),
+                        isActive ? FontWeight.bold : FontWeight.bold)),
             if (showClear && onClear != null) ...[
               const SizedBox(width: 6),
               InkWell(
@@ -832,10 +900,23 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
       );
     }
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: isDark ? AppTheme.surface : Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0),
+        ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -851,17 +932,24 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
                     decoration: BoxDecoration(
-                      color: AppTheme.primary.withValues(alpha: 0.1),
+                      color: isDark
+                          ? AppTheme.primary.withValues(alpha: 0.1)
+                          : const Color(0xFFF1F5F9),
                       borderRadius:
                           const BorderRadius.vertical(top: Radius.circular(16)),
+                      border: Border(
+                        bottom: BorderSide(
+                          color: isDark ? Colors.transparent : const Color(0xFFE2E8F0),
+                        ),
+                      ),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
                         Expanded(
                             flex: 1,
                             child: Text('#',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo'))),
@@ -869,7 +957,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                             flex: 2,
                             child: Text('التاريخ',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo'))),
@@ -877,7 +965,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                             flex: 2,
                             child: Text('النوع',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo'))),
@@ -886,7 +974,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                             child: Text('المبلغ',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo'))),
@@ -895,7 +983,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                             child: Text('الرصيد',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo'))),
@@ -903,11 +991,11 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                             flex: 3,
                             child: Text('البيان / الجهة',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo'))),
-                        SizedBox(width: 60),
+                        const SizedBox(width: 60),
                       ],
                     ),
                   ),
@@ -957,6 +1045,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
   void _confirmDraftTx(BankAccountTransactionModel tx) {
     final txId = tx.id;
     if (txId <= 0) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final typeLabel = tx.isDeposit
         ? 'إيداع'
@@ -965,24 +1054,26 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
+        backgroundColor: isDark ? AppTheme.surface : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Text('تأكيد وترحيل الحركة',
+        title: Text('تأكيد وترحيل الحركة',
             style: TextStyle(
                 fontFamily: 'Cairo',
                 fontWeight: FontWeight.bold,
-                color: Colors.white)),
+                color: isDark ? Colors.white : Colors.black)),
         content: Text(
           'هل أنت متأكد من تأكيد وترحيل حركة "$typeLabel" بمبلغ ${AppUtils.formatNumber(tx.amount)} وتحديث الأرصدة والقيود المحاسبية؟',
-          style: const TextStyle(
-              fontFamily: 'Cairo', color: AppTheme.textSecondary),
+          style: TextStyle(
+              fontFamily: 'Cairo',
+              color: isDark ? AppTheme.textSecondary : Colors.black87),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('إلغاء',
+            child: Text('إلغاء',
                 style: TextStyle(
-                    fontFamily: 'Cairo', color: AppTheme.textMuted)),
+                    fontFamily: 'Cairo',
+                    color: isDark ? AppTheme.textMuted : const Color(0xFF64748B))),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -1008,6 +1099,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
   void _deleteDraftTx(BankAccountTransactionModel tx) {
     final txId = tx.id;
     if (txId <= 0) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final typeLabel = tx.isDeposit
         ? 'إيداع'
@@ -1016,7 +1108,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
+        backgroundColor: isDark ? AppTheme.surface : Colors.white,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('حذف المسودة',
             style: TextStyle(
@@ -1025,15 +1117,17 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                 color: AppTheme.danger)),
         content: Text(
           'هل تريد حذف مسودة "$typeLabel" بمبلغ ${AppUtils.formatNumber(tx.amount)} نهائياً؟',
-          style: const TextStyle(
-              fontFamily: 'Cairo', color: AppTheme.textSecondary),
+          style: TextStyle(
+              fontFamily: 'Cairo',
+              color: isDark ? AppTheme.textSecondary : Colors.black87),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('إلغاء',
+            child: Text('إلغاء',
                 style: TextStyle(
-                    fontFamily: 'Cairo', color: AppTheme.textMuted)),
+                    fontFamily: 'Cairo',
+                    color: isDark ? AppTheme.textMuted : const Color(0xFF64748B))),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -1069,8 +1163,50 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
     }
   }
 
+  Future<void> _handleSecuredEditBankTransaction(
+      BankAccountTransactionModel tx, BankAccountsLoaded state) async {
+    final verified = await showPasswordVerificationDialog(
+      context,
+      title: 'تأكيد كلمة المرور لتعديل الحركة البنكية',
+      subtitle:
+          'يرجى إدخال كلمة المرور للمتابعة في تعديل بيانات الحركة #${tx.journalEntryId ?? tx.id}',
+      expectedPassword: 'eslam2026',
+    );
+
+    if (!mounted) return;
+
+    if (!verified) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'كلمة المرور غير صحيحة أو تم إلغاء العملية، تم منع فتح شاشة التعديل',
+            style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+          ),
+          backgroundColor: AppTheme.danger,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    final cubit = context.read<BankAccountsCubit>();
+    showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => BlocProvider<BankAccountsCubit>.value(
+        value: cubit,
+        child: EditConfirmedBankTransactionDialog(
+          tx: tx,
+          state: state,
+          cubit: cubit,
+        ),
+      ),
+    );
+  }
+
   Widget _buildTransactionRow(
       BankAccountTransactionModel tx, BankAccountsLoaded state) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isDeposit = tx.isDeposit;
     final typeColor = tx.isDraft
         ? AppTheme.warning
@@ -1132,7 +1268,9 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
           onTap: tx.isDraft
               ? () => _showEditTransaction(tx, state)
               : () => UnifiedTransactionDetailsModal.show(context, unifiedTx),
-          hoverColor: Colors.white.withValues(alpha: 0.03),
+          hoverColor: isDark
+              ? Colors.white.withValues(alpha: 0.03)
+              : Colors.black.withValues(alpha: 0.03),
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             decoration: BoxDecoration(
@@ -1143,7 +1281,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                 bottom: BorderSide(
                     color: tx.isDraft
                         ? AppTheme.warning.withValues(alpha: 0.2)
-                        : AppTheme.divider,
+                        : (isDark ? AppTheme.divider : const Color(0xFFE2E8F0)),
                     width: 0.5),
               ),
             ),
@@ -1166,7 +1304,8 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                     flex: 2,
                     child: Text(dateStr,
                         style: TextStyle(
-                            color: AppTheme.textSecondary,
+                            color: isDark ? AppTheme.textSecondary : Colors.black87,
+                            fontWeight: isDark ? FontWeight.normal : FontWeight.w600,
                             fontSize: 11,
                             fontFamily: 'Cairo'))),
                 Expanded(
@@ -1214,7 +1353,8 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                       style: TextStyle(
                           color: tx.isDraft
                               ? AppTheme.textMuted
-                              : Colors.white,
+                              : (isDark ? Colors.white : Colors.black),
+                          fontWeight: FontWeight.bold,
                           fontSize: 12,
                           fontFamily: 'Cairo')),
                 ),
@@ -1228,9 +1368,10 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                                color: tx.isDraft
-                                    ? Colors.white
-                                    : AppTheme.textSecondary,
+                                color: isDark
+                                    ? (tx.isDraft ? Colors.white : AppTheme.textSecondary)
+                                    : Colors.black,
+                                fontWeight: isDark ? FontWeight.normal : FontWeight.w600,
                                 fontSize: 11,
                                 fontFamily: 'Cairo')),
                         if (unifiedTx.relatedPartyName != null &&
@@ -1240,13 +1381,16 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                   fontSize: 10,
-                                  color: AppTheme.textSecondary
-                                      .withValues(alpha: 0.7),
+                                  color: isDark
+                                      ? AppTheme.textSecondary
+                                          .withValues(alpha: 0.7)
+                                      : const Color(0xFF475569),
+                                  fontWeight: FontWeight.w600,
                                   fontFamily: 'Cairo')),
                       ],
                     )),
                 SizedBox(
-                  width: tx.isDraft ? 110 : 90,
+                  width: 120,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
@@ -1277,6 +1421,14 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                         ),
                       ] else ...[
                         IconButton(
+                          icon: const Icon(Icons.edit_outlined,
+                              size: 16, color: AppTheme.accent),
+                          tooltip: 'تعديل الحركة (محمي بكلمة مرور)',
+                          onPressed: () => _handleSecuredEditBankTransaction(tx, state),
+                          padding: const EdgeInsets.symmetric(horizontal: 3),
+                          constraints: const BoxConstraints(),
+                        ),
+                        IconButton(
                           icon: const Icon(Icons.book_outlined,
                               size: 16, color: AppTheme.accent),
                           tooltip: 'عرض القيد المحاسبي',
@@ -1290,20 +1442,21 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                               sourceId: tx.relatedPartyId,
                             );
                           },
-                          padding: EdgeInsets.zero,
+                          padding: const EdgeInsets.symmetric(horizontal: 3),
                           constraints: const BoxConstraints(),
                         ),
                         IconButton(
                           icon: const Icon(Icons.print_outlined,
                               size: 16, color: AppTheme.accent),
+                          tooltip: 'طباعة السند',
                           onPressed: () =>
                               TreasuryPdfService.printVoucher(unifiedTx),
-                          padding: EdgeInsets.zero,
+                          padding: const EdgeInsets.symmetric(horizontal: 3),
                           constraints: const BoxConstraints(),
                         ),
                         if (isChequeTx)
                           const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 4.0),
+                            padding: EdgeInsets.symmetric(horizontal: 2.0),
                             child: Icon(Icons.lock_outline,
                                 size: 14, color: AppTheme.textMuted),
                           ),
@@ -1315,6 +1468,339 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  static const List<Map<String, dynamic>> _bankSupplierTypeOptions = [
+    {
+      'key': 'all',
+      'label': 'جميع الأنواع',
+      'icon': Icons.all_inclusive_rounded,
+      'color': AppTheme.primary,
+    },
+    {
+      'key': 'crop',
+      'label': 'موردين محاصيل',
+      'icon': Icons.agriculture_rounded,
+      'color': Color(0xFF10B981),
+    },
+    {
+      'key': 'transport',
+      'label': 'موردين نقل',
+      'icon': Icons.local_shipping_rounded,
+      'color': Color(0xFF0284C7),
+    },
+    {
+      'key': 'station',
+      'label': 'موردين محطات',
+      'icon': Icons.factory_rounded,
+      'color': Color(0xFFF59E0B),
+    },
+    {
+      'key': 'deduction',
+      'label': 'موردين تخصيمات',
+      'icon': Icons.assignment_outlined,
+      'color': Color(0xFF8B5CF6),
+    },
+    {
+      'key': 'packaging',
+      'label': 'موردين تعبئة',
+      'icon': Icons.inventory_2_outlined,
+      'color': Color(0xFF06B6D4),
+    },
+    {
+      'key': 'shared',
+      'label': 'موردين مشتركين',
+      'icon': Icons.sync_alt_rounded,
+      'color': Color(0xFFEC4899),
+    },
+  ];
+
+  Color _getBankSupplierTypeColor(String? type, [String? code]) {
+    final t = (type ?? '').toLowerCase();
+    final c = (code ?? '').trim();
+    if (t == 'crop') return const Color(0xFF10B981);
+    if (t == 'transport' || c.startsWith('6')) return const Color(0xFF0284C7);
+    if (t == 'station' || c.startsWith('85') || c.startsWith('86') || c.startsWith('87') || c.startsWith('88') || c.startsWith('89')) {
+      return const Color(0xFFF59E0B);
+    }
+    if (t == 'deduction' || t == 'deductions' || c.startsWith('4')) return const Color(0xFF8B5CF6);
+    if (t == 'packaging' || c.startsWith('70') || c.startsWith('71') || c.startsWith('72') || c.startsWith('73') || c.startsWith('74')) {
+      return const Color(0xFF06B6D4);
+    }
+    if (t == 'shared' || c.startsWith('75') || c.startsWith('76') || c.startsWith('77') || c.startsWith('78') || c.startsWith('79')) {
+      return const Color(0xFFEC4899);
+    }
+    return AppTheme.primary;
+  }
+
+  IconData _getBankSupplierTypeIcon(String? type, [String? code]) {
+    final t = (type ?? '').toLowerCase();
+    final c = (code ?? '').trim();
+    if (t == 'crop') return Icons.agriculture_rounded;
+    if (t == 'transport' || c.startsWith('6')) return Icons.local_shipping_rounded;
+    if (t == 'station' || c.startsWith('85') || c.startsWith('86') || c.startsWith('87') || c.startsWith('88') || c.startsWith('89')) {
+      return Icons.factory_rounded;
+    }
+    if (t == 'deduction' || t == 'deductions' || c.startsWith('4')) return Icons.assignment_outlined;
+    if (t == 'packaging' || c.startsWith('70') || c.startsWith('71') || c.startsWith('72') || c.startsWith('73') || c.startsWith('74')) {
+      return Icons.inventory_2_outlined;
+    }
+    if (t == 'shared' || c.startsWith('75') || c.startsWith('76') || c.startsWith('77') || c.startsWith('78') || c.startsWith('79')) {
+      return Icons.sync_alt_rounded;
+    }
+    return Icons.business_outlined;
+  }
+
+  String _getBankSupplierTypeLabel(String? type, [String? code]) {
+    final t = (type ?? '').toLowerCase();
+    final c = (code ?? '').trim();
+    if (t == 'crop') return 'مورد محصول';
+    if (t == 'transport' || c.startsWith('6')) return 'مورد نقل';
+    if (t == 'station' || c.startsWith('85') || c.startsWith('86') || c.startsWith('87') || c.startsWith('88') || c.startsWith('89')) {
+      return 'مورد محطة';
+    }
+    if (t == 'deduction' || t == 'deductions' || c.startsWith('4')) return 'مورد تخصيم';
+    if (t == 'packaging' || c.startsWith('70') || c.startsWith('71') || c.startsWith('72') || c.startsWith('73') || c.startsWith('74')) {
+      return 'مورد تعبئة';
+    }
+    if (t == 'shared' || c.startsWith('75') || c.startsWith('76') || c.startsWith('77') || c.startsWith('78') || c.startsWith('79')) {
+      return 'مورد مشترك';
+    }
+    return 'مورد';
+  }
+
+  String _formatBankSupplierBalances(SupplierModel s) {
+    if (s.currentBalancesByCurrency.isNotEmpty) {
+      final active = s.currentBalancesByCurrency.entries
+          .where((en) => en.value.abs() > 0.001)
+          .toList();
+      if (active.isNotEmpty) {
+        return active.map((en) {
+          final sym = SupplierModel.getCurrencySymbol(en.key);
+          final dir = en.value > 0.001 ? '(له)' : '(عليه)';
+          return '${AppUtils.formatNumber(en.value.abs())} $sym $dir';
+        }).join('  •  ');
+      }
+    } else if (s.initialBalancesByCurrency.isNotEmpty) {
+      final active = s.initialBalancesByCurrency.entries
+          .where((en) => en.value.amount.abs() > 0.001)
+          .toList();
+      if (active.isNotEmpty) {
+        return active.map((en) {
+          final sym = SupplierModel.getCurrencySymbol(en.key);
+          return '${AppUtils.formatNumber(en.value.amount.abs())} $sym';
+        }).join('  •  ');
+      }
+    }
+    final sym = SupplierModel.getCurrencySymbol(s.currency.isNotEmpty && s.currency != 'MULTI' ? s.currency : 'EGP');
+    final dir = s.outstandingBalance > 0.001 ? '(له)' : (s.outstandingBalance < -0.001 ? '(عليه)' : '');
+    return '${AppUtils.formatCurrency(s.outstandingBalance.abs())} $sym $dir'.trim();
+  }
+
+  Widget _buildBankSelectedSupplierCard({
+    required SupplierModel supplier,
+    required String currentCurrency,
+    required bool isDark,
+    required VoidCallback onClear,
+    required ValueChanged<String> onCurrencyTapped,
+  }) {
+    final isEgpOnly = supplier.isEgpOnlySupplier;
+    final allCurrencies = isEgpOnly
+        ? <String>['EGP']
+        : (<String>{'EGP', 'USD', 'EUR', 'GBP'}..addAll(supplier.currentBalancesByCurrency.keys)).toList();
+
+    final color = _getBankSupplierTypeColor(supplier.supplierType, supplier.supplierCode);
+    final icon = _getBankSupplierTypeIcon(supplier.supplierType, supplier.supplierCode);
+    final typeLabel = _getBankSupplierTypeLabel(supplier.supplierType, supplier.supplierCode);
+
+    return Container(
+      margin: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF0F1E3D) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1), width: 1.2),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, color: color, size: 20),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            supplier.name,
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 13,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: color.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            typeLabel,
+                            style: TextStyle(
+                              fontFamily: 'Cairo',
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.bold,
+                              color: color,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (supplier.supplierCode.isNotEmpty)
+                      Text(
+                        'كود: ${supplier.supplierCode}',
+                        style: TextStyle(
+                          fontFamily: 'Cairo',
+                          fontSize: 11,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.close_rounded, size: 20),
+                onPressed: onClear,
+                tooltip: 'تغيير المورد',
+              ),
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Divider(height: 1, color: isDark ? AppTheme.divider : const Color(0xFFE2E8F0)),
+          ),
+          Row(
+            children: [
+              Icon(Icons.account_balance_wallet_outlined, size: 13, color: isDark ? AppTheme.accent : const Color(0xFF0F766E)),
+              const SizedBox(width: 5),
+              Text(
+                'أرصدة المورد بالعملات (انقر لتحديد العملة):',
+                style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? AppTheme.accent : const Color(0xFF0F766E),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: allCurrencies.map((c) {
+              final bal = supplier.currentBalancesByCurrency[c] ??
+                  (supplier.currency == c ? supplier.outstandingBalance : 0.0);
+              final isSelectedCurrency = currentCurrency == c;
+              final sym = SupplierModel.getCurrencySymbol(c);
+
+              final isCredit = bal > 0.001; // له
+              final isDebit = bal < -0.001;  // عليه
+
+              final statusText = isCredit ? '(له)' : (isDebit ? '(عليه)' : '(0)');
+              final statusColor = isCredit
+                  ? const Color(0xFF059669)
+                  : (isDebit ? const Color(0xFFDC2626) : const Color(0xFF64748B));
+
+              return Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: isEgpOnly ? null : () => onCurrencyTapped(c),
+                  borderRadius: BorderRadius.circular(8),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: isSelectedCurrency
+                          ? (isDark ? AppTheme.primary.withValues(alpha: 0.25) : const Color(0xFFE0F2FE))
+                          : (isDark ? const Color(0xFF0A1630) : Colors.white),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isSelectedCurrency ? const Color(0xFF0284C7) : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                        width: isSelectedCurrency ? 1.6 : 1.0,
+                      ),
+                      boxShadow: isSelectedCurrency
+                          ? [
+                              BoxShadow(
+                                color: const Color(0xFF0284C7).withValues(alpha: 0.2),
+                                blurRadius: 6,
+                                offset: const Offset(0, 1),
+                              ),
+                            ]
+                          : null,
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        if (isSelectedCurrency) ...[
+                          const Icon(Icons.check_circle_rounded, size: 12, color: Color(0xFF0284C7)),
+                          const SizedBox(width: 4),
+                        ],
+                        Text(
+                          '$c: ',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 11,
+                            fontWeight: isSelectedCurrency ? FontWeight.bold : FontWeight.w600,
+                            color: isSelectedCurrency ? const Color(0xFF0369A1) : (isDark ? Colors.white70 : const Color(0xFF475569)),
+                          ),
+                        ),
+                        Text(
+                          '${AppUtils.formatNumber(bal.abs())} $sym',
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            color: statusColor,
+                          ),
+                        ),
+                        const SizedBox(width: 3),
+                        Text(
+                          statusText,
+                          style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w600,
+                            color: statusColor.withValues(alpha: 0.85),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              );
+            }).toList(),
+          ),
+        ],
       ),
     );
   }
@@ -1345,6 +1831,8 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
         : null;
     String? supplierId =
         counterpartyType == 'supplier' ? draftTx?.relatedPartyId : null;
+    SupplierModel? selectedSupplierModel;
+    String supplierCategory = 'all';
     String? shareholderId =
         counterpartyType == 'shareholder' ? draftTx?.relatedPartyId : null;
     String? counterpartyName = draftTx?.relatedPartyName;
@@ -1366,12 +1854,29 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
 
     Future<List<CustomerModel>> searchCustomers(String q) async {
       if (q.trim().isEmpty) return [];
-      return await CustomerDao().search(q.trim(), limit: 20);
+      return await CustomerDao().search(q.trim(), limit: 20, customerType: 'export');
     }
 
-    Future<List<SupplierModel>> searchSuppliers(String q) async {
-      if (q.trim().isEmpty) return [];
-      return await SupplierDao().search(q.trim(), limit: 20);
+    Future<List<SupplierModel>> searchSuppliers(String q, [String category = 'all']) async {
+      final trimmed = q.trim();
+      final types = (category != 'all') ? [category] : null;
+
+      if (trimmed.isEmpty) {
+        if (category == 'transport') {
+          return await SupplierDao().getAllSuppliers(supplierTypes: ['transport']);
+        } else if (types != null) {
+          return await SupplierDao().getAllSuppliers(supplierTypes: types);
+        } else {
+          return await SupplierDao().getAll(limit: 25);
+        }
+      } else {
+        return await SupplierDao().search(
+          trimmed,
+          limit: 25,
+          supplierTypes: types,
+          includeTransportSuppliers: category == 'all' || category == 'transport',
+        );
+      }
     }
 
     Future<List<ClearingAgentModel>> searchClearingAgents(String q) async {
@@ -1395,6 +1900,9 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
       isScrollControlled: true,
       builder: (_) => StatefulBuilder(
         builder: (ctx, setSheetState) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          final isEgpOnlySupplier = selectedSupplierModel?.isEgpOnlySupplier ?? false;
+          final depositCurrencies = isEgpOnlySupplier ? const ['EGP'] : const ['EGP', 'USD', 'EUR', 'GBP'];
           bool isEntityValid = true;
           if (counterpartyType == 'customer') {
             isEntityValid = counterpartyId != null;
@@ -1422,17 +1930,19 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                 decoration: BoxDecoration(
                   color: active
                       ? AppTheme.success.withValues(alpha: 0.15)
-                      : Colors.white.withValues(alpha: 0.06),
+                      : (isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFF1F5F9)),
                   borderRadius: BorderRadius.circular(8),
                   border: Border.all(
-                      color: active ? AppTheme.success : AppTheme.glassBorder),
+                      color: active
+                          ? AppTheme.success
+                          : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                 ),
                 child: Center(
                   child: Text(label,
                       style: TextStyle(
                           color: active
                               ? AppTheme.success
-                              : AppTheme.textSecondary,
+                              : (isDark ? AppTheme.textSecondary : Colors.black87),
                           fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo',
                           fontSize: 11)),
@@ -1451,18 +1961,27 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
               TextField(
                 controller: ctrl,
                 onChanged: onChanged,
-                style:
-                    const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.w600,
+                    fontFamily: 'Cairo'),
                 decoration: InputDecoration(
                   hintText: hint,
-                  hintStyle: TextStyle(color: AppTheme.textMuted),
-                  prefixIcon: const Icon(Icons.search,
-                      size: 18, color: AppTheme.textSecondary),
+                  hintStyle: TextStyle(
+                      color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                      fontFamily: 'Cairo'),
+                  prefixIcon: Icon(Icons.search,
+                      size: 18, color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B)),
                   filled: true,
-                  fillColor: AppTheme.surface,
+                  fillColor: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
                   border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none),
+                      borderSide: BorderSide(
+                          color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+                  enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(
+                          color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
                 ),
               ),
               if (results.isNotEmpty)
@@ -1474,9 +1993,10 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
           }
 
           return Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF0A1630),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0A1630) : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: isDark ? null : Border.all(color: const Color(0xFFCBD5E1)),
             ),
             padding: EdgeInsets.fromLTRB(
                 20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
@@ -1485,11 +2005,11 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('إيداع في حساب بنكي',
+                  Text('إيداع في حساب بنكي',
                       style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: isDark ? Colors.white : Colors.black,
                           fontFamily: 'Cairo')),
                   const SizedBox(height: 16),
                   Row(children: [
@@ -1501,10 +2021,10 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                           FilteringTextInputFormatter.allow(
                               RegExp(r'^\d+\.?\d*')),
                         ],
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: isDark ? Colors.white : Colors.black,
                             fontFamily: 'Cairo'),
                         decoration: InputDecoration(
                           hintText: '0.00',
@@ -1516,10 +2036,15 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                               fontWeight: FontWeight.bold,
                               color: AppTheme.success),
                           filled: true,
-                          fillColor: AppTheme.surface,
+                          fillColor: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
                           border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none),
+                              borderSide: BorderSide(
+                                  color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+                          enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                  color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
                         ),
                       ),
                     ),
@@ -1527,21 +2052,40 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                     SizedBox(
                       width: 100,
                       child: DropdownButtonFormField<String>(
-                        value: currency,
-                        dropdownColor: const Color(0xCC05192D),
-                        items: ['EGP', 'USD', 'EUR', 'GBP']
+                        key: ValueKey('deposit_cur_${isEgpOnlySupplier}_$currency'),
+                        value: depositCurrencies.contains(currency) ? currency : 'EGP',
+                        dropdownColor: isDark ? const Color(0xCC05192D) : Colors.white,
+                        items: depositCurrencies
                             .map((c) => DropdownMenuItem(
                                   value: c,
                                   child: Text(c,
-                                      style:
-                                          const TextStyle(fontFamily: 'Cairo')),
+                                      style: TextStyle(
+                                          fontFamily: 'Cairo',
+                                          color: isDark ? Colors.white : Colors.black,
+                                          fontWeight: FontWeight.bold)),
                                 ))
                             .toList(),
-                        onChanged: currencyLocked
+                        onChanged: (currencyLocked || isEgpOnlySupplier)
                             ? null
                             : (v) => setSheetState(() => currency = v ?? 'EGP'),
-                        style: const TextStyle(
-                            fontFamily: 'Cairo', color: Colors.white),
+                        style: TextStyle(
+                            fontFamily: 'Cairo',
+                            color: isDark ? Colors.white : Colors.black,
+                            fontWeight: FontWeight.bold),
+                        decoration: InputDecoration(
+                          filled: true,
+                          fillColor: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
+                          border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                  color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+                          enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                  color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+                          contentPadding:
+                              const EdgeInsets.symmetric(horizontal: 12),
+                        ),
                       ),
                     ),
                   ]),
@@ -1628,7 +2172,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                     const SizedBox(width: 6),
                     Expanded(
                         child: buildSmallBtn(
-                            'عميل', counterpartyType == 'customer', () {
+                            'عميل (تصدير)', counterpartyType == 'customer', () {
                       setSheetState(() {
                         counterpartyType = 'customer';
                         showCustomerSearch = true;
@@ -1647,7 +2191,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                     const SizedBox(width: 6),
                     Expanded(
                         child: buildSmallBtn(
-                            'مورد', counterpartyType == 'supplier', () {
+                            'مورد', counterpartyType == 'supplier', () async {
                       setSheetState(() {
                         counterpartyType = 'supplier';
                         showSupplierSearch = true;
@@ -1657,11 +2201,16 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                         showShareholderSearch = false;
                         counterpartyId = null;
                         supplierId = null;
+                        selectedSupplierModel = null;
                         counterpartyName = null;
                         supplierSearchCtrl.clear();
                         supplierResults = [];
                         currency = 'EGP';
                         currencyLocked = false;
+                      });
+                      final list = await searchSuppliers('', supplierCategory);
+                      setSheetState(() {
+                        supplierResults = list;
                       });
                     })),
                   ]),
@@ -1758,11 +2307,11 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                     DropdownButton<int>(
                       value: selectedRevenueAccountId,
                       isExpanded: true,
-                      dropdownColor: const Color(0xCC05192D),
-                      hint: const Text('اختر حساب الإيرادات...',
+                      dropdownColor: isDark ? const Color(0xCC05192D) : Colors.white,
+                      hint: Text('اختر حساب الإيرادات...',
                           style: TextStyle(
                               fontFamily: 'Cairo',
-                              color: AppTheme.textSecondary)),
+                              color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B))),
                       items: revenueAccounts.map((a) {
                         final id = int.tryParse(a['id'].toString());
                         final accountModel = AccountModel.fromMap(a);
@@ -1774,19 +2323,22 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                                 '${accountModel.displayName} - ${accountModel.code}',
                                 textDirection: TextDirection.rtl,
                                 textAlign: TextAlign.right,
-                                style: const TextStyle(
+                                style: TextStyle(
                                     fontFamily: 'Cairo',
                                     fontSize: 13,
-                                    color: Colors.white)),
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark ? Colors.white : Colors.black)),
                           ),
                         );
                       }).toList(),
                       onChanged: (v) =>
                           setSheetState(() => selectedRevenueAccountId = v),
-                      style: const TextStyle(
-                          fontFamily: 'Cairo', color: Colors.white),
+                      style: TextStyle(
+                          fontFamily: 'Cairo',
+                          color: isDark ? Colors.white : Colors.black,
+                          fontWeight: FontWeight.bold),
                       underline:
-                          Container(height: 1, color: AppTheme.glassBorder),
+                          Container(height: 1, color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                     ),
                     if (selectedRevenueAccountId == null)
                       const Padding(
@@ -1820,10 +2372,11 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                                   });
                                 },
                                 title: Text(s.name,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         fontFamily: 'Cairo',
                                         fontSize: 13,
-                                        color: Colors.white)),
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : Colors.black)),
                                 subtitle: Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -1875,11 +2428,11 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                                         s.totalDepositsGbp -
                                                 s.totalWithdrawalsGbp ==
                                             0)
-                                      const Text('رصيد: 0',
+                                      Text('رصيد: 0',
                                           style: TextStyle(
                                               fontFamily: 'Cairo',
                                               fontSize: 11,
-                                              color: AppTheme.textSecondary)),
+                                              color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B))),
                                   ],
                                 ),
                               ))
@@ -1911,60 +2464,229 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                                   });
                                 },
                                 title: Text(c.name,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         fontFamily: 'Cairo',
                                         fontSize: 13,
-                                        color: Colors.white)),
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : Colors.black)),
                                 subtitle: Text(
                                     'عملة: ${c.currency} — رصيد: ${AppUtils.formatNumber(c.balance)}',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         fontFamily: 'Cairo',
                                         fontSize: 11,
-                                        color: AppTheme.textSecondary)),
+                                        color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B))),
                               ))
                           .toList(),
                     ),
                   ],
                   if (showSupplierSearch) ...[
-                    const SizedBox(height: 8),
-                    buildSearchField(
-                      ctrl: supplierSearchCtrl,
-                      hint: 'ابحث عن مورد...',
-                      onChanged: (v) async {
-                        supplierResults = await searchSuppliers(v);
-                        setSheetState(() {});
-                      },
-                      results: supplierResults
-                          .map((s) => ListTile(
-                                dense: true,
-                                onTap: () {
+                    if (selectedSupplierModel != null)
+                      _buildBankSelectedSupplierCard(
+                        supplier: selectedSupplierModel!,
+                        currentCurrency: currency,
+                        isDark: isDark,
+                        onClear: () async {
+                          setSheetState(() {
+                            selectedSupplierModel = null;
+                            supplierId = null;
+                            counterpartyName = null;
+                            supplierSearchCtrl.clear();
+                            currencyLocked = false;
+                          });
+                          final list = await searchSuppliers('', supplierCategory);
+                          setSheetState(() {
+                            supplierResults = list;
+                          });
+                        },
+                        onCurrencyTapped: (c) {
+                          setSheetState(() {
+                            currency = c;
+                            currencyLocked = false;
+                          });
+                        },
+                      )
+                    else ...[
+                      const SizedBox(height: 8),
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        physics: const BouncingScrollPhysics(),
+                        child: Row(
+                          children: _bankSupplierTypeOptions.map((opt) {
+                            final key = opt['key'] as String;
+                            final label = opt['label'] as String;
+                            final icon = opt['icon'] as IconData;
+                            final color = opt['color'] as Color;
+                            final isSelected = supplierCategory == key;
+
+                            return Padding(
+                              padding: const EdgeInsetsDirectional.only(end: 6),
+                              child: InkWell(
+                                onTap: () async {
                                   setSheetState(() {
+                                    supplierCategory = key;
+                                  });
+                                  final list = await searchSuppliers(supplierSearchCtrl.text, key);
+                                  setSheetState(() {
+                                    supplierResults = list;
+                                  });
+                                },
+                                borderRadius: BorderRadius.circular(8),
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 180),
+                                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: isSelected
+                                        ? color.withValues(alpha: 0.18)
+                                        : (isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF1F5F9)),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(
+                                      color: isSelected ? color : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                                      width: isSelected ? 1.5 : 1.0,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(icon, size: 13, color: isSelected ? color : (isDark ? Colors.white70 : const Color(0xFF475569))),
+                                      const SizedBox(width: 5),
+                                      Text(
+                                        label,
+                                        style: TextStyle(
+                                          fontFamily: 'Cairo',
+                                          fontSize: 11,
+                                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                                          color: isSelected ? color : (isDark ? Colors.white : const Color(0xFF334155)),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          }).toList(),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      buildSearchField(
+                        ctrl: supplierSearchCtrl,
+                        hint: 'ابحث عن مورد بالاسم أو الكود...',
+                        onChanged: (v) async {
+                          supplierResults = await searchSuppliers(v, supplierCategory);
+                          setSheetState(() {});
+                        },
+                        results: supplierResults
+                            .map((s) {
+                              final color = _getBankSupplierTypeColor(s.supplierType, s.supplierCode);
+                              final icon = _getBankSupplierTypeIcon(s.supplierType, s.supplierCode);
+                              final label = _getBankSupplierTypeLabel(s.supplierType, s.supplierCode);
+
+                              return ListTile(
+                                dense: true,
+                                leading: Container(
+                                  width: 32,
+                                  height: 32,
+                                  decoration: BoxDecoration(
+                                    color: color.withValues(alpha: 0.15),
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  child: Icon(icon, color: color, size: 18),
+                                ),
+                                onTap: () async {
+                                  setSheetState(() {
+                                    selectedSupplierModel = s;
                                     supplierId = s.id;
                                     counterpartyName = s.name;
                                     supplierSearchCtrl.text = s.name;
                                     supplierResults = [];
-                                    if (s.currency.isNotEmpty) {
+                                    if (s.isEgpOnlySupplier) {
+                                      currency = 'EGP';
+                                      currencyLocked = true;
+                                    } else if (s.currency.isNotEmpty && s.currency != 'MULTI') {
                                       currency = s.currency;
                                       currencyLocked = true;
                                     } else {
+                                      currency = 'EGP';
                                       currencyLocked = false;
                                     }
                                   });
+                                  if (s.id != null) {
+                                    try {
+                                      final live = await SupplierDao().getSupplierBalancesByCurrency(s.id!);
+                                      if (live.isNotEmpty && selectedSupplierModel?.id == s.id) {
+                                        setSheetState(() {
+                                          selectedSupplierModel = selectedSupplierModel!.copyWith(currentBalancesByCurrency: live);
+                                        });
+                                      }
+                                    } catch (_) {}
+                                  }
                                 },
-                                title: Text(s.name,
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 13,
-                                        color: Colors.white)),
-                                subtitle: Text(
-                                    'رصيد: ${AppUtils.formatNumber(s.outstandingBalance)}',
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 11,
-                                        color: AppTheme.textSecondary)),
-                              ))
-                          .toList(),
-                    ),
+                                title: Row(
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        s.name,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          fontFamily: 'Cairo',
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.bold,
+                                          color: isDark ? Colors.white : Colors.black,
+                                        ),
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                      decoration: BoxDecoration(
+                                        color: color.withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        label,
+                                        style: TextStyle(
+                                          fontFamily: 'Cairo',
+                                          fontSize: 9.5,
+                                          fontWeight: FontWeight.bold,
+                                          color: color,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                subtitle: Row(
+                                  children: [
+                                    if (s.supplierCode.isNotEmpty) ...[
+                                      Text(
+                                        'كود: ${s.supplierCode}',
+                                        style: TextStyle(
+                                          fontFamily: 'Cairo',
+                                          fontSize: 11,
+                                          color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                                        ),
+                                      ),
+                                      const Text('  |  ', style: TextStyle(color: Colors.grey, fontSize: 10)),
+                                    ],
+                                    Expanded(
+                                      child: Text(
+                                        'الأرصدة: ${_formatBankSupplierBalances(s)}',
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          fontFamily: 'Cairo',
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF475569),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            })
+                            .toList(),
+                      ),
+                    ],
                   ],
                   if (showClearingAgentSearch) ...[
                     const SizedBox(height: 8),
@@ -1991,15 +2713,16 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                                   });
                                 },
                                 title: Text(a.name,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         fontFamily: 'Cairo',
                                         fontSize: 13,
-                                        color: Colors.white)),
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : Colors.black)),
                                 subtitle: Text('عملة: ${a.currency}',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         fontFamily: 'Cairo',
                                         fontSize: 11,
-                                        color: AppTheme.textSecondary)),
+                                        color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B))),
                               ))
                           .toList(),
                     ),
@@ -2030,15 +2753,16 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                                   });
                                 },
                                 title: Text(s.name,
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         fontFamily: 'Cairo',
                                         fontSize: 13,
-                                        color: Colors.white)),
+                                        fontWeight: FontWeight.bold,
+                                        color: isDark ? Colors.white : Colors.black)),
                                 subtitle: Text('عملة: ${s.currency}',
-                                    style: const TextStyle(
+                                    style: TextStyle(
                                         fontFamily: 'Cairo',
                                         fontSize: 11,
-                                        color: AppTheme.textSecondary)),
+                                        color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B))),
                               ))
                           .toList(),
                     ),
@@ -2046,18 +2770,27 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                   const SizedBox(height: 12),
                   TextField(
                     controller: descCtrl,
-                    style: const TextStyle(
-                        color: Colors.white, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'Cairo'),
                     decoration: InputDecoration(
                       hintText: 'الوصف (اختياري)',
-                      hintStyle: TextStyle(color: AppTheme.textMuted),
+                      hintStyle: TextStyle(
+                          color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                          fontFamily: 'Cairo'),
                       prefixIcon: const Icon(Icons.description_outlined,
                           color: AppTheme.success),
                       filled: true,
-                      fillColor: AppTheme.surface,
+                      fillColor: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none),
+                          borderSide: BorderSide(
+                              color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                              color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -2085,10 +2818,14 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                                 final targetAccount =
                                     selectedAccount ?? matchingAccounts.first;
                                 final desc = descCtrl.text.trim().isNotEmpty
-                                    ? descCtrl.text.trim()
-                                    : counterpartyType != null
-                                        ? 'إيداع بنكي - ${counterpartyName ?? ''}'
-                                        : 'رصيد افتتاحي';
+                                    ? (counterpartyType == 'customer' && counterpartyName != null && counterpartyName!.isNotEmpty && !descCtrl.text.trim().contains(counterpartyName!)
+                                        ? '${descCtrl.text.trim()} - العميل: $counterpartyName (سداد حساب العميل)'
+                                        : descCtrl.text.trim())
+                                    : counterpartyType == 'customer' && counterpartyName != null && counterpartyName!.isNotEmpty
+                                        ? 'إيداع بنكي من العميل $counterpartyName (سداد حساب العميل)'
+                                        : counterpartyType != null
+                                            ? 'إيداع بنكي - ${counterpartyName ?? ''}'
+                                            : 'رصيد افتتاحي';
                                 try {
                                     // Build entity fields for counterparty
                                     String? eType;
@@ -2238,63 +2975,10 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
         : null;
     String? supplierId =
         counterpartyType == 'supplier' ? draftTx?.relatedPartyId : null;
+    SupplierModel? selectedSupplierModel;
     String? shareholderId =
         counterpartyType == 'shareholder' ? draftTx?.relatedPartyId : null;
     String? counterpartyName = draftTx?.relatedPartyName;
-    bool showCustomerSearch = false;
-    bool showSupplierSearch = false;
-    bool showClearingAgentSearch = false;
-    bool showShippingCompanySearch = false;
-    bool showShareholderSearch = false;
-    bool showExpenseSearch = false;
-    List<Map<String, dynamic>> expenseResults = [];
-    final expenseSearchCtrl = TextEditingController();
-    List<CustomerModel> customerResults = [];
-    List<SupplierModel> supplierResults = [];
-    List<ClearingAgentModel> clearingAgentResults = [];
-    List<ShippingCompanyModel> shippingCompanyResults = [];
-    List<ShareholderModel> shareholderResults = [];
-    final customerSearchCtrl = TextEditingController();
-    final supplierSearchCtrl = TextEditingController();
-    final clearingAgentSearchCtrl = TextEditingController();
-    final shippingCompanySearchCtrl = TextEditingController();
-    final shareholderSearchCtrl = TextEditingController();
-
-    Future<List<CustomerModel>> searchCustomers(String q) async {
-      if (q.trim().isEmpty) return [];
-      return await CustomerDao().search(q.trim(), limit: 20);
-    }
-
-    Future<List<SupplierModel>> searchSuppliers(String q) async {
-      if (q.trim().isEmpty) return [];
-      return await SupplierDao().search(q.trim(), limit: 20);
-    }
-
-    Future<List<ClearingAgentModel>> searchClearingAgents(String q) async {
-      if (q.trim().isEmpty) return [];
-      return await ClearingAgentDao().search(q.trim(), limit: 20);
-    }
-
-    Future<List<ShippingCompanyModel>> searchShippingCompanies(String q) async {
-      if (q.trim().isEmpty) return [];
-      return await ShippingCompanyDao().search(q.trim(), limit: 20);
-    }
-
-    Future<List<ShareholderModel>> searchShareholders(String q) async {
-      if (q.trim().isEmpty) return [];
-      return await ShareholderDao().search(q.trim(), limit: 20);
-    }
-
-    void searchExpenses(String q) {
-      if (q.trim().isEmpty) {
-        expenseResults = [];
-      } else {
-        expenseResults = expenseAccounts.where((a) {
-          final m = AccountModel.fromMap(a);
-          return m.displayName.toLowerCase().contains(q.toLowerCase()) || m.code.contains(q);
-        }).toList();
-      }
-    }
 
     showModalBottomSheet(
       context: context,
@@ -2302,6 +2986,9 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
       isScrollControlled: true,
       builder: (_) => StatefulBuilder(
         builder: (ctx, setSheetState) {
+          final isDark = Theme.of(ctx).brightness == Brightness.dark;
+          final isEgpOnlySupplier = selectedSupplierModel?.isEgpOnlySupplier ?? false;
+          final withdrawCurrencies = isEgpOnlySupplier ? const ['EGP'] : const ['EGP', 'USD', 'EUR', 'GBP'];
           bool isEntitySelected = false;
           if (counterpartyType != null) {
             switch (counterpartyType) {
@@ -2319,68 +3006,11 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
           final selectedAccount =
               matchingAccounts.length == 1 ? matchingAccounts.first : null;
 
-          Widget buildSmallBtn(String label, bool active, VoidCallback onTap) {
-            return GestureDetector(
-              onTap: onTap,
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 6),
-                decoration: BoxDecoration(
-                  color: active
-                      ? AppTheme.danger.withValues(alpha: 0.15)
-                      : Colors.white.withValues(alpha: 0.06),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                      color: active ? AppTheme.danger : AppTheme.glassBorder),
-                ),
-                child: Center(
-                  child: Text(label,
-                      style: TextStyle(
-                          color:
-                              active ? AppTheme.danger : AppTheme.textSecondary,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Cairo',
-                          fontSize: 11)),
-                ),
-              ),
-            );
-          }
-
-          Widget buildSearchField({
-            required TextEditingController ctrl,
-            required String hint,
-            required ValueChanged<String> onChanged,
-            required List<Widget> results,
-          }) {
-            return Column(children: [
-              TextField(
-                controller: ctrl,
-                onChanged: onChanged,
-                style:
-                    const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
-                decoration: InputDecoration(
-                  hintText: hint,
-                  hintStyle: TextStyle(color: AppTheme.textMuted),
-                  prefixIcon: const Icon(Icons.search,
-                      size: 18, color: AppTheme.textSecondary),
-                  filled: true,
-                  fillColor: AppTheme.surface,
-                  border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none),
-                ),
-              ),
-              if (results.isNotEmpty)
-                Material(
-                  color: Colors.transparent,
-                  child: Column(children: results),
-                ),
-            ]);
-          }
-
           return Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF0A1630),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0A1630) : Colors.white,
+              borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+              border: isDark ? null : Border.all(color: const Color(0xFFCBD5E1)),
             ),
             padding: EdgeInsets.fromLTRB(
                 20, 20, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
@@ -2389,11 +3019,11 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('صرف من حساب بنكي',
+                  Text('صرف من حساب بنكي',
                       style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: isDark ? Colors.white : Colors.black,
                           fontFamily: 'Cairo')),
                   const SizedBox(height: 16),
                   Row(children: [
@@ -2406,10 +3036,10 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                           FilteringTextInputFormatter.allow(
                               RegExp(r'^\d+\.?\d*')),
                         ],
-                        style: const TextStyle(
+                        style: TextStyle(
                             fontSize: 22,
                             fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                            color: isDark ? Colors.white : Colors.black,
                             fontFamily: 'Cairo'),
                         decoration: InputDecoration(
                           hintText: '0.00',
@@ -2421,10 +3051,15 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                               fontWeight: FontWeight.bold,
                               color: AppTheme.danger),
                           filled: true,
-                          fillColor: AppTheme.surface,
+                          fillColor: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
                           border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none),
+                              borderSide: BorderSide(
+                                  color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+                          enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                  color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
                         ),
                       ),
                     ),
@@ -2432,27 +3067,37 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                     SizedBox(
                       width: 100,
                       child: DropdownButtonFormField<String>(
-                        value: currency,
-                        dropdownColor: const Color(0xCC05192D),
-                        items: ['EGP', 'USD', 'EUR', 'GBP']
+                        key: ValueKey('withdraw_cur_${isEgpOnlySupplier}_$currency'),
+                        value: withdrawCurrencies.contains(currency) ? currency : 'EGP',
+                        dropdownColor: isDark ? const Color(0xCC05192D) : Colors.white,
+                        items: withdrawCurrencies
                             .map((c) => DropdownMenuItem(
                                   value: c,
                                   child: Text(c,
-                                      style:
-                                          const TextStyle(fontFamily: 'Cairo')),
+                                      style: TextStyle(
+                                          fontFamily: 'Cairo',
+                                          color: isDark ? Colors.white : Colors.black,
+                                          fontWeight: FontWeight.bold)),
                                 ))
                             .toList(),
-                        onChanged: currencyLocked
+                        onChanged: (currencyLocked || isEgpOnlySupplier)
                             ? null
                             : (v) => setSheetState(() => currency = v ?? 'EGP'),
-                        style: const TextStyle(
-                            fontFamily: 'Cairo', color: Colors.white),
+                        style: TextStyle(
+                            fontFamily: 'Cairo',
+                            color: isDark ? Colors.white : Colors.black,
+                            fontWeight: FontWeight.bold),
                         decoration: InputDecoration(
                           filled: true,
-                          fillColor: AppTheme.surface,
+                          fillColor: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
                           border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: BorderSide.none),
+                              borderSide: BorderSide(
+                                  color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+                          enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(12),
+                              borderSide: BorderSide(
+                                  color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
                           contentPadding:
                               const EdgeInsets.symmetric(horizontal: 12),
                         ),
@@ -2476,405 +3121,102 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                             fontFamily: 'Cairo')),
                   ],
                   const SizedBox(height: 12),
-                  const Text('الجهة (إلزامي)',
-                      style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.accent,
-                          fontFamily: 'Cairo')),
-                  const SizedBox(height: 8),
-                  Row(children: [
-                    // Expanded(
-                    //     child: buildSmallBtn(
-                    //         'مورد', counterpartyType == 'supplier', () {
-                    //   setSheetState(() {
-                    //     counterpartyType = 'supplier';
-                    //     showSupplierSearch = true;
-                    //     showShareholderSearch = false;
-                    //     showCustomerSearch = false;
-                    //     showClearingAgentSearch = false;
-                    //     showShippingCompanySearch = false;
-                    //     showExpenseSearch = false;
-                    //     counterpartyId = null;
-                    //     counterpartyName = null;
-                    //     supplierId = null;
-                    //     supplierSearchCtrl.clear();
-                    //     supplierResults = [];
-                    //     currencyLocked = false;
-                    //   });
-                    // })),
-                    // const SizedBox(width: 8),
-                    Expanded(
-                        child: buildSmallBtn(
-                            'مساهم', counterpartyType == 'shareholder', () {
+                  BeneficiarySelectorField(
+                    initialBeneficiaryType: counterpartyType == 'expense'
+                        ? 'expense'
+                        : (counterpartyType == 'supplier' ? 'all_suppliers' : counterpartyType),
+                    initialEntityId: counterpartyType == 'supplier'
+                        ? supplierId
+                        : (counterpartyType == 'shareholder' ? shareholderId : counterpartyId?.toString()),
+                    initialEntityName: counterpartyName,
+                    initialExpenseAccountId: selectedExpenseAccountId?.toString(),
+                    expenseAccounts: expenseAccounts,
+                    onAccountCreated: () => context.read<BankAccountsCubit>().loadAll(),
+                    onChanged: (selection) {
                       setSheetState(() {
-                        counterpartyType = 'shareholder';
-                        showShareholderSearch = true;
-                        showSupplierSearch = false;
-                        showCustomerSearch = false;
-                        showClearingAgentSearch = false;
-                        showShippingCompanySearch = false;
-                        showExpenseSearch = false;
-                        counterpartyId = null;
-                        counterpartyName = null;
-                        shareholderId = null;
-                        shareholderSearchCtrl.clear();
-                        shareholderResults = [];
-                        currencyLocked = false;
+                        if (selection.isExpense) {
+                          counterpartyType = 'expense';
+                          selectedExpenseAccountId = int.tryParse(selection.expenseAccountId ?? '');
+                          supplierId = null;
+                          counterpartyId = null;
+                          shareholderId = null;
+                          counterpartyName = null;
+                          selectedSupplierModel = null;
+                        } else if (selection.isSupplier) {
+                          counterpartyType = 'supplier';
+                          supplierId = selection.entityId;
+                          counterpartyId = null;
+                          shareholderId = null;
+                          counterpartyName = selection.entityName;
+                          selectedExpenseAccountId = null;
+                          selectedSupplierModel = selection.supplierModel;
+                        } else if (selection.isShippingCompany) {
+                          counterpartyType = 'shipping_company';
+                          counterpartyId = int.tryParse(selection.entityId ?? '');
+                          supplierId = null;
+                          shareholderId = null;
+                          counterpartyName = selection.entityName;
+                          selectedExpenseAccountId = null;
+                          selectedSupplierModel = null;
+                        } else if (selection.isClearingAgent) {
+                          counterpartyType = 'clearing_agent';
+                          counterpartyId = int.tryParse(selection.entityId ?? '');
+                          supplierId = null;
+                          shareholderId = null;
+                          counterpartyName = selection.entityName;
+                          selectedExpenseAccountId = null;
+                          selectedSupplierModel = null;
+                        } else if (selection.isShareholder) {
+                          counterpartyType = 'shareholder';
+                          shareholderId = selection.entityId;
+                          counterpartyId = null;
+                          supplierId = null;
+                          counterpartyName = selection.entityName;
+                          selectedExpenseAccountId = null;
+                          selectedSupplierModel = null;
+                        }
+
+                        if (selection.currency.isNotEmpty && selection.currency != 'MULTI') {
+                          currency = selection.currency;
+                          currencyLocked = true;
+                        } else {
+                          currencyLocked = false;
+                        }
+
+                        if (selection.entityName != null && selection.entityName!.isNotEmpty) {
+                          if (descCtrl.text.trim().isEmpty ||
+                              descCtrl.text.trim().startsWith('تحويل بنكي إلى ') ||
+                              descCtrl.text.trim().startsWith('سداد لـ ')) {
+                            descCtrl.text = 'تحويل بنكي إلى ${selection.entityName}';
+                          }
+                        }
                       });
-                    })),
-                    const SizedBox(width: 8),
-                    // Expanded(
-                    //     child: buildSmallBtn(
-                    //         'مخلص', counterpartyType == 'clearing_agent', () {
-                    //   setSheetState(() {
-                    //     counterpartyType = 'clearing_agent';
-                    //     showClearingAgentSearch = true;
-                    //     showSupplierSearch = false;
-                    //     showCustomerSearch = false;
-                    //     showShippingCompanySearch = false;
-                    //     showShareholderSearch = false;
-                    //     showExpenseSearch = false;
-                    //     counterpartyId = null;
-                    //     counterpartyName = null;
-                    //     clearingAgentSearchCtrl.clear();
-                    //     clearingAgentResults = [];
-                    //     currencyLocked = false;
-                    //   });
-                    // })),
-                    // const SizedBox(width: 8),
-                    // Expanded(
-                    //     child: buildSmallBtn(
-                    //         'شحن', counterpartyType == 'shipping_company', () {
-                    //   setSheetState(() {
-                    //     counterpartyType = 'shipping_company';
-                    //     showShippingCompanySearch = true;
-                    //     showSupplierSearch = false;
-                    //     showShareholderSearch = false;
-                    //     showCustomerSearch = false;
-                    //     showClearingAgentSearch = false;
-                    //     showExpenseSearch = false;
-                    //     counterpartyId = null;
-                    //     counterpartyName = null;
-                    //     shippingCompanySearchCtrl.clear();
-                    //     shippingCompanyResults = [];
-                    //     currencyLocked = false;
-                    //   });
-                    // })),
-                    // const SizedBox(width: 8),
-                    Expanded(
-                        child: buildSmallBtn(
-                            'مصروف', counterpartyType == 'expense', () {
-                      setSheetState(() {
-                        counterpartyType = 'expense';
-                        showExpenseSearch = true;
-                        showSupplierSearch = false;
-                        showShippingCompanySearch = false;
-                        showShareholderSearch = false;
-                        showCustomerSearch = false;
-                        showClearingAgentSearch = false;
-                        counterpartyId = null;
-                        counterpartyName = null;
-                        expenseSearchCtrl.clear();
-                        expenseResults = [];
-                        currency = 'EGP';
-                        currencyLocked = false;
-                      });
-                    })),
-                  ]),
-                  if (showSupplierSearch) ...[
-                    const SizedBox(height: 8),
-                    buildSearchField(
-                      ctrl: supplierSearchCtrl,
-                      hint: 'ابحث عن مورد...',
-                      onChanged: (v) async {
-                        supplierResults = await searchSuppliers(v);
-                        setSheetState(() {});
-                      },
-                      results: supplierResults
-                          .map((s) => ListTile(
-                                dense: true,
-                                onTap: () {
-                                  setSheetState(() {
-                                    supplierId = s.id;
-                                    counterpartyName = s.name;
-                                    supplierSearchCtrl.text = s.name;
-                                    supplierResults = [];
-                                    if (s.currency.isNotEmpty) {
-                                      currency = s.currency;
-                                      currencyLocked = true;
-                                    } else {
-                                      currencyLocked = false;
-                                    }
-                                  });
-                                },
-                                title: Text(s.name,
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 13,
-                                        color: Colors.white)),
-                                subtitle: Text(
-                                    'عملة: ${s.currency} — رصيد: ${AppUtils.formatNumber(s.outstandingBalance)}',
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 11,
-                                        color: AppTheme.textSecondary)),
-                              ))
-                          .toList(),
-                    ),
-                  ],
-                  if (showShareholderSearch) ...[
-                    const SizedBox(height: 8),
-                    buildSearchField(
-                      ctrl: shareholderSearchCtrl,
-                      hint: 'ابحث عن مساهم...',
-                      onChanged: (v) async {
-                        shareholderResults = await searchShareholders(v);
-                        setSheetState(() {});
-                      },
-                      results: shareholderResults
-                          .map((s) => ListTile(
-                                dense: true,
-                                onTap: () {
-                                  setSheetState(() {
-                                    shareholderId = s.id?.toString();
-                                    counterpartyName = s.name;
-                                    shareholderSearchCtrl.text = s.name;
-                                    shareholderResults = [];
-                                    currencyLocked = false;
-                                  });
-                                },
-                                title: Text(s.name,
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 13,
-                                        color: Colors.white)),
-                                subtitle: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (s.totalDepositsEgp -
-                                            s.totalWithdrawalsEgp !=
-                                        0)
-                                      Text(
-                                          'جنية: ${AppUtils.formatCurrency(s.totalDepositsEgp - s.totalWithdrawalsEgp)}',
-                                          style: const TextStyle(
-                                              fontFamily: 'Cairo',
-                                              fontSize: 11,
-                                              color: AppTheme.success)),
-                                    if (s.totalDepositsUsd -
-                                            s.totalWithdrawalsUsd !=
-                                        0)
-                                      Text(
-                                          'دولار: ${AppUtils.formatCurrency(s.totalDepositsUsd - s.totalWithdrawalsUsd)}',
-                                          style: const TextStyle(
-                                              fontFamily: 'Cairo',
-                                              fontSize: 11,
-                                              color: AppTheme.success)),
-                                    if (s.totalDepositsEur -
-                                            s.totalWithdrawalsEur !=
-                                        0)
-                                      Text(
-                                          'يورو: ${AppUtils.formatCurrency(s.totalDepositsEur - s.totalWithdrawalsEur)}',
-                                          style: const TextStyle(
-                                              fontFamily: 'Cairo',
-                                              fontSize: 11,
-                                              color: AppTheme.success)),
-                                    if (s.totalDepositsGbp -
-                                            s.totalWithdrawalsGbp !=
-                                        0)
-                                      Text(
-                                          'استرليني: ${AppUtils.formatCurrency(s.totalDepositsGbp - s.totalWithdrawalsGbp)}',
-                                          style: const TextStyle(
-                                              fontFamily: 'Cairo',
-                                              fontSize: 11,
-                                              color: AppTheme.success)),
-                                    if (s.totalDepositsEgp -
-                                                s.totalWithdrawalsEgp ==
-                                            0 &&
-                                        s.totalDepositsUsd -
-                                                s.totalWithdrawalsUsd ==
-                                            0 &&
-                                        s.totalDepositsEur -
-                                                s.totalWithdrawalsEur ==
-                                            0 &&
-                                        s.totalDepositsGbp -
-                                                s.totalWithdrawalsGbp ==
-                                            0)
-                                      const Text('رصيد: 0',
-                                          style: TextStyle(
-                                              fontFamily: 'Cairo',
-                                              fontSize: 11,
-                                              color: AppTheme.textSecondary)),
-                                  ],
-                                ),
-                              ))
-                          .toList(),
-                    ),
-                  ],
-                  if (showCustomerSearch) ...[
-                    const SizedBox(height: 8),
-                    buildSearchField(
-                      ctrl: customerSearchCtrl,
-                      hint: 'ابحث عن عميل...',
-                      onChanged: (v) async {
-                        customerResults = await searchCustomers(v);
-                        setSheetState(() {});
-                      },
-                      results: customerResults
-                          .map((c) => ListTile(
-                                dense: true,
-                                onTap: () {
-                                  setSheetState(() {
-                                    counterpartyId = int.tryParse(c.id ?? '');
-                                    counterpartyName = c.name;
-                                    customerSearchCtrl.text = c.name;
-                                    customerResults = [];
-                                    if (c.currency.isNotEmpty) {
-                                      currency = c.currency;
-                                      currencyLocked = true;
-                                    }
-                                  });
-                                },
-                                title: Text(c.name,
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 13,
-                                        color: Colors.white)),
-                                subtitle: Text(
-                                    'عملة: ${c.currency} — رصيد: ${AppUtils.formatNumber(c.balance)}',
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 11,
-                                        color: AppTheme.textSecondary)),
-                              ))
-                          .toList(),
-                    ),
-                  ],
-                  if (showClearingAgentSearch) ...[
-                    const SizedBox(height: 8),
-                    buildSearchField(
-                      ctrl: clearingAgentSearchCtrl,
-                      hint: 'ابحث عن مخلص...',
-                      onChanged: (v) async {
-                        clearingAgentResults = await searchClearingAgents(v);
-                        setSheetState(() {});
-                      },
-                      results: clearingAgentResults
-                          .map((a) => ListTile(
-                                dense: true,
-                                onTap: () {
-                                  setSheetState(() {
-                                    counterpartyId = int.tryParse(a.id ?? '');
-                                    counterpartyName = a.name;
-                                    clearingAgentSearchCtrl.text = a.name;
-                                    clearingAgentResults = [];
-                                    if (a.currency.isNotEmpty) {
-                                      currency = a.currency;
-                                      currencyLocked = true;
-                                    }
-                                  });
-                                },
-                                title: Text(a.name,
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 13,
-                                        color: Colors.white)),
-                                subtitle: Text('عملة: ${a.currency}',
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 11,
-                                        color: AppTheme.textSecondary)),
-                              ))
-                          .toList(),
-                    ),
-                  ],
-                  if (showShippingCompanySearch) ...[
-                    const SizedBox(height: 8),
-                    buildSearchField(
-                      ctrl: shippingCompanySearchCtrl,
-                      hint: 'ابحث عن شركة شحن...',
-                      onChanged: (v) async {
-                        shippingCompanyResults =
-                            await searchShippingCompanies(v);
-                        setSheetState(() {});
-                      },
-                      results: shippingCompanyResults
-                          .map((s) => ListTile(
-                                dense: true,
-                                onTap: () {
-                                  setSheetState(() {
-                                    counterpartyId = s.id;
-                                    counterpartyName = s.name;
-                                    shippingCompanySearchCtrl.text = s.name;
-                                    shippingCompanyResults = [];
-                                    if (s.currency.isNotEmpty) {
-                                      currency = s.currency;
-                                      currencyLocked = true;
-                                    }
-                                  });
-                                },
-                                title: Text(s.name,
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 13,
-                                        color: Colors.white)),
-                                subtitle: Text('عملة: ${s.currency}',
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 11,
-                                        color: AppTheme.textSecondary)),
-                              ))
-                          .toList(),
-                    ),
-                  ],
-                  if (showExpenseSearch) ...[
-                    const SizedBox(height: 8),
-                    buildSearchField(
-                      ctrl: expenseSearchCtrl,
-                      hint: 'ابحث عن حساب مصروف...',
-                      onChanged: (v) {
-                        searchExpenses(v);
-                        setSheetState(() {});
-                      },
-                      results: expenseResults
-                          .map((a) {
-                            final m = AccountModel.fromMap(a);
-                            return ListTile(
-                                dense: true,
-                                onTap: () {
-                                  setSheetState(() {
-                                    selectedExpenseAccountId = int.tryParse(a['id'].toString());
-                                    counterpartyName = '${m.displayName} - ${m.code}';
-                                    expenseSearchCtrl.text = counterpartyName!;
-                                    expenseResults = [];
-                                    currencyLocked = false;
-                                  });
-                                },
-                                title: Text('${m.displayName} - ${m.code}',
-                                    style: const TextStyle(
-                                        fontFamily: 'Cairo',
-                                        fontSize: 13,
-                                        color: Colors.white)),
-                              );
-                          })
-                          .toList(),
-                    ),
-                  ],
+                    },
+                  ),
                   const SizedBox(height: 12),
                   TextField(
                     controller: descCtrl,
-                    style: const TextStyle(
-                        color: Colors.white, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'Cairo'),
                     decoration: InputDecoration(
                       hintText: 'الوصف (اختياري)',
-                      hintStyle: TextStyle(color: AppTheme.textMuted),
+                      hintStyle: TextStyle(
+                          color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                          fontFamily: 'Cairo'),
                       prefixIcon: const Icon(Icons.description_outlined,
                           color: AppTheme.danger),
                       filled: true,
-                      fillColor: AppTheme.surface,
+                      fillColor: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
                       border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(12),
-                          borderSide: BorderSide.none),
+                          borderSide: BorderSide(
+                              color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
+                      enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide(
+                              color: isDark ? Colors.transparent : const Color(0xFFCBD5E1))),
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -2942,10 +3284,14 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                                       final targetAccount =
                                           selectedAccount ?? matchingAccounts.first;
                                       final desc = descCtrl.text.trim().isNotEmpty
-                                          ? descCtrl.text.trim()
-                                          : counterpartyType != null
-                                              ? 'تحويل بنكي إلى ${counterpartyName ?? ''}'
-                                              : '';
+                                          ? (counterpartyType == 'customer' && counterpartyName != null && counterpartyName!.isNotEmpty && !descCtrl.text.trim().contains(counterpartyName!)
+                                              ? '${descCtrl.text.trim()} - العميل: $counterpartyName'
+                                              : descCtrl.text.trim())
+                                          : counterpartyType == 'customer' && counterpartyName != null && counterpartyName!.isNotEmpty
+                                              ? 'صرف للعميل $counterpartyName'
+                                              : counterpartyType != null
+                                                  ? 'تحويل بنكي إلى ${counterpartyName ?? ''}'
+                                                  : '';
                                       try {
                                         if (counterpartyType != null) {
                                           if (counterpartyType == 'shareholder' &&
@@ -3085,6 +3431,7 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
 
   void _showCurrencyExchangeSheet(BankAccountsLoaded state,
       {BankAccountTransactionModel? draftTx}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     int? fromAccountId = draftTx?.bankAccountId ??
         (draftTx?.payload['from_account_id'] != null
             ? int.tryParse('${draftTx!.payload['from_account_id']}')
@@ -3105,18 +3452,30 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
     InputDecoration inputDecor(String hint, IconData icon) {
       return InputDecoration(
         hintText: hint,
-        hintStyle: const TextStyle(
-            color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo'),
-        prefixIcon: Icon(icon, color: AppTheme.textSecondary, size: 18),
+        hintStyle: TextStyle(
+            color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+            fontSize: 13,
+            fontFamily: 'Cairo'),
+        prefixIcon: Icon(icon,
+            color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+            size: 18),
         filled: true,
-        fillColor: Colors.white.withOpacity(0.06),
+        fillColor: isDark
+            ? Colors.white.withValues(alpha: 0.06)
+            : const Color(0xFFF8FAFC),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppTheme.glassBorder),
+          borderSide: BorderSide(
+              color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         ),
         enabledBorder: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
-          borderSide: const BorderSide(color: AppTheme.glassBorder),
+          borderSide: BorderSide(
+              color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: const BorderSide(color: AppTheme.primary, width: 1.5),
         ),
         contentPadding:
             const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -3148,9 +3507,20 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
           }).toList();
 
           return Container(
-            decoration: const BoxDecoration(
-              color: Color(0xFF0A1630),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0A1630) : Colors.white,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(24)),
+              border: Border.all(
+                color: isDark ? Colors.white10 : const Color(0xFFCBD5E1),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: isDark ? 0.4 : 0.08),
+                  blurRadius: 20,
+                  offset: const Offset(0, -4),
+                ),
+              ],
             ),
             child: Padding(
               padding: EdgeInsets.fromLTRB(
@@ -3159,11 +3529,11 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('تحويل عملة',
+                  Text('تحويل عملة',
                       style: TextStyle(
                           fontSize: 20,
                           fontWeight: FontWeight.bold,
-                          color: Colors.white,
+                          color: isDark ? Colors.white : Colors.black,
                           fontFamily: 'Cairo')),
                   const SizedBox(height: 16),
                   Row(
@@ -3174,14 +3544,18 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                           value: fromAccountId,
                           decoration:
                               inputDecor('من حساب', Icons.account_balance),
-                          dropdownColor: AppTheme.surface,
+                          dropdownColor:
+                              isDark ? AppTheme.surface : Colors.white,
                           items: fromOptions
                               .map((a) => DropdownMenuItem(
                                   value: a.id,
                                   child: Text('${a.name} (${a.currency})',
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                          color: Colors.white,
+                                      style: TextStyle(
+                                          color: isDark
+                                              ? Colors.white
+                                              : Colors.black,
+                                          fontWeight: FontWeight.bold,
                                           fontFamily: 'Cairo'))))
                               .toList(),
                           onChanged: (v) async {
@@ -3208,14 +3582,18 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                           value: toAccountId,
                           decoration:
                               inputDecor('إلى حساب', Icons.account_balance),
-                          dropdownColor: AppTheme.surface,
+                          dropdownColor:
+                              isDark ? AppTheme.surface : Colors.white,
                           items: toOptions
                               .map((a) => DropdownMenuItem(
                                   value: a.id,
                                   child: Text('${a.name} (${a.currency})',
                                       overflow: TextOverflow.ellipsis,
-                                      style: const TextStyle(
-                                          color: Colors.white,
+                                      style: TextStyle(
+                                          color: isDark
+                                              ? Colors.white
+                                              : Colors.black,
+                                          fontWeight: FontWeight.bold,
                                           fontFamily: 'Cairo'))))
                               .toList(),
                           onChanged: (v) async {
@@ -3240,8 +3618,10 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: amountCtrl,
-                    style: const TextStyle(
-                        color: Colors.white, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo'),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
                     inputFormatters: [
@@ -3254,8 +3634,10 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                   const SizedBox(height: 12),
                   TextFormField(
                     controller: rateCtrl,
-                    style: const TextStyle(
-                        color: Colors.white, fontFamily: 'Cairo'),
+                    style: TextStyle(
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo'),
                     keyboardType:
                         const TextInputType.numberWithOptions(decimal: true),
                     inputFormatters: [
@@ -3307,9 +3689,12 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                       width: double.infinity,
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: AppTheme.surface.withValues(alpha: 0.6),
+                        color: isDark
+                            ? AppTheme.surface.withValues(alpha: 0.6)
+                            : const Color(0xFFF1F5F9),
                         borderRadius: BorderRadius.circular(10),
-                        border: Border.all(color: AppTheme.border),
+                        border: Border.all(
+                            color: isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -3317,15 +3702,18 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                           Row(
                             mainAxisAlignment: MainAxisAlignment.spaceBetween,
                             children: [
-                              const Text('المبلغ المتوقع استلامه:',
+                              Text('المبلغ المتوقع استلامه:',
                                   style: TextStyle(
-                                      color: AppTheme.textSecondary,
+                                      color: isDark
+                                          ? AppTheme.textSecondary
+                                          : const Color(0xFF475569),
                                       fontSize: 12,
+                                      fontWeight: FontWeight.w600,
                                       fontFamily: 'Cairo')),
                               Text(
                                 '${expectedReceived.toStringAsFixed(2)} ${toAcc.currency}',
-                                style: const TextStyle(
-                                    color: Colors.white,
+                                style: TextStyle(
+                                    color: isDark ? Colors.white : Colors.black,
                                     fontWeight: FontWeight.bold,
                                     fontSize: 13,
                                     fontFamily: 'Cairo'),
@@ -3337,15 +3725,19 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('التكلفة الدفترية المرجحة:',
+                                Text('التكلفة الدفترية المرجحة:',
                                     style: TextStyle(
-                                        color: AppTheme.textSecondary,
+                                        color: isDark
+                                            ? AppTheme.textSecondary
+                                            : const Color(0xFF475569),
                                         fontSize: 12,
+                                        fontWeight: FontWeight.w600,
                                         fontFamily: 'Cairo')),
                                 Text(
                                   '${(enteredAmount * bookRate).toStringAsFixed(2)} ج.م (بسعر ${bookRate.toStringAsFixed(4)})',
-                                  style: const TextStyle(
-                                      color: Colors.white70,
+                                  style: TextStyle(
+                                      color: isDark ? Colors.white70 : Colors.black87,
+                                      fontWeight: FontWeight.w600,
                                       fontSize: 12,
                                       fontFamily: 'Cairo'),
                                 ),
@@ -3355,10 +3747,13 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                             Row(
                               mainAxisAlignment: MainAxisAlignment.spaceBetween,
                               children: [
-                                const Text('فروق العملة المحققة المتوقعة:',
+                                Text('فروق العملة المحققة المتوقعة:',
                                     style: TextStyle(
-                                        color: AppTheme.textSecondary,
+                                        color: isDark
+                                            ? AppTheme.textSecondary
+                                            : const Color(0xFF475569),
                                         fontSize: 12,
+                                        fontWeight: FontWeight.w600,
                                         fontFamily: 'Cairo')),
                                 Text(
                                   expectedGainLoss > 0.001
@@ -3368,10 +3763,10 @@ class _BankAccountsViewState extends State<_BankAccountsView> {
                                           : '0.00 ج.م (تعادل)',
                                   style: TextStyle(
                                       color: expectedGainLoss > 0.001
-                                          ? Colors.greenAccent
+                                          ? (isDark ? Colors.greenAccent : const Color(0xFF16A34A))
                                           : expectedGainLoss < -0.001
-                                              ? Colors.redAccent
-                                              : Colors.white70,
+                                              ? (isDark ? Colors.redAccent : const Color(0xFFDC2626))
+                                              : (isDark ? Colors.white70 : Colors.black87),
                                       fontWeight: FontWeight.bold,
                                       fontSize: 12,
                                       fontFamily: 'Cairo'),

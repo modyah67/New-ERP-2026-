@@ -241,12 +241,111 @@ class BankAccountDao {
     required int transactionId,
     required double newAmount,
     String? newDescription,
+    String? newType,
   }) async {
-    await _client.rpc('update_bank_account_transaction', params: {
-      'p_transaction_id': transactionId,
-      'p_new_amount': newAmount,
-      'p_new_description': newDescription,
-    });
+    try {
+      await _client.rpc('update_bank_account_transaction', params: {
+        'p_transaction_id': transactionId,
+        'p_new_amount': newAmount,
+        'p_new_description': newDescription,
+      });
+    } catch (rpcError) {
+      debugPrint('update_bank_account_transaction RPC error, running direct fallback: $rpcError');
+      final tx = await _client
+          .from('bank_account_transactions')
+          .select('id, bank_account_id, type, amount, balance_after')
+          .eq('id', transactionId)
+          .maybeSingle();
+
+      if (tx != null) {
+        final bankAccId = tx['bank_account_id'] is int
+            ? tx['bank_account_id'] as int
+            : int.tryParse(tx['bank_account_id']?.toString() ?? '') ?? 0;
+        final oldAmount = (tx['amount'] as num?)?.toDouble() ?? 0.0;
+        final txType = newType ?? (tx['type']?.toString() ?? '');
+        final diff = newAmount - oldAmount;
+
+        final isDeposit = txType == 'deposit' || txType == 'currency_exchange_in';
+        final balanceDiff = isDeposit ? diff : -diff;
+
+        final bankAcc = await _client
+            .from('bank_accounts')
+            .select('balance')
+            .eq('id', bankAccId)
+            .maybeSingle();
+
+        if (bankAcc != null) {
+          final currentBal = (bankAcc['balance'] as num).toDouble();
+          final newBal = currentBal + balanceDiff;
+          if (newBal < 0) {
+            throw Exception('الرصيد غير كافٍ في الحساب البنكي (المتوفر: ${currentBal.toStringAsFixed(2)})');
+          }
+          await _client
+              .from('bank_accounts')
+              .update({'balance': newBal})
+              .eq('id', bankAccId);
+        }
+
+        final txUpdates = <String, dynamic>{
+          'amount': newAmount,
+          'balance_after': ((tx['balance_after'] as num?)?.toDouble() ?? 0.0) + balanceDiff,
+        };
+        if (newDescription != null) txUpdates['description'] = newDescription;
+        if (newType != null) txUpdates['type'] = newType;
+        await _client
+            .from('bank_account_transactions')
+            .update(txUpdates)
+            .eq('id', transactionId);
+      } else {
+        rethrow;
+      }
+    }
+
+    // Synchronize GL / Journal Entry if linked
+    try {
+      final txRow = await _client
+          .from('bank_account_transactions')
+          .select('journal_entry_id')
+          .eq('id', transactionId)
+          .maybeSingle();
+
+      final jeId = txRow?['journal_entry_id'];
+      if (jeId != null) {
+        if (newDescription != null && newDescription.isNotEmpty) {
+          await _client.from('journal_entries').update({
+            'description': newDescription,
+            'updated_at': DateTime.now().toIso8601String(),
+          }).eq('id', jeId);
+        }
+
+        final lines = await _client
+            .from('account_ledger_entries')
+            .select('id, debit, credit')
+            .eq('journal_entry_id', jeId);
+
+        for (final line in lines) {
+          final lineId = line['id'];
+          final oldDebit = (line['debit'] as num?)?.toDouble() ?? 0.0;
+          final oldCredit = (line['credit'] as num?)?.toDouble() ?? 0.0;
+          final updates = <String, dynamic>{};
+          if (oldDebit > 0) {
+            updates['debit'] = newAmount;
+            updates['amount_in_base_currency'] = newAmount;
+          } else if (oldCredit > 0) {
+            updates['credit'] = newAmount;
+            updates['amount_in_base_currency'] = newAmount;
+          }
+          if (newDescription != null && newDescription.isNotEmpty) {
+            updates['description'] = newDescription;
+          }
+          if (updates.isNotEmpty) {
+            await _client.from('account_ledger_entries').update(updates).eq('id', lineId);
+          }
+        }
+      }
+    } catch (glError) {
+      debugPrint('BankAccountDao: error syncing GL for tx $transactionId: $glError');
+    }
   }
 
   Future<void> deleteTransaction({required int transactionId}) async {

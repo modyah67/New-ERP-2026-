@@ -7,6 +7,7 @@ import '../../data/dao/account_dao.dart';
 import '../../data/models/account_model.dart';
 import '../../data/models/transaction_model.dart';
 import '../../core/data_change_event_bus.dart';
+import '../../accounting/fiscal_year/dao/fiscal_year_dao.dart';
 import 'journal_entry_state.dart';
 
 class JournalEntryCubit extends Cubit<JournalEntryState> {
@@ -277,6 +278,43 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
           final rawLines = (data['lines'] as List? ?? []);
           final lines = rawLines.map((l) => Map<String, dynamic>.from(l as Map)).toList();
 
+          final missingAccIds = <int>{};
+          for (var l in lines) {
+            if (l['account_name'] == null || l['account_name'].toString().isEmpty || l['account_name'] == 'غير معروف' || l['account_code'] == null || l['account_code'].toString().isEmpty) {
+              final id = l['account_id'];
+              if (id != null) {
+                missingAccIds.add(id is int ? id : int.tryParse(id.toString()) ?? 0);
+              }
+            }
+          }
+          if (missingAccIds.isNotEmpty) {
+            try {
+              final acctsRes = await _client
+                  .from('accounts')
+                  .select('id, name, account_name, code, account_code')
+                  .inFilter('id', missingAccIds.toList());
+              final acctMap = <int, AccountModel>{};
+              for (var a in acctsRes as List) {
+                final rowMap = Map<String, dynamic>.from(a as Map);
+                final aId = rowMap['id'];
+                final key = aId is int ? aId : int.tryParse(aId.toString()) ?? 0;
+                acctMap[key] = AccountModel.fromMap(rowMap);
+              }
+              for (var l in lines) {
+                final id = l['account_id'];
+                final key = id is int ? id : int.tryParse(id?.toString() ?? '') ?? 0;
+                if (acctMap.containsKey(key)) {
+                  if (l['account_name'] == null || l['account_name'].toString().isEmpty || l['account_name'] == 'غير معروف') {
+                    l['account_name'] = acctMap[key]!.displayName;
+                  }
+                  if (l['account_code'] == null || l['account_code'].toString().isEmpty) {
+                    l['account_code'] = acctMap[key]!.code;
+                  }
+                }
+              }
+            } catch (_) {}
+          }
+
           final debitLegs = lines.where((r) => ((r['debit'] ?? 0) as num) > 0).toList();
           final creditLegs = lines.where((r) => ((r['credit'] ?? 0) as num) > 0).toList();
 
@@ -412,6 +450,19 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
                 accountCodes[key] = model.code;
               }
             } catch (_) {}
+          }
+
+          for (var m in lines) {
+            final id = m['account_id'];
+            final key = id is int ? id : int.tryParse(id?.toString() ?? '') ?? 0;
+            final resolvedName = accountNames[key];
+            final resolvedCode = accountCodes[key];
+            if (m['account_name'] == null || m['account_name'].toString().trim().isEmpty || m['account_name'] == 'غير معروف') {
+              m['account_name'] = resolvedName ?? 'حساب غير معروف';
+            }
+            if (m['account_code'] == null || m['account_code'].toString().trim().isEmpty) {
+              m['account_code'] = resolvedCode ?? '';
+            }
           }
 
           final debitLegs = lines.where((r) => ((r['debit'] ?? 0) as num) > 0).toList();
@@ -614,6 +665,21 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
         }
       }
 
+      final enrichedLines = (aleRes as List).map((r) {
+        final m = Map<String, dynamic>.from(r as Map);
+        final id = m['account_id'];
+        final key = id is int ? id : int.tryParse(id?.toString() ?? '') ?? 0;
+        final resolvedName = accountNames[key];
+        final resolvedCode = accountCodes[key];
+        m['account_name'] = (m['account_name'] != null && m['account_name'].toString().trim().isNotEmpty && m['account_name'] != 'غير معروف')
+            ? m['account_name']
+            : (resolvedName ?? 'حساب غير معروف');
+        m['account_code'] = (m['account_code'] != null && m['account_code'].toString().trim().isNotEmpty)
+            ? m['account_code']
+            : (resolvedCode ?? '');
+        return m;
+      }).toList();
+
       final debitLegs = (aleRes as List).where((r) => (r['debit'] ?? 0) > 0).toList();
       final creditLegs = (aleRes as List).where((r) => (r['credit'] ?? 0) > 0).toList();
 
@@ -736,7 +802,7 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
         'creditBaseAmount': creditBaseAmount,
         'notes': jeRes['description'] ?? '',
         'sourceType': jeRes['source_type'] ?? '',
-        'lines': aleRes,
+        'lines': enrichedLines,
       };
 
       _emitSingleEntrySuccess(entryMap, 'القيد المحاسبي رقم $entryNumber');
@@ -855,32 +921,90 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
     final currentState = state;
     if (currentState is! JournalEntryLoaded) return;
 
-    if (query.trim().isEmpty) {
-      emit(currentState.copyWith(debitResults: [], debitHighlightIdx: 0));
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) {
+      emit(currentState.copyWith(
+        clearSelectedDebitAccount: true,
+        debitResults: [],
+        debitHighlightIdx: 0,
+      ));
       return;
     }
-    final q = query.trim().toLowerCase();
+    final q = trimmed.toLowerCase();
     final results = currentState.accounts
         .where((a) =>
-            a.name.toLowerCase().contains(q) || a.code.contains(q))
+            a.displayName.toLowerCase().contains(q) ||
+            a.name.toLowerCase().contains(q) ||
+            a.code.toLowerCase().contains(q))
         .toList();
-    emit(currentState.copyWith(debitResults: results, debitHighlightIdx: 0));
+
+    // Check if query matches an account code or name exactly
+    AccountModel? exactMatch;
+    for (final a in currentState.accounts) {
+      if (a.code.trim().toLowerCase() == q ||
+          a.displayName.trim().toLowerCase() == q ||
+          a.name.trim().toLowerCase() == q) {
+        exactMatch = a;
+        break;
+      }
+    }
+
+    final currentSelected = currentState.selectedDebitAccount;
+    final shouldClear = exactMatch == null &&
+        currentSelected != null &&
+        !trimmed.contains(currentSelected.code);
+
+    emit(currentState.copyWith(
+      selectedDebitAccount: exactMatch,
+      clearSelectedDebitAccount: shouldClear,
+      debitResults: results,
+      debitHighlightIdx: 0,
+    ));
   }
 
   void searchCredit(String query) {
     final currentState = state;
     if (currentState is! JournalEntryLoaded) return;
 
-    if (query.trim().isEmpty) {
-      emit(currentState.copyWith(creditResults: [], creditHighlightIdx: 0));
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) {
+      emit(currentState.copyWith(
+        clearSelectedCreditAccount: true,
+        creditResults: [],
+        creditHighlightIdx: 0,
+      ));
       return;
     }
-    final q = query.trim().toLowerCase();
+    final q = trimmed.toLowerCase();
     final results = currentState.accounts
         .where((a) =>
-            a.name.toLowerCase().contains(q) || a.code.contains(q))
+            a.displayName.toLowerCase().contains(q) ||
+            a.name.toLowerCase().contains(q) ||
+            a.code.toLowerCase().contains(q))
         .toList();
-    emit(currentState.copyWith(creditResults: results, creditHighlightIdx: 0));
+
+    // Check if query matches an account code or name exactly
+    AccountModel? exactMatch;
+    for (final a in currentState.accounts) {
+      if (a.code.trim().toLowerCase() == q ||
+          a.displayName.trim().toLowerCase() == q ||
+          a.name.trim().toLowerCase() == q) {
+        exactMatch = a;
+        break;
+      }
+    }
+
+    final currentSelected = currentState.selectedCreditAccount;
+    final shouldClear = exactMatch == null &&
+        currentSelected != null &&
+        !trimmed.contains(currentSelected.code);
+
+    emit(currentState.copyWith(
+      selectedCreditAccount: exactMatch,
+      clearSelectedCreditAccount: shouldClear,
+      creditResults: results,
+      creditHighlightIdx: 0,
+    ));
   }
 
   List<AccountModel> getDebitResults(String query) {
@@ -890,7 +1014,9 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
     final q = query.trim().toLowerCase();
     return currentState.accounts
         .where((a) =>
-            a.name.toLowerCase().contains(q) || a.code.contains(q))
+            a.displayName.toLowerCase().contains(q) ||
+            a.name.toLowerCase().contains(q) ||
+            a.code.toLowerCase().contains(q))
         .toList();
   }
 
@@ -901,14 +1027,54 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
     final q = query.trim().toLowerCase();
     return currentState.accounts
         .where((a) =>
-            a.name.toLowerCase().contains(q) || a.code.contains(q))
+            a.displayName.toLowerCase().contains(q) ||
+            a.name.toLowerCase().contains(q) ||
+            a.code.toLowerCase().contains(q))
         .toList();
+  }
+
+  /// Robust finder to resolve an account from code, name, or controller text.
+  AccountModel? findAccount(String query) {
+    final currentState = state;
+    if (currentState is! JournalEntryLoaded) return null;
+    final q = query.trim().toLowerCase();
+    if (q.isEmpty) return null;
+
+    // 1. Exact match on code
+    for (final a in currentState.accounts) {
+      if (a.code.trim().toLowerCase() == q) return a;
+    }
+
+    // 2. Exact match on displayName or name
+    for (final a in currentState.accounts) {
+      if (a.displayName.trim().toLowerCase() == q ||
+          a.name.trim().toLowerCase() == q) {
+        return a;
+      }
+    }
+
+    // 3. String contains account code (e.g. "من حـ/ 10101 - النقدية")
+    for (final a in currentState.accounts) {
+      if (a.code.trim().isNotEmpty && q.contains(a.code.trim().toLowerCase())) {
+        return a;
+      }
+    }
+
+    // 4. Starts with or contains displayName / name
+    for (final a in currentState.accounts) {
+      if ((a.displayName.trim().isNotEmpty && q.contains(a.displayName.trim().toLowerCase())) ||
+          (a.name.trim().isNotEmpty && q.contains(a.name.trim().toLowerCase()))) {
+        return a;
+      }
+    }
+
+    return null;
   }
 
   void selectDebitAccount(AccountModel acc) {
     final currentState = state;
     if (currentState is JournalEntryLoaded) {
-      debitCtrl.text = '${acc.code} - ${acc.name}';
+      debitCtrl.text = 'من حـ/ ${acc.code} - ${acc.displayName}';
       debitFocusNode.unfocus();
       emit(currentState.copyWith(
         selectedDebitAccount: acc,
@@ -921,7 +1087,7 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
   void selectCreditAccount(AccountModel acc) {
     final currentState = state;
     if (currentState is JournalEntryLoaded) {
-      creditCtrl.text = '${acc.code} - ${acc.name}';
+      creditCtrl.text = 'إلى حـ/ ${acc.code} - ${acc.displayName}';
       creditFocusNode.unfocus();
       emit(currentState.copyWith(
         selectedCreditAccount: acc,
@@ -952,6 +1118,24 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
         creditResults: [],
         creditHighlightIdx: 0,
       ));
+    }
+  }
+
+  void stepDebitHighlight(int step) {
+    final currentState = state;
+    if (currentState is JournalEntryLoaded && currentState.debitResults.isNotEmpty) {
+      final newIdx = (currentState.debitHighlightIdx + step)
+          .clamp(0, currentState.debitResults.length - 1);
+      emit(currentState.copyWith(debitHighlightIdx: newIdx));
+    }
+  }
+
+  void stepCreditHighlight(int step) {
+    final currentState = state;
+    if (currentState is JournalEntryLoaded && currentState.creditResults.isNotEmpty) {
+      final newIdx = (currentState.creditHighlightIdx + step)
+          .clamp(0, currentState.creditResults.length - 1);
+      emit(currentState.copyWith(creditHighlightIdx: newIdx));
     }
   }
 
@@ -1016,35 +1200,61 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
     }
   }
 
-  // ── Save Journal Entry (Double-Entry) ──
+  String? lastErrorMessage;
 
   Future<bool> saveEntry() async {
+    lastErrorMessage = null;
     final currentState = state;
-    if (currentState is! JournalEntryLoaded) return false;
+    if (currentState is! JournalEntryLoaded) {
+      lastErrorMessage = 'حالة النظام غير جاهزة';
+      return false;
+    }
     if (currentState.isSaving) return false;
 
     final amountText = amountCtrl.text.trim().replaceAll(',', '');
     final amount = double.tryParse(amountText);
 
     if (amount == null || amount <= 0) {
+      lastErrorMessage = 'يرجى إدخال مبلغ صحيح للقيد أكبر من الصفر';
       return false;
     }
 
-    if (currentState.selectedDebitAccount == null) {
+    var debitAcc = currentState.selectedDebitAccount;
+    if (debitAcc == null && debitCtrl.text.trim().isNotEmpty) {
+      debitAcc = findAccount(debitCtrl.text.trim());
+      if (debitAcc != null) {
+        selectDebitAccount(debitAcc);
+      }
+    }
+
+    var creditAcc = currentState.selectedCreditAccount;
+    if (creditAcc == null && creditCtrl.text.trim().isNotEmpty) {
+      creditAcc = findAccount(creditCtrl.text.trim());
+      if (creditAcc != null) {
+        selectCreditAccount(creditAcc);
+      }
+    }
+
+    if (debitAcc == null) {
+      lastErrorMessage = 'يرجى اختيار الطرف المدين (من حـ/) أولاً';
       return false;
     }
 
-    if (currentState.selectedCreditAccount == null) {
+    if (creditAcc == null) {
+      lastErrorMessage = 'يرجى اختيار الطرف الدائن (إلى حـ/) أولاً';
       return false;
     }
 
-    if (currentState.selectedDebitAccount!.id ==
-        currentState.selectedCreditAccount!.id) {
+    if (debitAcc.id == creditAcc.id) {
+      lastErrorMessage = 'لا يمكن اختيار نفس الحساب للطرفين المدين والدائن';
       return false;
     }
 
-    final creditAcc = currentState.selectedCreditAccount!;
-    if (creditAcc.balance < amount) {
+    // Check if the transaction date is in a closed fiscal year
+    final isClosedYear = await FiscalYearDao().isDateInClosedFiscalYear(currentState.transactionDate);
+    if (isClosedYear) {
+      lastErrorMessage = 'لا يمكن إضافة أو تسجيل قيود يومية في سنة مالية مغلقة.';
+      emit(currentState.copyWith(isSaving: false));
       return false;
     }
 
@@ -1054,18 +1264,35 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
           AppUtils.formatDateForDb(currentState.transactionDate);
 
       final description = notesCtrl.text.trim().isEmpty
-          ? 'قيد تسوية يومية بين ${currentState.selectedDebitAccount!.name} و ${currentState.selectedCreditAccount!.name}'
+          ? 'قيد تسوية يومية بين ${debitAcc.displayName} و ${creditAcc.displayName}'
           : notesCtrl.text.trim();
 
-      // 2. Dispatch the Business Event to the Enterprise Posting Engine
-      await _client.rpc('rpc_build_manual_journal', params: {
-        'payload': {
-          'date': dateStr,
-          'amount': amount,
-          'debit_account_id': currentState.selectedDebitAccount!.id!,
-          'credit_account_id': currentState.selectedCreditAccount!.id!,
-          'description': description,
-        }
+      // Post balanced manual journal directly through the database engine
+      final dId = int.tryParse(debitAcc.id.toString()) ?? debitAcc.id;
+      final cId = int.tryParse(creditAcc.id.toString()) ?? creditAcc.id;
+
+      await _client.rpc('post_journal_entry', params: {
+        'p_source_type': 'manual',
+        'p_description': description,
+        'p_entry_date': dateStr,
+        'p_company_id': null,
+        'p_created_by': _client.auth.currentUser?.id,
+        'p_lines': [
+          {
+            'account_id': dId,
+            'debit': amount,
+            'credit': 0,
+            'currency': debitAcc.currency,
+            'description': description,
+          },
+          {
+            'account_id': cId,
+            'debit': 0,
+            'credit': amount,
+            'currency': creditAcc.currency,
+            'description': description,
+          },
+        ],
       });
 
       // Notify other cubits
@@ -1089,6 +1316,7 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
       await loadAll();
       return true;
     } catch (e) {
+      lastErrorMessage = 'خطأ أثناء تسجيل وحفظ القيد: $e';
       final updatedState = state;
       if (updatedState is JournalEntryLoaded) {
         emit(updatedState.copyWith(isSaving: false));
@@ -1096,7 +1324,7 @@ class JournalEntryCubit extends Cubit<JournalEntryState> {
       return false;
     } finally {
       final updatedState = state;
-      if (updatedState is JournalEntryLoaded) {
+      if (updatedState is JournalEntryLoaded && updatedState.isSaving) {
         emit(updatedState.copyWith(isSaving: false));
       }
     }

@@ -1,6 +1,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import '../../core/theme.dart';
 
 /// Reusable error view with retry button.
 class ReportingErrorView extends StatelessWidget {
@@ -15,6 +16,9 @@ class ReportingErrorView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textPrimary = AppTheme.getTextPrimary(context);
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -26,13 +30,13 @@ class ReportingErrorView extends StatelessWidget {
             style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.bold,
-              color: Colors.white,
+              color: textPrimary,
             ),
           ),
           const SizedBox(height: 8),
           Text(
             message,
-            style: const TextStyle(color: Colors.white70, fontSize: 13),
+            style: TextStyle(color: textSecondary, fontSize: 13),
             textAlign: TextAlign.center,
           ),
           if (onRetry != null) ...[

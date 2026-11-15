@@ -1,8 +1,6 @@
 import 'dart:io';
 import 'package:excel/excel.dart';
-import 'package:path_provider/path_provider.dart';
 import '../data/models/statement_row_model.dart';
-import 'statement_pdf_service.dart';
 import 'package:accounting_system/core/utils/file_helper.dart';
 
 class StatementExcelService {
@@ -68,8 +66,8 @@ class StatementExcelService {
 
     // Headers
     List<String> headers = isAr
-        ? ['رقم المرجع', 'التاريخ', 'النوع', 'البيان', 'الكراتين', 'مدين', 'دائن', 'الرصيد', 'ملاحظة']
-        : ['Ref No.', 'Date', 'Type', 'Description', 'Cartons', 'Debit', 'Credit', 'Balance', 'Note'];
+        ? ['رقم المرجع', 'التاريخ', 'النوع', 'البيان', 'الكراتين', 'العملة الأجنبية', 'مدين (ج.م)', 'دائن (ج.م)', 'الرصيد (ج.م)', 'ملاحظة']
+        : ['Ref No.', 'Date', 'Type', 'Description', 'Cartons', 'Foreign Cur.', 'Debit (EGP)', 'Credit (EGP)', 'Balance (EGP)', 'Note'];
     
     sheetObject.appendRow(headers.map((e) => TextCellValue(e)).toList());
 
@@ -82,6 +80,7 @@ class StatementExcelService {
         TextCellValue(_typeLabel(r.type, locale)),
         TextCellValue(r.description),
         DoubleCellValue(r.piecesCount),
+        TextCellValue(r.isForeignCurrency ? r.foreignDisplayCompact : '-'),
         DoubleCellValue(r.debit),
         DoubleCellValue(r.credit),
         DoubleCellValue(r.balance),

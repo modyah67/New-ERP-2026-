@@ -1,4 +1,25 @@
 class ShippingCompanyModel {
+  // ── Scalable 5-Digit Category Range Constants ──
+  static const int minCode = 90000;
+  static const int maxCode = 99999;
+  static const int capacity = 10000;
+  static const String codeHint = 'مثال: 90000 (نطاق 90000 - 99999)';
+
+  static String? validateShippingCompanyCode(String? code) {
+    if (code == null || code.trim().isEmpty) {
+      return 'كود شركة الشحن مطلوب';
+    }
+    final cleanCode = code.trim().replaceAll(RegExp(r'[^0-9]'), '');
+    final num = int.tryParse(cleanCode);
+    if (num == null) {
+      return 'يجب أن يحتوي الكود على أرقام فقط';
+    }
+    if (num < minCode || num > maxCode) {
+      return 'كود شركة الشحن يجب أن يكون بين $minCode و $maxCode (السعة: $capacity شركة)';
+    }
+    return null;
+  }
+
   final int? id;
   final String code;
   final String name;
@@ -25,6 +46,22 @@ class ShippingCompanyModel {
 
   String get displayName => '$code - $name';
 
+  double get currentBalance => balance;
+
+  String get currencySymbol {
+    switch (currency.toUpperCase()) {
+      case 'USD':
+        return '\$';
+      case 'EUR':
+        return '€';
+      case 'GBP':
+        return '£';
+      case 'EGP':
+      default:
+        return 'ج.م';
+    }
+  }
+
   factory ShippingCompanyModel.fromMap(Map<String, dynamic> map) {
     String? str(dynamic v) => v?.toString();
     int? intVal(dynamic v) => v is int ? v : int.tryParse('$v');
@@ -36,7 +73,7 @@ class ShippingCompanyModel {
       name: str(map['name']) ?? '',
       phone: str(map['phone']) ?? '',
       email: str(map['email']) ?? '',
-      balance: numVal(map['balance'])?.toDouble() ?? 0.0,
+      balance: (numVal(map['current_balance']) ?? numVal(map['balance']))?.toDouble() ?? 0.0,
       initialBalance: numVal(map['initial_balance'])?.toDouble() ?? 0.0,
       initialBalanceDirection: str(map['initial_balance_direction']) ?? 'CREDIT',
       currency: str(map['currency']) ?? 'EGP',
@@ -51,6 +88,7 @@ class ShippingCompanyModel {
       'phone': phone,
       'email': email,
       'balance': balance,
+      'current_balance': balance,
       'initial_balance': initialBalance,
       'initial_balance_direction': initialBalanceDirection,
       'currency': currency,

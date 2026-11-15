@@ -1,8 +1,10 @@
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/data_change_event_bus.dart';
 import '../../core/utils.dart';
 import '../models/crop_purchase_model.dart';
 import '../services/currency_conversion_service.dart';
+import '../services/product_cost_center_sync_service.dart';
 
 class CropPurchaseDao {
   final _client = Supabase.instance.client;
@@ -71,8 +73,41 @@ class CropPurchaseDao {
       exchangeRate: 1.0,
     ).toJson();
     final result = await _client.from(_table).insert(data).select().single();
+    final insertedId = result['id']?.toString() ?? '';
     DataChangeEventBus.instance.notifyCropPurchasesChanged();
-    return result['id']?.toString() ?? '';
+
+    // Automatically record cost center transaction for this crop purchase
+    try {
+      String? supplierName = item.supplierName;
+      if (supplierName == null && item.supplierId.isNotEmpty) {
+        final s = await _client.from('suppliers').select('name').eq('id', item.supplierId).maybeSingle();
+        supplierName = s?['name']?.toString();
+      }
+      String? fruitTypeName = item.fruitTypeName;
+      if (fruitTypeName == null && item.fruitTypeId.isNotEmpty) {
+        final f = await _client.from('fruit_types').select('name').eq('id', item.fruitTypeId).maybeSingle();
+        fruitTypeName = f?['name']?.toString();
+      }
+
+      await ProductCostCenterSyncService.instance.recordCropPurchaseTransaction(
+        sourceType: 'crop_purchase',
+        sourceId: insertedId,
+        fruitTypeId: item.fruitTypeId,
+        cropName: fruitTypeName,
+        supplierName: supplierName,
+        purchaseDate: DateTime.tryParse(item.purchaseDate) ?? DateTime.now(),
+        quantity: item.quantity,
+        unitPrice: item.purchasePricePerKg,
+        totalCost: item.totalCost,
+        currency: 'EGP',
+        exchangeRate: 1.0,
+        notes: item.notes,
+      );
+    } catch (e) {
+      debugPrint('Error syncing cost center for crop purchase: $e');
+    }
+
+    return insertedId;
   }
 
   Future<void> update(CropPurchaseModel item) async {
@@ -84,10 +119,47 @@ class CropPurchaseDao {
     ).toJson();
     await _client.from(_table).update(data).eq('id', int.tryParse(item.id!) ?? item.id!);
     DataChangeEventBus.instance.notifyCropPurchasesChanged();
+
+    // Automatically sync/update cost center transaction
+    try {
+      String? supplierName = item.supplierName;
+      if (supplierName == null && item.supplierId.isNotEmpty) {
+        final s = await _client.from('suppliers').select('name').eq('id', item.supplierId).maybeSingle();
+        supplierName = s?['name']?.toString();
+      }
+      String? fruitTypeName = item.fruitTypeName;
+      if (fruitTypeName == null && item.fruitTypeId.isNotEmpty) {
+        final f = await _client.from('fruit_types').select('name').eq('id', item.fruitTypeId).maybeSingle();
+        fruitTypeName = f?['name']?.toString();
+      }
+
+      await ProductCostCenterSyncService.instance.recordCropPurchaseTransaction(
+        sourceType: 'crop_purchase',
+        sourceId: item.id?.toString() ?? '',
+        fruitTypeId: item.fruitTypeId,
+        cropName: fruitTypeName,
+        supplierName: supplierName,
+        purchaseDate: DateTime.tryParse(item.purchaseDate) ?? DateTime.now(),
+        quantity: item.quantity,
+        unitPrice: item.purchasePricePerKg,
+        totalCost: item.totalCost,
+        currency: 'EGP',
+        exchangeRate: 1.0,
+        notes: item.notes,
+      );
+    } catch (e) {
+      debugPrint('Error syncing cost center for crop purchase update: $e');
+    }
   }
 
   Future<void> delete(String id) async {
     await _client.from(_table).delete().eq('id', int.tryParse(id) ?? id);
+    try {
+      await _client.from('cost_center_transactions').delete().match({
+        'source_type': 'crop_purchase',
+        'source_id': id,
+      });
+    } catch (_) {}
     DataChangeEventBus.instance.notifyCropPurchasesChanged();
   }
 

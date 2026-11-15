@@ -23,6 +23,35 @@ class PaymentDao {
     }
   }
 
+  /// Fetches total paid opening balances grouped by currency from supplier_payment_allocations
+  Future<Map<String, double>> getOpeningBalancePaid(String entityType, String entityId) async {
+    try {
+      final isSupplier = entityType.toLowerCase() == 'supplier';
+      var query = _supabase
+          .from('supplier_payment_allocations')
+          .select('currency, amount')
+          .eq('allocation_type', 'opening_balance');
+
+      if (isSupplier) {
+        query = query.or('supplier_id.eq.$entityId,entity_id.eq.$entityId');
+      } else {
+        query = query.eq('entity_id', entityId).eq('entity_type', entityType.toLowerCase());
+      }
+
+      final response = await query;
+      final map = <String, double>{};
+      for (final row in response as List) {
+        final cur = (row['currency']?.toString() ?? 'EGP').toUpperCase();
+        final amt = (row['amount'] as num?)?.toDouble() ?? 0.0;
+        map[cur] = (map[cur] ?? 0.0) + amt;
+      }
+      return map;
+    } catch (e) {
+      print('Error fetching opening balance paid: $e');
+      return {};
+    }
+  }
+
   Future<Map<String, dynamic>> entityMultiPayment({
     required String sourceType,
     required int sourceId,

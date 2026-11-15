@@ -83,7 +83,7 @@ class ShipmentPaymentService {
     required String shipmentNo,
     required String customerName,
   }) {
-    return 'إيداع $paymentType مقابل شحنة تصديرية رقم $shipmentNo - لصالح العميل $customerName';
+    return 'إيداع $paymentType مقابل شحنة تصديرية رقم $shipmentNo - من العميل $customerName (سداد حساب العميل)';
   }
 
   static String buildReversalDescription({
@@ -91,7 +91,7 @@ class ShipmentPaymentService {
     required String shipmentNo,
     required String customerName,
   }) {
-    return 'استرداد إيداع $paymentType مقابل شحنة تصديرية رقم $shipmentNo - لصالح العميل $customerName';
+    return 'استرداد إيداع $paymentType مقابل شحنة تصديرية رقم $shipmentNo - للعميل $customerName';
   }
 
   static String _paymentTypeLabel(String? sourceType) {

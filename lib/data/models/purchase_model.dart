@@ -10,7 +10,13 @@ class PurchaseLineData {
   String unit;
   String? existingItemId;
   String? stationId;
+  String? costCenterId;
   double exchangeRate;
+  String purchaseMethod;
+  int? cartonCount;
+  double? pricePerCarton;
+  double? grossWeightKg;
+  double? netWeightKg;
 
   PurchaseLineData({
     this.code = '',
@@ -20,10 +26,32 @@ class PurchaseLineData {
     this.unit = 'متر',
     this.existingItemId,
     this.stationId,
+    this.costCenterId = 'packing_station',
     this.exchangeRate = 1.0,
+    this.purchaseMethod = 'weight',
+    this.cartonCount,
+    this.pricePerCarton,
+    this.grossWeightKg,
+    this.netWeightKg,
   });
 
-  double get totalPrice => AppUtils.roundDouble(quantity * purchasePrice);
+  bool get isCarton =>
+      purchaseMethod.toLowerCase() == 'carton' ||
+      purchaseMethod.contains('كرتون');
+
+  double get totalPrice {
+    if (isCarton && (cartonCount != null || pricePerCarton != null)) {
+      final count = cartonCount ?? quantity.toInt();
+      final price = pricePerCarton ?? purchasePrice;
+      return AppUtils.roundDouble(count * price);
+    }
+    // Financial liability to supplier uses gross metric
+    final effectiveQty = (grossWeightKg != null && grossWeightKg! > 0)
+        ? grossWeightKg!
+        : (netWeightKg ?? quantity);
+    return AppUtils.roundDouble(effectiveQty * purchasePrice);
+  }
+
   double get totalPriceEgp => AppUtils.roundDouble(totalPrice * exchangeRate);
 }
 
@@ -40,6 +68,7 @@ class PurchaseItemModel {
   final String unit;
   final double piecesCount;
   final int? stationId;
+  final String? costCenterId;
   final double exchangeRate;
 
   const PurchaseItemModel({
@@ -55,6 +84,7 @@ class PurchaseItemModel {
     this.unit = 'متر',
     this.piecesCount = 0.0,
     this.stationId,
+    this.costCenterId = 'packing_station',
     this.exchangeRate = 1.0,
   });
 
@@ -72,6 +102,7 @@ class PurchaseItemModel {
       unit: map['unit'] as String? ?? 'كجم',
       piecesCount: (map['pieces_count'] as num?)?.toDouble() ?? 0.0,
       stationId: map['station_id'] is int ? map['station_id'] as int : int.tryParse(map['station_id']?.toString() ?? ''),
+      costCenterId: map['cost_center_id']?.toString() ?? 'packing_station',
       exchangeRate: (map['exchange_rate'] as num?)?.toDouble() ?? 1.0,
     );
   }
@@ -89,11 +120,12 @@ class PurchaseItemModel {
       'unit': unit,
       'pieces_count': piecesCount,
       if (stationId != null) 'station_id': stationId,
+      'cost_center_id': costCenterId ?? 'packing_station',
       'exchange_rate': exchangeRate,
     };
   }
 
-  PurchaseItemModel copyWith({String? purchaseId, int? stationId}) {
+  PurchaseItemModel copyWith({String? purchaseId, int? stationId, String? costCenterId}) {
     return PurchaseItemModel(
       id: id,
       purchaseId: purchaseId ?? this.purchaseId,
@@ -107,6 +139,7 @@ class PurchaseItemModel {
       unit: unit,
       piecesCount: piecesCount,
       stationId: stationId ?? this.stationId,
+      costCenterId: costCenterId ?? this.costCenterId,
       exchangeRate: exchangeRate,
     );
   }

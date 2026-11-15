@@ -280,7 +280,7 @@ class ReportExportService {
     sheet.cell(CellIndex.indexByString('A3')).value =
         TextCellValue('الرصيد الافتتاحي: ${_fmt(report.openingBalance)}');
 
-    final headers = ['التاريخ', 'الرقم', 'الحساب', 'الوصف', 'مدين', 'دائن', 'الرصيد'];
+    final headers = ['التاريخ', 'الرقم', 'الحساب', 'مركز التكلفة', 'الوصف', 'مدين', 'دائن', 'الرصيد'];
     for (var i = 0; i < headers.length; i++) {
       final cell = sheet.cell(CellIndex.indexByColumnRow(columnIndex: i, rowIndex: 5));
       cell.value = TextCellValue(headers[i]);
@@ -301,12 +301,14 @@ class ReportExportService {
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 2, rowIndex: rowIndex)).value =
           TextCellValue(row.accountCode);
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 3, rowIndex: rowIndex)).value =
-          TextCellValue(row.description ?? '');
+          TextCellValue(row.costCenterName ?? row.costCenterId ?? '');
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 4, rowIndex: rowIndex)).value =
-          DoubleCellValue(row.debit);
+          TextCellValue(row.description ?? '');
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 5, rowIndex: rowIndex)).value =
-          DoubleCellValue(row.credit);
+          DoubleCellValue(row.debit);
       sheet.cell(CellIndex.indexByColumnRow(columnIndex: 6, rowIndex: rowIndex)).value =
+          DoubleCellValue(row.credit);
+      sheet.cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: rowIndex)).value =
           DoubleCellValue(row.balance);
     }
 

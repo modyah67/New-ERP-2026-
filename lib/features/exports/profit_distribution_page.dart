@@ -227,18 +227,21 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ValueListenableBuilder<AuthState>(
       valueListenable: authNotifier,
       builder: (context, authState, _) {
         return Directionality(
           textDirection: TextDirection.rtl,
           child: Scaffold(
-            backgroundColor: AppTheme.background,
+            backgroundColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
             body: Container(
-              decoration: const BoxDecoration(
+              decoration: BoxDecoration(
                 gradient: LinearGradient(
                   begin: Alignment.topLeft, end: Alignment.bottomRight,
-                  colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
+                  colors: isDark
+                      ? const [AppTheme.background, Color(0xFF0D2137), AppTheme.background]
+                      : const [Color(0xFFF8FAFC), Color(0xFFF1F5F9), Color(0xFFF8FAFC)],
                 ),
               ),
               child: Column(
@@ -259,14 +262,15 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   Widget _buildHeader() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 12, bottom: 12, left: 12, right: 12),
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
-            border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+            color: isDark ? const Color(0x3805192D) : Colors.white.withValues(alpha: 0.95),
+            border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(50) : const Color(0xFFE2E8F0))),
           ),
           child: LayoutBuilder(
             builder: (context, constraints) {
@@ -278,14 +282,20 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                     Row(children: [
                       Container(
                         padding: const EdgeInsets.all(6),
-                        decoration: BoxDecoration(color: AppTheme.primary.withAlpha(30), borderRadius: BorderRadius.circular(8)),
+                        decoration: BoxDecoration(
+                            color: isDark ? AppTheme.primary.withAlpha(30) : const Color(0xFFE0F2FE),
+                            borderRadius: BorderRadius.circular(8)),
                         child: const Icon(Icons.groups_outlined, color: AppTheme.primary, size: 18),
                       ),
                       const SizedBox(width: 8),
-                      const Expanded(
+                      Expanded(
                         child: Text('توزيع الأرباح',
                             maxLines: 1, overflow: TextOverflow.ellipsis,
-                            style: TextStyle(color: AppTheme.textPrimary, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                            style: TextStyle(
+                                color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Cairo')),
                       ),
                     ]),
                     const SizedBox(height: 8),
@@ -295,15 +305,21 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                         child: Container(
                           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
                           decoration: BoxDecoration(
+                            color: isDark ? Colors.transparent : const Color(0xFFF8FAFC),
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: AppTheme.glassBorder),
+                            border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.table_chart_outlined, color: AppTheme.primary, size: 14),
-                              SizedBox(width: 4),
-                              Text('Excel', style: TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontFamily: 'Cairo')),
+                              const Icon(Icons.table_chart_outlined, color: AppTheme.primary, size: 14),
+                              const SizedBox(width: 4),
+                              Text('Excel',
+                                  style: TextStyle(
+                                      color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo')),
                             ],
                           ),
                         ),
@@ -314,10 +330,13 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                         child: Container(
                           padding: const EdgeInsets.all(6),
                           decoration: BoxDecoration(
+                            color: isDark ? Colors.transparent : const Color(0xFFF8FAFC),
                             borderRadius: BorderRadius.circular(10),
-                            border: Border.all(color: AppTheme.glassBorder),
+                            border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                           ),
-                          child: const Icon(Icons.refresh_rounded, color: AppTheme.textSecondary, size: 18),
+                          child: Icon(Icons.refresh_rounded,
+                              color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                              size: 18),
                         ),
                       ),
                     ]),
@@ -328,29 +347,41 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                 children: [
                   Container(
                     padding: const EdgeInsets.all(8),
-                    decoration: BoxDecoration(color: AppTheme.primary.withAlpha(30), borderRadius: BorderRadius.circular(12)),
+                    decoration: BoxDecoration(
+                        color: isDark ? AppTheme.primary.withAlpha(30) : const Color(0xFFE0F2FE),
+                        borderRadius: BorderRadius.circular(12)),
                     child: const Icon(Icons.groups_outlined, color: AppTheme.primary, size: 24),
                   ),
                   const SizedBox(width: 12),
-                  const Expanded(
+                  Expanded(
                     child: Text('توزيع الأرباح',
                         maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                        style: TextStyle(
+                            color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo')),
                   ),
                   GestureDetector(
                     onTap: _exportExcel,
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                       decoration: BoxDecoration(
+                        color: isDark ? Colors.transparent : const Color(0xFFF8FAFC),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppTheme.glassBorder),
+                        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                       ),
-                      child: const Row(
+                      child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Icon(Icons.table_chart_outlined, color: AppTheme.primary, size: 20),
-                          SizedBox(width: 6),
-                          Text('تصدير Excel', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                          const Icon(Icons.table_chart_outlined, color: AppTheme.primary, size: 20),
+                          const SizedBox(width: 6),
+                          Text('تصدير Excel',
+                              style: TextStyle(
+                                  color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cairo')),
                         ],
                       ),
                     ),
@@ -361,10 +392,13 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
+                        color: isDark ? Colors.transparent : const Color(0xFFF8FAFC),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: AppTheme.glassBorder),
+                        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                       ),
-                      child: const Icon(Icons.refresh_rounded, color: AppTheme.textSecondary, size: 22),
+                      child: Icon(Icons.refresh_rounded,
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                          size: 22),
                     ),
                   ),
                 ],
@@ -393,6 +427,7 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   Widget _buildPersonSelectors() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return AppTheme.glassCardWidget(
       padding: const EdgeInsets.all(16),
       child: Column(
@@ -402,25 +437,31 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
             children: [
               Container(
                 padding: const EdgeInsets.all(6),
-                decoration: BoxDecoration(color: AppTheme.primary.withAlpha(20), borderRadius: BorderRadius.circular(8)),
+                decoration: BoxDecoration(
+                    color: isDark ? AppTheme.primary.withAlpha(20) : const Color(0xFFE0F2FE),
+                    borderRadius: BorderRadius.circular(8)),
                 child: const Icon(Icons.person, color: AppTheme.primary, size: 16),
               ),
               const SizedBox(width: 8),
-              const Expanded(
+              Expanded(
                 child: Text('المساهمين الأساسيين (ثابتين)',
                     maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                    style: TextStyle(
+                        color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo')),
               ),
             ],
           ),
-          const Divider(color: AppTheme.glassBorder, height: 20),
+          Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0), height: 20),
           Row(
             children: [
               Expanded(child: _fixedPersonBadge('إسلام', AppTheme.primary)),
               const SizedBox(width: 10),
               Expanded(child: _fixedPersonBadge('عبدالباطن', AppTheme.accent)),
               const SizedBox(width: 10),
-              Expanded(child: _fixedPersonBadge('عماد', AppTheme.warning)),
+              Expanded(child: _fixedPersonBadge('عماد', isDark ? AppTheme.warning : const Color(0xFFD97706))),
             ],
           ),
         ],
@@ -429,12 +470,13 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   Widget _fixedPersonBadge(String name, Color color) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: color.withAlpha(20),
+        color: isDark ? color.withAlpha(20) : color.withAlpha(25),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withAlpha(50)),
+        border: Border.all(color: isDark ? color.withAlpha(50) : color.withAlpha(80)),
       ),
       child: Center(
         child: Text(name, style: TextStyle(color: color, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
@@ -443,10 +485,11 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   Widget _buildSummaryCards() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final persons = [
       {'name': _person1?.name ?? 'الشخص 1', 'color': AppTheme.primary, 'index': 0},
       {'name': _person2?.name ?? 'الشخص 2', 'color': AppTheme.accent, 'index': 1},
-      {'name': _person3?.name ?? 'الشخص 3', 'color': AppTheme.warning, 'index': 2},
+      {'name': _person3?.name ?? 'الشخص 3', 'color': isDark ? AppTheme.warning : const Color(0xFFD97706), 'index': 2},
     ];
 
     return Column(
@@ -456,12 +499,20 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
           children: [
             Container(
               padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(color: AppTheme.success.withAlpha(20), borderRadius: BorderRadius.circular(8)),
-              child: const Icon(Icons.account_balance_wallet, color: AppTheme.success, size: 16),
+              decoration: BoxDecoration(
+                  color: isDark ? AppTheme.success.withAlpha(20) : const Color(0xFFDCFCE7),
+                  borderRadius: BorderRadius.circular(8)),
+              child: Icon(Icons.account_balance_wallet,
+                  color: isDark ? AppTheme.success : const Color(0xFF15803D),
+                  size: 16),
             ),
             const SizedBox(width: 8),
-            const Text('إجمالي الأرباح',
-                style: TextStyle(color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+            Text('إجمالي الأرباح',
+                style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo')),
           ],
         ),
         const SizedBox(height: 12),
@@ -472,6 +523,7 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   List<Widget> _person4GroupedCards() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final Map<String, double> p4EgpTotals = {};
 
     for (final s in _shipments) {
@@ -505,11 +557,20 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                 children: [
                   Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
                   const SizedBox(width: 8),
-                  Expanded(child: Text('الشخص 4 ($name)', maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+                  Expanded(
+                    child: Text('الشخص 4 ($name)',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            color: isDark ? color : const Color(0xFF0F172A),
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo')),
+                  ),
                 ],
               ),
               const SizedBox(height: 10),
-              _miniCardContent('مصري', 'EGP', egpTotal, AppTheme.success),
+              _miniCardContent('مصري', 'EGP', egpTotal, isDark ? AppTheme.success : const Color(0xFF15803D)),
             ],
           ),
         ),
@@ -518,6 +579,7 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   Widget _personProfitCards(String name, Color color, int personIndex) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     double egpTotal = 0;
 
     for (final s in _shipments) {
@@ -538,11 +600,20 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
               children: [
                 Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
                 const SizedBox(width: 8),
-                Expanded(child: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+                Expanded(
+                  child: Text(name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                          color: isDark ? color : const Color(0xFF0F172A),
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo')),
+                ),
               ],
             ),
             const SizedBox(height: 10),
-            _miniCardContent('مصري', 'EGP', egpTotal, AppTheme.success),
+            _miniCardContent('مصري', 'EGP', egpTotal, isDark ? AppTheme.success : const Color(0xFF15803D)),
           ],
         ),
       ),
@@ -551,19 +622,31 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
 
 
   Widget _miniCardContent(String label, String currency, double amount, Color color) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (amount == 0) {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
         decoration: BoxDecoration(
-          color: AppTheme.surface.withAlpha(80),
+          color: isDark ? AppTheme.surface.withAlpha(80) : const Color(0xFFF1F5F9),
           borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: isDark ? Colors.transparent : const Color(0xFFE2E8F0)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(label, style: TextStyle(fontSize: 9, fontFamily: 'Cairo', color: AppTheme.textSecondary.withAlpha(100))),
+            Text(label,
+                style: TextStyle(
+                    fontSize: 9,
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? AppTheme.textSecondary.withAlpha(100) : const Color(0xFF64748B))),
             const SizedBox(height: 2),
-            Text('$currency 0', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo', color: AppTheme.textSecondary.withAlpha(100))),
+            Text('$currency 0',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                    color: isDark ? AppTheme.textSecondary.withAlpha(100) : const Color(0xFF64748B))),
           ],
         ),
       );
@@ -573,19 +656,29 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
       decoration: BoxDecoration(
-        color: displayColor.withAlpha(20),
+        color: isDark ? displayColor.withAlpha(20) : displayColor.withAlpha(25),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: displayColor.withAlpha(50)),
+        border: Border.all(color: isDark ? displayColor.withAlpha(50) : displayColor.withAlpha(90)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: TextStyle(fontSize: 9, fontFamily: 'Cairo', color: displayColor.withAlpha(180))),
+          Text(label,
+              style: TextStyle(
+                  fontSize: 9,
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold,
+                  color: isDark ? displayColor.withAlpha(180) : displayColor)),
           const SizedBox(height: 2),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: AlignmentDirectional.centerStart,
-            child: Text('$currency ${_fmt(amount)}', style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo', color: displayColor)),
+            child: Text('$currency ${_fmt(amount)}',
+                style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                    color: displayColor)),
           ),
         ],
       ),
@@ -595,14 +688,19 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
 
 
   Widget _buildDistributionTable() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     if (_shipments.isEmpty) {
-      return const Center(
+      return Center(
         child: Column(
           children: [
-            SizedBox(height: 40),
-            Icon(Icons.inbox_outlined, color: AppTheme.textSecondary, size: 48),
-            SizedBox(height: 12),
-            Text('لا توجد شحنات', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+            const SizedBox(height: 40),
+            Icon(Icons.inbox_outlined, color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), size: 48),
+            const SizedBox(height: 12),
+            Text('لا توجد شحنات',
+                style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : const Color(0xFF0F172A),
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo')),
           ],
         ),
       );
@@ -615,12 +713,18 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
           children: [
             Container(
               padding: const EdgeInsets.all(6),
-              decoration: BoxDecoration(color: AppTheme.primary.withAlpha(20), borderRadius: BorderRadius.circular(8)),
+              decoration: BoxDecoration(
+                  color: isDark ? AppTheme.primary.withAlpha(20) : const Color(0xFFE0F2FE),
+                  borderRadius: BorderRadius.circular(8)),
               child: const Icon(Icons.table_rows, color: AppTheme.primary, size: 16),
             ),
             const SizedBox(width: 8),
-            const Text('توزيع الأرباح على الشحنات',
-                style: TextStyle(color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+            Text('توزيع الأرباح على الشحنات',
+                style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo')),
           ],
         ),
         const SizedBox(height: 12),
@@ -630,6 +734,7 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   Widget _shipmentCard(ExportShipmentModel s) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final profit = s.netProfitEgp;
     final isProfit = profit >= 0;
     final profitColor = isProfit ? AppTheme.success : AppTheme.danger;
@@ -642,7 +747,9 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
 
     final isDistributedLoc = _distributedShipments.contains(sid);
     final bool needsRedist = s.needsProfitRedistribution && isDistributedLoc;
-    final cardBorder = needsRedist ? Border.all(color: AppTheme.warning, width: 2) : null;
+    final cardBorder = needsRedist
+        ? Border.all(color: AppTheme.warning, width: 2)
+        : (isDark ? null : Border.all(color: const Color(0xFFE2E8F0)));
 
     return AppTheme.glassCardWidget(
       padding: const EdgeInsets.all(16),
@@ -660,14 +767,31 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                       Expanded(
                         child: UIUtils.shipmentNoText(
                           AppUtils.cleanShipmentNo(s.shipmentNo, s.id),
-                          style: const TextStyle(color: AppTheme.primary, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),textAlign: TextAlign.right,
+                          style: TextStyle(
+                              color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Cairo'),
+                          textAlign: TextAlign.right,
                         ),
                       ),
                       const SizedBox(width: 8),
                       Container(
                         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                        decoration: BoxDecoration(color: profitColor.withAlpha(20), borderRadius: BorderRadius.circular(8), border: Border.all(color: profitColor.withAlpha(50))),
-                        child: Text('EGP ${_fmt(profit)}', style: TextStyle(color: profitColor, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                        decoration: BoxDecoration(
+                            color: isDark ? profitColor.withAlpha(20) : profitColor.withAlpha(25),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: isDark ? profitColor.withAlpha(50) : profitColor.withAlpha(100))),
+                        child: Text('EGP ${_fmt(profit)}',
+                            style: TextStyle(
+                                color: isDark
+                                    ? profitColor
+                                    : (profitColor == AppTheme.success
+                                        ? const Color(0xFF15803D)
+                                        : const Color(0xFFDC2626)),
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                fontFamily: 'Cairo')),
                       ),
                       const SizedBox(width: 8),
                       //_viewJournalEntriesIcon(s),
@@ -677,8 +801,16 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                     const SizedBox(height: 6),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                      decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(8)),
-                      child: Text(_formatDate(s.shipmentDate), style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Ciro')),
+                      decoration: BoxDecoration(
+                          color: isDark ? AppTheme.surface : const Color(0xFFF1F5F9),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: isDark ? Colors.transparent : const Color(0xFFE2E8F0))),
+                      child: Text(_formatDate(s.shipmentDate),
+                          style: TextStyle(
+                              color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              fontFamily: 'Cairo')),
                     ),
                   ],
                 );
@@ -687,23 +819,47 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                 children: [
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(color: AppTheme.surface, borderRadius: BorderRadius.circular(8)),
-                    child: Text(_formatDate(s.shipmentDate), style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Ciro')),
+                    decoration: BoxDecoration(
+                        color: isDark ? AppTheme.surface : const Color(0xFFF1F5F9),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: isDark ? Colors.transparent : const Color(0xFFE2E8F0))),
+                    child: Text(_formatDate(s.shipmentDate),
+                        style: TextStyle(
+                            color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            fontFamily: 'Cairo')),
                   ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: UIUtils.shipmentNoText(
                       AppUtils.cleanShipmentNo(s.shipmentNo, s.id),
-                      style: const TextStyle(color: AppTheme.primary, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),textAlign: TextAlign.right,
+                      style: TextStyle(
+                          color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo'),
+                      textAlign: TextAlign.right,
                     ),
                   ),
                   const SizedBox(width: 10),
                   Container(
                     alignment: Alignment.centerRight,
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
-                    decoration: BoxDecoration(color: profitColor.withAlpha(20), borderRadius: BorderRadius.circular(8), border: Border.all(color: profitColor.withAlpha(50))),
-                    child: Text(
-                      'EGP ${_fmt(profit)}', style: TextStyle(color: profitColor, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo',)),
+                    decoration: BoxDecoration(
+                        color: isDark ? profitColor.withAlpha(20) : profitColor.withAlpha(25),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: isDark ? profitColor.withAlpha(50) : profitColor.withAlpha(100))),
+                    child: Text('EGP ${_fmt(profit)}',
+                        style: TextStyle(
+                            color: isDark
+                                ? profitColor
+                                : (profitColor == AppTheme.success
+                                    ? const Color(0xFF15803D)
+                                    : const Color(0xFFDC2626)),
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo')),
                   ),
                   const SizedBox(width: 10),
                 //  _viewJournalEntriesIcon(s),
@@ -714,7 +870,7 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
             },
           ),
           const SizedBox(height: 12),
-          const Divider(color: AppTheme.glassBorder, height: 1),
+          Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0), height: 1),
           const SizedBox(height: 12),
           LayoutBuilder(
             builder: (context, constraints) {
@@ -725,7 +881,7 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                     const SizedBox(height: 8),
                     _personCard(s, 1, profit, AppTheme.accent, _person2?.name ?? 'الشخص 2'),
                     const SizedBox(height: 8),
-                    _personCard(s, 2, profit, AppTheme.warning, _person3?.name ?? 'الشخص 3'),
+                    _personCard(s, 2, profit, isDark ? AppTheme.warning : const Color(0xFFD97706), _person3?.name ?? 'الشخص 3'),
                     const SizedBox(height: 8),
                     _person4Card(s, profit),
                   ],
@@ -737,7 +893,7 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                   const SizedBox(width: 8),
                   Expanded(child: _personCard(s, 1, profit, AppTheme.accent, _person2?.name ?? 'الشخص 2')),
                   const SizedBox(width: 8),
-                  Expanded(child: _personCard(s, 2, profit, AppTheme.warning, _person3?.name ?? 'الشخص 3')),
+                  Expanded(child: _personCard(s, 2, profit, isDark ? AppTheme.warning : const Color(0xFFD97706), _person3?.name ?? 'الشخص 3')),
                   const SizedBox(width: 8),
                   Expanded(child: _person4Card(s, profit)),
                 ],
@@ -748,7 +904,12 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
           Center(
             child: hasOverAllocated
                 ? const Text('تجاوز التخصيص 100%!', style: TextStyle(color: AppTheme.danger, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))
-                : Text('الإجمالي: ${totalPct.toStringAsFixed(1)}%', style: TextStyle(color: isValid ? AppTheme.success : AppTheme.danger, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                : Text('الإجمالي: ${totalPct.toStringAsFixed(1)}%',
+                    style: TextStyle(
+                        color: isValid ? (isDark ? AppTheme.success : const Color(0xFF15803D)) : AppTheme.danger,
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo')),
           ),
         ],
       ),
@@ -756,6 +917,7 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   Widget _personCard(ExportShipmentModel s, int personIndex, double profit, Color color, String name) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final sid = s.id ?? '';
     final ctrl = _getPctController(sid, personIndex);
     final share = _getPersonShare(profit, (ctrl.text.isNotEmpty ? double.tryParse(ctrl.text) ?? 0 : 0));
@@ -763,9 +925,9 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: color.withAlpha(10),
+        color: isDark ? color.withAlpha(10) : color.withAlpha(15),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: color.withAlpha(40)),
+        border: Border.all(color: isDark ? color.withAlpha(40) : color.withAlpha(70)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -774,7 +936,15 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
             children: [
               Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
               const SizedBox(width: 6),
-              Expanded(child: Text(name, style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), overflow: TextOverflow.ellipsis)),
+              Expanded(
+                child: Text(name,
+                    style: TextStyle(
+                        color: isDark ? color : (color == AppTheme.warning ? const Color(0xFFB45309) : color),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo'),
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -792,24 +962,43 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                 _saveSettings();
                 setState(() {});
               },
-              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, fontFamily: 'Cairo'),
+              style: TextStyle(
+                  color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo'),
               textAlign: TextAlign.center,
               decoration: InputDecoration(
                 suffixText: '%',
-                suffixStyle: TextStyle(color: color.withAlpha(150), fontSize: 11, fontFamily: 'Cairo'),
+                suffixStyle: TextStyle(
+                    color: isDark ? color.withAlpha(150) : (color == AppTheme.warning ? const Color(0xFFB45309) : color),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo'),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                 filled: true,
-                fillColor: AppTheme.background,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.glassBorder)),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.glassBorder)),
-                focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: color, width: 1.5)),
+                fillColor: isDark ? AppTheme.background : Colors.white,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: color, width: 1.5)),
                 isDense: true,
               ),
             ),
           ),
           const SizedBox(height: 6),
           Center(
-            child: Text('EGP ${_fmt(share)}', style: TextStyle(color: color, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+            child: Text('EGP ${_fmt(share)}',
+                style: TextStyle(
+                    color: isDark ? color : (color == AppTheme.warning ? const Color(0xFFB45309) : color),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo')),
           ),
         ],
       ),
@@ -817,6 +1006,7 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   Widget _person4Card(ExportShipmentModel s, double profit) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final sid = s.id ?? '';
     final currentP4Id = _person4ForShipment[sid];
     final autoPct4 = _getAutoPct4(sid);
@@ -829,9 +1019,9 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
     return Container(
       padding: const EdgeInsets.all(10),
       decoration: BoxDecoration(
-        color: AppTheme.success.withAlpha(10),
+        color: isDark ? AppTheme.success.withAlpha(10) : AppTheme.success.withAlpha(15),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.success.withAlpha(40)),
+        border: Border.all(color: isDark ? AppTheme.success.withAlpha(40) : AppTheme.success.withAlpha(70)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -840,7 +1030,15 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
             children: [
               Container(width: 8, height: 8, decoration: const BoxDecoration(color: AppTheme.success, shape: BoxShape.circle)),
               const SizedBox(width: 6),
-              Expanded(child: Text(p4Name, style: const TextStyle(color: AppTheme.success, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), overflow: TextOverflow.ellipsis)),
+              Expanded(
+                child: Text(p4Name,
+                    style: TextStyle(
+                        color: isDark ? AppTheme.success : const Color(0xFF15803D),
+                        fontSize: 12,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo'),
+                    overflow: TextOverflow.ellipsis),
+              ),
             ],
           ),
           const SizedBox(height: 8),
@@ -848,14 +1046,16 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
             height: 32,
             alignment: Alignment.center,
             decoration: BoxDecoration(
-              color: AppTheme.background,
+              color: isDark ? AppTheme.background : Colors.white,
               borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
             ),
             child: Text(
               autoPct4 > 0 ? '${autoPct4.toStringAsFixed(1)}%' : '—',
               style: TextStyle(
-                color: autoPct4 > 0 ? AppTheme.success : AppTheme.textSecondary,
+                color: autoPct4 > 0
+                    ? (isDark ? AppTheme.success : const Color(0xFF15803D))
+                    : (isDark ? AppTheme.textSecondary : const Color(0xFF64748B)),
                 fontSize: 13,
                 fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
@@ -870,25 +1070,49 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
               initialValue: _shareholders.any((sh) => sh.id == currentP4Id && sh.id != _person1?.id && sh.id != _person2?.id && sh.id != _person3?.id) ? currentP4Id : null,
               isExpanded: true,
               isDense: true,
-              dropdownColor: const Color(0xFF0D2137),
-              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 11),
+              dropdownColor: isDark ? const Color(0xFF0D2137) : Colors.white,
+              style: TextStyle(
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  fontFamily: 'Cairo',
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold),
               decoration: InputDecoration(
                 hintText: 'اختر شخص',
-                hintStyle: TextStyle(color: AppTheme.textSecondary.withAlpha(120), fontFamily: 'Cairo', fontSize: 11),
+                hintStyle: TextStyle(
+                    color: isDark ? AppTheme.textSecondary.withAlpha(120) : const Color(0xFF64748B),
+                    fontFamily: 'Cairo',
+                    fontSize: 11),
                 contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
                 filled: true,
-                fillColor: AppTheme.background,
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.glassBorder)),
-                enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.glassBorder)),
+                fillColor: isDark ? AppTheme.background : Colors.white,
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                 isDense: true,
               ),
               items: [
-                const DropdownMenuItem<String>(value: null, child: Text('—', style: TextStyle(fontFamily: 'Cairo', fontSize: 11))),
+                DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('—',
+                        style: TextStyle(
+                            color: isDark ? Colors.white : const Color(0xFF0F172A),
+                            fontFamily: 'Cairo',
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold))),
                 ..._shareholders.where((sh) =>
                   sh.id != _person1?.id && sh.id != _person2?.id && sh.id != _person3?.id
                 ).map((sh) => DropdownMenuItem<String>(
                   value: sh.id,
-                  child: Text(sh.name, style: const TextStyle(fontFamily: 'Cairo', fontSize: 11), overflow: TextOverflow.ellipsis),
+                  child: Text(sh.name,
+                      style: TextStyle(
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          fontFamily: 'Cairo',
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold),
+                      overflow: TextOverflow.ellipsis),
                 )),
               ],
               onChanged: (id) {
@@ -904,14 +1128,17 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
           ),
           const SizedBox(height: 6),
           Center(
-            child: Text('EGP ${_fmt(share)}', style: const TextStyle(color: AppTheme.success, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+            child: Text('EGP ${_fmt(share)}',
+                style: TextStyle(
+                    color: isDark ? AppTheme.success : const Color(0xFF15803D),
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo')),
           ),
         ],
       ),
     );
   }
-
-
 
   String _fmt(double v) => v.toStringAsFixed(2);
   String _formatDate(DateTime? d) {
@@ -920,17 +1147,18 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   Widget _viewJournalEntriesIcon(ExportShipmentModel s) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GestureDetector(
       onTap: () => _showJournalEntriesDialog(s.id?.toString() ?? '', s.shipmentNo),
       child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: AppTheme.info.withAlpha(20),
+          color: isDark ? AppTheme.info.withAlpha(20) : const Color(0xFFE0F2FE),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: const Icon(
+        child: Icon(
           Icons.account_balance,
-          color: AppTheme.info,
+          color: isDark ? AppTheme.info : const Color(0xFF0284C7),
           size: 18,
         ),
       ),
@@ -961,22 +1189,32 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   void _buildJournalEntriesDialog(List<Map<String, dynamic>> entries, String shipmentNo) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (context) {
         return Directionality(
           textDirection: TextDirection.rtl,
           child: AlertDialog(
-            backgroundColor: AppTheme.background,
+            backgroundColor: isDark ? AppTheme.background : Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(16),
+              side: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
+            ),
             title: Row(
               children: [
-                const Icon(Icons.account_balance, color: AppTheme.info),
+                Icon(Icons.account_balance, color: isDark ? AppTheme.info : const Color(0xFF0284C7)),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: Text('قيود الأرباح - شحنة $shipmentNo', style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Cairo', fontSize: 16, fontWeight: FontWeight.bold)),
+                  child: Text('قيود الأرباح - شحنة $shipmentNo',
+                      style: TextStyle(
+                          color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                          fontFamily: 'Cairo',
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold)),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close, color: AppTheme.textSecondary),
+                  icon: Icon(Icons.close, color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B)),
                   onPressed: () => Navigator.pop(context),
                 ),
               ],
@@ -985,20 +1223,28 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
               width: 800,
               height: 500,
               child: entries.isEmpty
-                  ? const Center(child: Text('لا توجد قيود أرباح مسجلة لهذه الشحنة.', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')))
+                  ? Center(
+                      child: Text('لا توجد قيود أرباح مسجلة لهذه الشحنة.',
+                          style: TextStyle(
+                              color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold)))
                   : ListView.separated(
                       itemCount: entries.length,
-                      separatorBuilder: (c, i) => const Divider(color: AppTheme.glassBorder, height: 24),
+                      separatorBuilder: (c, i) =>
+                          Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0), height: 24),
                       itemBuilder: (context, index) {
                         final entry = entries[index];
                         final isReversal = entry['source_type'] == 'profit_distribution_reversal';
-                        final color = isReversal ? AppTheme.warning : AppTheme.success;
+                        final color = isReversal
+                            ? (isDark ? AppTheme.warning : const Color(0xFFD97706))
+                            : (isDark ? AppTheme.success : const Color(0xFF15803D));
                         final lines = List<Map<String, dynamic>>.from(entry['lines'] ?? []);
                         return Container(
                           padding: const EdgeInsets.all(12),
                           decoration: BoxDecoration(
-                            color: color.withAlpha(10),
-                            border: Border.all(color: color.withAlpha(50)),
+                            color: isDark ? color.withAlpha(10) : color.withAlpha(15),
+                            border: Border.all(color: isDark ? color.withAlpha(50) : color.withAlpha(80)),
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Column(
@@ -1007,36 +1253,99 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
                               Row(
                                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                 children: [
-                                  Text(entry['entry_number']?.toString() ?? '—', style: const TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                                  Text(entry['entry_number']?.toString() ?? '—',
+                                      style: TextStyle(
+                                          color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo')),
                                   Container(
                                     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                    decoration: BoxDecoration(color: color.withAlpha(20), borderRadius: BorderRadius.circular(4)),
-                                    child: Text(isReversal ? 'قيد عكسي (تعديل)' : 'توزيع أرباح', style: TextStyle(color: color, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                                    decoration: BoxDecoration(
+                                        color: isDark ? color.withAlpha(20) : color.withAlpha(25),
+                                        borderRadius: BorderRadius.circular(4)),
+                                    child: Text(isReversal ? 'قيد عكسي (تعديل)' : 'توزيع أرباح',
+                                        style: TextStyle(
+                                            color: color,
+                                            fontSize: 12,
+                                            fontFamily: 'Cairo',
+                                            fontWeight: FontWeight.bold)),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 4),
-                              Text(entry['description']?.toString() ?? '', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                              Text(entry['description']?.toString() ?? '',
+                                  style: TextStyle(
+                                      color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                                      fontSize: 12,
+                                      fontFamily: 'Cairo')),
                               const SizedBox(height: 4),
-                              Text('تاريخ القيد: ${entry['transaction_date']?.toString().split('T').first ?? ''}', style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                              Text('تاريخ القيد: ${entry['transaction_date']?.toString().split('T').first ?? ''}',
+                                  style: TextStyle(
+                                      color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                                      fontSize: 12,
+                                      fontFamily: 'Cairo')),
                               const SizedBox(height: 12),
-                              const Row(
+                              Row(
                                 children: [
-                                  Expanded(flex: 2, child: Text('الحساب', style: TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-                                  Expanded(flex: 1, child: Text('مدين', style: TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-                                  Expanded(flex: 1, child: Text('دائن', style: TextStyle(color: AppTheme.primary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+                                  Expanded(
+                                      flex: 2,
+                                      child: Text('الحساب',
+                                          style: TextStyle(
+                                              color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo'))),
+                                  Expanded(
+                                      flex: 1,
+                                      child: Text('مدين',
+                                          style: TextStyle(
+                                              color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo'))),
+                                  Expanded(
+                                      flex: 1,
+                                      child: Text('دائن',
+                                          style: TextStyle(
+                                              color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo'))),
                                 ],
                               ),
-                              const Divider(color: AppTheme.glassBorder, height: 8),
-                                  ...lines.map((l) {
+                              Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0), height: 8),
+                              ...lines.map((l) {
                                 final isDebit = ((l['debit'] as num?)?.toDouble() ?? 0) > 0;
                                 return Padding(
                                   padding: const EdgeInsets.symmetric(vertical: 4),
                                   child: Row(
                                     children: [
-                                      Expanded(flex: 2, child: Text('${l['account_code']} - ${l['account_name']}', style: TextStyle(color: isDebit ? AppTheme.warning : AppTheme.success, fontSize: 12, fontFamily: 'Cairo'))),
-                                      Expanded(flex: 1, child: Text(l['debit']?.toString() ?? '0', style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12, fontFamily: 'Cairo'))),
-                                      Expanded(flex: 1, child: Text(l['credit']?.toString() ?? '0', style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12, fontFamily: 'Cairo'))),
+                                      Expanded(
+                                          flex: 2,
+                                          child: Text('${l['account_code']} - ${l['account_name']}',
+                                              style: TextStyle(
+                                                  color: isDebit
+                                                      ? (isDark ? AppTheme.warning : const Color(0xFFB45309))
+                                                      : (isDark ? AppTheme.success : const Color(0xFF15803D)),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.w600,
+                                                  fontFamily: 'Cairo'))),
+                                      Expanded(
+                                          flex: 1,
+                                          child: Text(l['debit']?.toString() ?? '0',
+                                              style: TextStyle(
+                                                  color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFamily: 'Cairo'))),
+                                      Expanded(
+                                          flex: 1,
+                                          child: Text(l['credit']?.toString() ?? '0',
+                                              style: TextStyle(
+                                                  color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFamily: 'Cairo'))),
                                     ],
                                   ),
                                 );
@@ -1054,23 +1363,31 @@ class _ProfitDistributionPageState extends State<ProfitDistributionPage> {
   }
 
   Widget _distributeIcon(ExportShipmentModel s) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final sid = s.id ?? '';
     final isDistributed = _distributedShipments.contains(sid);
     final needsRedist = s.needsProfitRedistribution && isDistributed;
     final bool canDistribute = !isDistributed || needsRedist;
 
-    
     return GestureDetector(
       onTap: canDistribute ? () => _distributeShipment(s) : null,
       child: Container(
         padding: const EdgeInsets.all(6),
         decoration: BoxDecoration(
-          color: canDistribute ? AppTheme.primary.withAlpha(20) : AppTheme.success.withAlpha(20),
+          color: canDistribute
+              ? (isDark ? AppTheme.primary.withAlpha(20) : const Color(0xFFE0F2FE))
+              : (isDark ? AppTheme.success.withAlpha(20) : const Color(0xFFDCFCE7)),
           borderRadius: BorderRadius.circular(8),
         ),
         child: Icon(
-          canDistribute ? (needsRedist ? Icons.refresh_rounded : Icons.send_rounded) : Icons.check_circle_rounded,
-          color: canDistribute ? (needsRedist ? AppTheme.warning : AppTheme.primary) : AppTheme.success,
+          canDistribute
+              ? (needsRedist ? Icons.refresh_rounded : Icons.send_rounded)
+              : Icons.check_circle_rounded,
+          color: canDistribute
+              ? (needsRedist
+                  ? (isDark ? AppTheme.warning : const Color(0xFFD97706))
+                  : (isDark ? AppTheme.primary : const Color(0xFF0284C7)))
+              : (isDark ? AppTheme.success : const Color(0xFF15803D)),
           size: 18,
         ),
       ),

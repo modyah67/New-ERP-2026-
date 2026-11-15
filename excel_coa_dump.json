@@ -1,0 +1,1982 @@
+{
+  "الأصول": [
+    {
+      "row": 1,
+      "vals": [
+        null,
+        "المستوي الأول",
+        null,
+        null,
+        "المستوي الثاني",
+        null,
+        null,
+        "المستوي الثالث",
+        null,
+        null,
+        "المستوي الرابع",
+        null
+      ]
+    },
+    {
+      "row": 4,
+      "vals": [
+        1,
+        "الأصـــــــول",
+        null,
+        1,
+        "أصـــــول طويله الأجل",
+        null,
+        1,
+        "أصـــــول ثابته",
+        null,
+        1,
+        "أصول ثابته أراضي",
+        1111
+      ]
+    },
+    {
+      "row": 5,
+      "vals": [
+        null,
+        null,
+        null,
+        ".",
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "أصول ثابته مباني",
+        1112
+      ]
+    },
+    {
+      "row": 6,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "أصول ثابته أثاث ومعدات مكتبيه",
+        1113
+      ]
+    },
+    {
+      "row": 7,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "أصول ثابته اجهزه كمبيوتر",
+        1114
+      ]
+    },
+    {
+      "row": 8,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "أصول ثابته سيارات ملاكى ",
+        1115
+      ]
+    },
+    {
+      "row": 9,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        6,
+        "أصول ثابته وسائل نقل المحاصيل ",
+        1116
+      ]
+    },
+    {
+      "row": 11,
+      "vals": [
+        null,
+        null,
+        null,
+        2,
+        "أصـــــول متـــــــداوله",
+        null,
+        1,
+        "النقديه بالبنوك",
+        null,
+        1,
+        "البنك التجارى الدولى CIB - مصرى ",
+        1211
+      ]
+    },
+    {
+      "row": 12,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "البنك التجارى الدولى CIB - يورو ",
+        1212
+      ]
+    },
+    {
+      "row": 13,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "البنك التجارى الدولى CIB - دولار ",
+        1213
+      ]
+    },
+    {
+      "row": 14,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "البنك التجارى الدولى CIB - استرلينى ",
+        1214
+      ]
+    },
+    {
+      "row": 16,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "النقديه بالصندوق",
+        null,
+        1,
+        "خزينه الايرادات",
+        1221
+      ]
+    },
+    {
+      "row": 17,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "خزينه المصروفاات",
+        1222
+      ]
+    },
+    {
+      "row": 18,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "خزينه اوراق القبض",
+        1223
+      ]
+    },
+    {
+      "row": 20,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "النقديه بالطريق",
+        null,
+        1,
+        "تحويلات نقديه",
+        1231
+      ]
+    },
+    {
+      "row": 21,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "تحويلات شيكات ",
+        1232
+      ]
+    },
+    {
+      "row": 22,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "تحويلات بنكيه عملات - خارجيه ",
+        1233
+      ]
+    },
+    {
+      "row": 24,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "المخـــــــــــزون",
+        null,
+        1,
+        "مخزن التعبئه والتغليف",
+        1241
+      ]
+    },
+    {
+      "row": 25,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مخزن مشتريات خام ",
+        1242
+      ]
+    },
+    {
+      "row": 27,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "العملاء ",
+        null,
+        1,
+        "عملاء  تصدير ",
+        1251
+      ]
+    },
+    {
+      "row": 28,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "عملاء  محلى ",
+        1252
+      ]
+    },
+    {
+      "row": 30,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        6,
+        "أرصده مدينه أخري",
+        null,
+        1,
+        "سلف نقديه",
+        1261
+      ]
+    },
+    {
+      "row": 31,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "عهد نقديه مؤقته",
+        1262
+      ]
+    },
+    {
+      "row": 32,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "عهد نقديه مستديمه",
+        1263
+      ]
+    },
+    {
+      "row": 33,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "جاري مصلحه الضرائب - خصم منبع",
+        1264
+      ]
+    },
+    {
+      "row": 34,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        6,
+        "ارصده مدينه اخرى - مكتب المحاسب القانونى ",
+        1265
+      ]
+    }
+  ],
+  "الخصوم": [
+    {
+      "row": 1,
+      "vals": [
+        null,
+        "المستوي الأول",
+        null,
+        null,
+        "المستوي الثاني",
+        null,
+        null,
+        "المستوي الثالث",
+        null,
+        null,
+        "المستوي الرابع",
+        null
+      ]
+    },
+    {
+      "row": 4,
+      "vals": [
+        2,
+        "الخصوم",
+        null,
+        1,
+        "الخصوم المتداوله",
+        null,
+        1,
+        "الموردين",
+        null,
+        1,
+        "موردين  نقل ",
+        2111
+      ]
+    },
+    {
+      "row": 5,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "موردين  مواد تعبئه ",
+        2112
+      ]
+    },
+    {
+      "row": 6,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "موردين مشتريات محاصيل",
+        2113
+      ]
+    },
+    {
+      "row": 7,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "موردين محطات تعبئه ",
+        2114
+      ]
+    },
+    {
+      "row": 8,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "موردين شركات الشحن ",
+        2115
+      ]
+    },
+    {
+      "row": 10,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "اوراق الدفع",
+        null,
+        1,
+        "اوراق دفع البنك التجارى الدولى CIB",
+        2121
+      ]
+    },
+    {
+      "row": 12,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "التزامات لجهات حكوميه",
+        null,
+        1,
+        "ضريبه كسب العمل",
+        2131
+      ]
+    },
+    {
+      "row": 13,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "ضريبه الخصم من الغير - الخصم والاضافه",
+        2132
+      ]
+    },
+    {
+      "row": 14,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "ضريبه القيمه المضافه - المبيعات",
+        2133
+      ]
+    },
+    {
+      "row": 15,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "ضريبه الدخل",
+        2134
+      ]
+    },
+    {
+      "row": 16,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "ضريبه الدمغه ",
+        2135
+      ]
+    },
+    {
+      "row": 17,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        6,
+        "ضريبه سنوات سابقه ",
+        2136
+      ]
+    },
+    {
+      "row": 18,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        7,
+        "هيئه التامينات الإجتماعيه",
+        2137
+      ]
+    },
+    {
+      "row": 19,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        8,
+        "مكتب العمل ",
+        2138
+      ]
+    },
+    {
+      "row": 21,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "أرصده دائنه آخري",
+        null,
+        1,
+        "مصروفات مستحقه ",
+        2141
+      ]
+    },
+    {
+      "row": 22,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "تأمينات لصالح الغير",
+        2142
+      ]
+    },
+    {
+      "row": 24,
+      "vals": [
+        null,
+        null,
+        null,
+        2,
+        "الإلتزامات طويله الأجل",
+        null,
+        1,
+        "التزمات طويله الأجل ضرائب",
+        null,
+        1,
+        "ضرائب مؤجله",
+        2211
+      ]
+    },
+    {
+      "row": 26,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مجمع الإهلاك",
+        null,
+        1,
+        "مجمع اهلاك أصول ثابته اراضى ",
+        2221
+      ]
+    },
+    {
+      "row": 27,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مجمع اهلاك أصول ثابته مبانى  ",
+        2222
+      ]
+    },
+    {
+      "row": 28,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "مجمع اهلاك أصول ثابته أثاث ومعدات مكتبيه",
+        2223
+      ]
+    },
+    {
+      "row": 29,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "مجمع اهلاك أصول ثابته اجهزه كمبيوتر",
+        2224
+      ]
+    },
+    {
+      "row": 30,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "مجمع اهلاك أصول ثابته سيارات ملاكى",
+        2225
+      ]
+    },
+    {
+      "row": 31,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        6,
+        "مجمع اهلاك أصول ثابته وسائل نقل المحاصيل",
+        2226
+      ]
+    },
+    {
+      "row": 33,
+      "vals": [
+        null,
+        null,
+        null,
+        3,
+        "راس المال وحقوق الملكيه ",
+        null,
+        1,
+        "رأس المال",
+        null,
+        1,
+        "رأس المال المصدر",
+        2311
+      ]
+    },
+    {
+      "row": 34,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "زياده راس المال ",
+        2312
+      ]
+    },
+    {
+      "row": 36,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "جارى مساهمين ",
+        null,
+        1,
+        "جارى أ / عماد",
+        2321
+      ]
+    },
+    {
+      "row": 37,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "جارى أ / عبد الباطن ",
+        2322
+      ]
+    },
+    {
+      "row": 38,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "جارى أ / اسلام ",
+        2323
+      ]
+    },
+    {
+      "row": 41,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "إحتياطي قانوني",
+        null,
+        1,
+        "إحتياطي قانوني",
+        2331
+      ]
+    },
+    {
+      "row": 43,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "أرباح \\ خسائر مرحله",
+        null,
+        1,
+        "أرباح \\ خسائر مرحله",
+        2341
+      ]
+    },
+    {
+      "row": 45,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "أرباح \\ خسائر العام الحالي",
+        null,
+        1,
+        "أرباح \\ خسائر العام الحالي",
+        2351
+      ]
+    }
+  ],
+  "المصروفات": [
+    {
+      "row": 1,
+      "vals": [
+        null,
+        "المستوي الأول",
+        null,
+        null,
+        "المستوي الثاني",
+        null,
+        null,
+        "المستوي الثالث",
+        null,
+        null,
+        "المستوي الرابع",
+        null
+      ]
+    },
+    {
+      "row": 4,
+      "vals": [
+        3,
+        "التكـــــــــــــــاليـــــــف",
+        null,
+        1,
+        "تكاليف نقديه",
+        null,
+        1,
+        "مرتبات ومافي حكمها",
+        null,
+        1,
+        "مصروفات مرتبات",
+        3111
+      ]
+    },
+    {
+      "row": 5,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مصروفات تامينات اجتماعيه",
+        3112
+      ]
+    },
+    {
+      "row": 6,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "مصروفات بدلات اخري - ثابته ",
+        3113
+      ]
+    },
+    {
+      "row": 7,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "مصروفات بدلات اخري - متغيره",
+        3114
+      ]
+    },
+    {
+      "row": 8,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "مصروفات مكافات وحوافز",
+        3115
+      ]
+    },
+    {
+      "row": 9,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        6,
+        "مصروفات مكافاه نهايه الخدمه",
+        3116
+      ]
+    },
+    {
+      "row": 10,
+      "vals": [
+        null,
+        " ",
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null
+      ]
+    },
+    {
+      "row": 12,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مصروفات عاملين اخرى ",
+        null,
+        1,
+        "مصروفات سفر للخارج -  بدلات سفر",
+        3121
+      ]
+    },
+    {
+      "row": 13,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مصروفات علاج العاملين",
+        3122
+      ]
+    },
+    {
+      "row": 14,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "مصروفات انتقالات",
+        3123
+      ]
+    },
+    {
+      "row": 16,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "مصروفات تشغيل وبيع وتسويق",
+        null,
+        1,
+        "مصروفات صيانه وتشغيل سيارات ",
+        3131
+      ]
+    },
+    {
+      "row": 17,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مصروفات الدعايه والإعلان",
+        3132
+      ]
+    },
+    {
+      "row": 18,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "مصروفات المعارض",
+        3133
+      ]
+    },
+    {
+      "row": 19,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "مصروفات طباعه كتالوجات ",
+        3134
+      ]
+    },
+    {
+      "row": 21,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "مصروفات إداريه",
+        null,
+        1,
+        "مصروفات  النظافه والبوفيه ",
+        3141
+      ]
+    },
+    {
+      "row": 22,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مصروفات فواتير الكهرباء والمياه والغاز الطبيعي",
+        3142
+      ]
+    },
+    {
+      "row": 23,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "مصروفات الضيافه",
+        3143
+      ]
+    },
+    {
+      "row": 24,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "مصروفات اداوات كتابيه وماكينات التصوير وفاكس",
+        3144
+      ]
+    },
+    {
+      "row": 25,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "مصروفات الكمبيوتر والانترنت وتليفون ارضى",
+        3145
+      ]
+    },
+    {
+      "row": 26,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        6,
+        "مصروفات الإكراميات",
+        3146
+      ]
+    },
+    {
+      "row": 27,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        7,
+        "مصروفات الهدايا",
+        3147
+      ]
+    },
+    {
+      "row": 28,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        8,
+        "مصروفات الصيانه العامه ",
+        3148
+      ]
+    },
+    {
+      "row": 29,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        9,
+        "مصروفات ايجار عقارات",
+        3149
+      ]
+    },
+    {
+      "row": 31,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "مصروفات اداريه اخرى ",
+        null,
+        1,
+        "مصروفات فوائد بنكيه",
+        3151
+      ]
+    },
+    {
+      "row": 32,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مصروفات بنكيه",
+        3152
+      ]
+    },
+    {
+      "row": 33,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "فروق فحص ضريبي",
+        3153
+      ]
+    },
+    {
+      "row": 34,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "مصروفات سنوات سابقه ",
+        3154
+      ]
+    },
+    {
+      "row": 35,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        6,
+        "مصروفات أتعاب استشاريه",
+        3155
+      ]
+    },
+    {
+      "row": 36,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        7,
+        "مصروفات أتعاب مكتب المراجعه",
+        3156
+      ]
+    },
+    {
+      "row": 37,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        8,
+        "مصروفات رسوم واشتراكات وتراخيص",
+        3157
+      ]
+    },
+    {
+      "row": 38,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        9,
+        "مصروفات شحن مستندات ",
+        3158
+      ]
+    },
+    {
+      "row": 40,
+      "vals": [
+        null,
+        null,
+        null,
+        2,
+        "تكاليف محاسبيه",
+        null,
+        1,
+        "إهلاك أصول ثابته",
+        null,
+        1,
+        "إهلاك أصول ثابته أراضي",
+        3211
+      ]
+    },
+    {
+      "row": 41,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "إهلاك أصول ثابته مباني",
+        3212
+      ]
+    },
+    {
+      "row": 42,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "إهلاك أصول ثابته أثاث ومعدات مكتبيه",
+        3213
+      ]
+    },
+    {
+      "row": 43,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "إهلاك أصول ثابته اجهزه كمبيوتر",
+        3214
+      ]
+    },
+    {
+      "row": 44,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "إهلاك أصول ثابته سيارات ملاكى ",
+        3215
+      ]
+    },
+    {
+      "row": 45,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        6,
+        "إهلاك أصول ثابته وسائل نقل المحاصيل",
+        3216
+      ]
+    },
+    {
+      "row": 47,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مصروفات محاسبيه اخري",
+        null,
+        1,
+        "مصروف فروق تقويم عمله",
+        3221
+      ]
+    },
+    {
+      "row": 49,
+      "vals": [
+        null,
+        null,
+        null,
+        3,
+        "تكاليف مخزنيه",
+        null,
+        1,
+        "تكاليف مخزنيه ",
+        null,
+        1,
+        "مصروفات مخزنية تعبئة وتغليف",
+        3311
+      ]
+    },
+    {
+      "row": 52,
+      "vals": [
+        null,
+        null,
+        null,
+        4,
+        "تكاليف المبيعات ",
+        null,
+        1,
+        "تكاليف المبيعات ",
+        null,
+        1,
+        "تكاليف مشتريات خام   - تكلفه بيع ",
+        3411
+      ]
+    },
+    {
+      "row": 53,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مصروفات اكراميات - تكلفه بيع ",
+        3412
+      ]
+    },
+    {
+      "row": 54,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "مصروفات عماله  - تكلفه بيع ",
+        3413
+      ]
+    },
+    {
+      "row": 55,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "مصروفات نقل ومشال - تكلفه بيع ",
+        3414
+      ]
+    },
+    {
+      "row": 56,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        5,
+        "مصروفات رويالتى  - تكلفه بيع ",
+        3415
+      ]
+    },
+    {
+      "row": 57,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        6,
+        "مصروفات ايجار برادات - تكلفه بيع ",
+        3416
+      ]
+    },
+    {
+      "row": 58,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        7,
+        "مصروفات تخليص - تكلفه بيع ",
+        3417
+      ]
+    },
+    {
+      "row": 59,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        8,
+        "مصروفات شحن ( نولون ) - تكلفه بيع ",
+        3418
+      ]
+    },
+    {
+      "row": 60,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        9,
+        "مصروفات تحاليل عينات - تكلفه بيع ",
+        3419
+      ]
+    }
+  ],
+  "الإيرادات": [
+    {
+      "row": 1,
+      "vals": [
+        null,
+        "المستوي الأول",
+        null,
+        null,
+        "المستوي الثانى",
+        null,
+        null,
+        "المستوي الثالث",
+        null,
+        null,
+        "المستوي الرابع",
+        null
+      ]
+    },
+    {
+      "row": 4,
+      "vals": [
+        4,
+        "الإيرادات",
+        null,
+        1,
+        "إيرادات النشاط",
+        null,
+        1,
+        "مبيعات تصدير  ",
+        null,
+        1,
+        "مبيعات فراوله ",
+        4111
+      ]
+    },
+    {
+      "row": 5,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مبيعات مانجو ",
+        4112
+      ]
+    },
+    {
+      "row": 6,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "مبيعات بلح ",
+        4113
+      ]
+    },
+    {
+      "row": 7,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        4,
+        "مبيعات بلوبيرى",
+        4114
+      ]
+    },
+    {
+      "row": 11,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "مبيعات محلى اخرى  ",
+        null,
+        1,
+        "مبيعات فرزه محلى ",
+        4121
+      ]
+    },
+    {
+      "row": 14,
+      "vals": [
+        null,
+        null,
+        null,
+        2,
+        "إيرادات اخري",
+        null,
+        1,
+        "فوائد دائنه",
+        null,
+        1,
+        "فوائد دائنه - بنك التجارى الدولى CIB ",
+        4211
+      ]
+    },
+    {
+      "row": 17,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        2,
+        "عمولات",
+        null,
+        1,
+        "عمولات",
+        4221
+      ]
+    },
+    {
+      "row": 19,
+      "vals": [
+        null,
+        null,
+        null,
+        null,
+        null,
+        null,
+        3,
+        "ارباح فروق عمله ",
+        null,
+        1,
+        "ارباح فروق عمله محققه ",
+        4231
+      ]
+    }
+  ]
+}

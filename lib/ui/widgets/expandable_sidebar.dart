@@ -102,15 +102,21 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
   }
 
   Widget _buildSidebarPanel() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isCollapsed = widget.collapsed;
     final w = isCollapsed ? 80.0 : 280.0;
     final glass = widget.isGlass;
 
     Widget panel = Container(
       decoration: BoxDecoration(
-        color: glass ? _glassBg : const Color(0xFF041E42),
-        border: const Border(
-          left: BorderSide(color: _glassBorder, width: 1),
+        color: glass
+            ? (isDark ? _glassBg : Colors.white.withValues(alpha: 0.85))
+            : (isDark ? const Color(0xFF041E42) : Colors.white),
+        border: Border(
+          left: BorderSide(
+            color: isDark ? _glassBorder : const Color(0xFFE2E8F0),
+            width: 1,
+          ),
         ),
       ),
       child: Column(
@@ -165,7 +171,10 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
             ),
           ),
           if (widget.userSection != null) ...[
-            Divider(color: Colors.white.withAlpha(20), height: 1),
+            Divider(
+              color: isDark ? Colors.white.withAlpha(20) : const Color(0xFFE2E8F0),
+              height: 1,
+            ),
             widget.userSection!,
           ],
         ],
@@ -189,7 +198,63 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
     );
   }
 
+  Widget _buildToggleButton({
+    required IconData icon,
+    required String tooltip,
+    required VoidCallback? onPressed,
+    required bool isDark,
+    double size = 22,
+  }) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onPressed,
+          hoverColor: isDark
+              ? Colors.white.withAlpha(20)
+              : Colors.black.withAlpha(15),
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: isDark
+                  ? Colors.white.withAlpha(15)
+                  : const Color(0xFFF1F5F9),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withAlpha(35)
+                    : const Color(0xFF0F172A),
+                width: 1.5,
+              ),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(15),
+                        blurRadius: 4,
+                        offset: const Offset(0, 1),
+                      ),
+                    ],
+            ),
+            child: Center(
+              child: Icon(
+                icon,
+                color: isDark ? Colors.white : Colors.black,
+                size: size,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _buildHeader(bool isCollapsed) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     if (widget.isDrawer) {
       return Container(
         padding: const EdgeInsets.fromLTRB(16, 20, 16, 12),
@@ -222,20 +287,24 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
                     Text(
                       widget.headerSubtitle!,
                       style: TextStyle(
-                        color: Colors.white.withAlpha(120),
+                        color: isDark
+                            ? Colors.white.withAlpha(120)
+                            : const Color(0xFF64748B),
                         fontSize: 11,
                         fontFamily: 'Cairo',
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ],
                 ],
               ),
             ),
-            IconButton(
-              icon: const Icon(Icons.close,
-                  color: Colors.white70, size: 22),
+            _buildToggleButton(
+              icon: Icons.close_rounded,
               tooltip: 'إغلاق القائمة',
               onPressed: widget.onToggleCollapse ?? () => Navigator.of(context).pop(),
+              isDark: isDark,
+              size: 20,
             ),
           ],
         ),
@@ -261,11 +330,11 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
                       child: const Icon(Icons.spa, color: _cyan, size: 22),
                     ),
                 const SizedBox(height: 12),
-                IconButton(
-                  icon: const Icon(Icons.chevron_left,
-                      color: Colors.white70, size: 20),
+                _buildToggleButton(
+                  icon: Icons.chevron_left_rounded,
                   tooltip: 'توسيع القائمة',
                   onPressed: widget.onToggleCollapse,
+                  isDark: isDark,
                 ),
               ],
             )
@@ -298,20 +367,23 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
                         Text(
                           widget.headerSubtitle!,
                           style: TextStyle(
-                            color: Colors.white.withAlpha(120),
+                            color: isDark
+                                ? Colors.white.withAlpha(120)
+                                : const Color(0xFF64748B),
                             fontSize: 11,
                             fontFamily: 'Cairo',
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ],
                     ],
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.chevron_right,
-                      color: Colors.white70, size: 20),
+                _buildToggleButton(
+                  icon: Icons.chevron_right_rounded,
                   tooltip: 'طي القائمة',
                   onPressed: widget.onToggleCollapse,
+                  isDark: isDark,
                 ),
               ],
             ),
@@ -342,7 +414,9 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
   }
 
   Widget _buildGroupTile(SidebarNavItem item, bool isCollapsed, bool isExpanded) {
-    final iconWidget = Icon(item.icon, size: 22, color: _cyan);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final activeColor = isDark ? _cyan : const Color(0xFF0284C7);
+    final iconWidget = Icon(item.icon, size: 22, color: activeColor);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 3),
@@ -364,7 +438,7 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
                 _toggleGroup(item.label);
               }
             },
-            hoverColor: Colors.white.withAlpha(10),
+            hoverColor: isDark ? Colors.white.withAlpha(10) : const Color(0x0A0F172A),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: isCollapsed ? 64 : null,
@@ -373,7 +447,7 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
                   : const EdgeInsets.fromLTRB(14, 13, 16, 13),
               decoration: BoxDecoration(
                 color: isExpanded && !isCollapsed
-                    ? Colors.white.withAlpha(8)
+                    ? (isDark ? Colors.white.withAlpha(8) : const Color(0x0A0F172A))
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(12),
               ),
@@ -392,7 +466,7 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
                         ),
                         Icon(
                           isExpanded ? Icons.keyboard_arrow_up : Icons.keyboard_arrow_down,
-                          color: Colors.white70,
+                          color: isDark ? Colors.white70 : const Color(0xFF64748B),
                           size: 18,
                         ),
                       ],
@@ -405,8 +479,10 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
   }
 
   Widget _buildNavTile(SidebarNavItem item, bool isCollapsed, {bool isSubItem = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isSelected = widget.currentRoute == item.routePath;
-    final iconWidget = Icon(item.icon, size: isSubItem ? 18 : 22, color: _cyan);
+    final activeColor = isDark ? _cyan : const Color(0xFF0284C7);
+    final iconWidget = Icon(item.icon, size: isSubItem ? 18 : 22, color: activeColor);
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 3),
@@ -426,7 +502,7 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
                 context.go(item.routePath!);
               }
             },
-            hoverColor: Colors.white.withAlpha(10),
+            hoverColor: isDark ? Colors.white.withAlpha(10) : const Color(0x0A0F172A),
             child: AnimatedContainer(
               duration: const Duration(milliseconds: 200),
               width: isCollapsed ? 64 : null,
@@ -435,12 +511,12 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
                   : EdgeInsets.fromLTRB(14, isSubItem ? 10 : 13, 16, isSubItem ? 10 : 13),
               decoration: BoxDecoration(
                 color: isSelected
-                    ? Colors.white.withAlpha(12)
+                    ? (isDark ? Colors.white.withAlpha(12) : const Color(0xFF0284C7).withValues(alpha: 0.10))
                     : Colors.transparent,
                 borderRadius: BorderRadius.circular(12),
                 border: isSelected
-                    ? const Border(
-                        right: BorderSide(color: _cyan, width: 3),
+                    ? Border(
+                        right: BorderSide(color: activeColor, width: 3),
                       )
                     : null,
               ),
@@ -486,26 +562,29 @@ class _ExpandableSidebarState extends State<ExpandableSidebar> {
     );
   }
 
-  static Widget _shadowText(
+  Widget _shadowText(
     String text, {
     double fontSize = 13,
     FontWeight fontWeight = FontWeight.w600,
     int maxLines = 1,
     TextAlign textAlign = TextAlign.start,
   }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Text(
       text,
       maxLines: maxLines,
       overflow: TextOverflow.ellipsis,
       textAlign: textAlign,
       style: TextStyle(
-        color: Colors.white,
+        color: isDark ? Colors.white : const Color(0xFF0F172A),
         fontSize: fontSize,
         fontWeight: fontWeight,
         fontFamily: 'Cairo',
-        shadows: const [
-          Shadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 1)),
-        ],
+        shadows: isDark
+            ? const [
+                Shadow(color: Colors.black45, blurRadius: 4, offset: Offset(0, 1)),
+              ]
+            : null,
       ),
     );
   }

@@ -6,9 +6,12 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme.dart';
 import '../../core/constants.dart';
 import '../../core/services/tenant_service.dart';
+import '../../core/services/account_status_service.dart';
 import '../../features/auth/auth_cubit.dart';
 import '../../features/dashboard/dashboard_cubit.dart';
 import '../../ui/widgets/expandable_sidebar.dart';
+import '../widgets/theme_switcher_button.dart';
+import '../widgets/safe_image.dart';
 import 'home_page.dart';
 
 class ShellPage extends StatefulWidget {
@@ -30,16 +33,23 @@ class _ShellPageState extends State<ShellPage> {
   void initState() {
     super.initState();
     _startTimer();
+    // Start periodic background sync with Admin Supabase (every 15s)
+    TenantService().startPeriodicSync(const Duration(seconds: 15));
     // Listen for real-time status changes from Admin Supabase
-    TenantService().onStatusChanged = () {
-      if (mounted) setState(() {});
-    };
+    TenantService().onStatusChanged = _handleStatusChange;
+    AccountStatusService().statusNotifier.addListener(_handleStatusChange);
+  }
+
+  void _handleStatusChange() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
     _timer?.cancel();
+    TenantService().stopPeriodicSync();
     TenantService().onStatusChanged = null;
+    AccountStatusService().statusNotifier.removeListener(_handleStatusChange);
     super.dispose();
   }
 
@@ -80,6 +90,18 @@ class _ShellPageState extends State<ShellPage> {
                   label: 'الموردون',
                   routePath: '/suppliers'),
               _NavItem(
+                  icon: Icons.local_shipping,
+                  label: 'موردين النقل',
+                  routePath: '/transport-suppliers'),
+              _NavItem(
+                  icon: Icons.factory_outlined,
+                  label: 'موردين المحطات',
+                  routePath: '/station-suppliers'),
+              _NavItem(
+                  icon: Icons.assignment_outlined,
+                  label: 'موردين التخصيمات',
+                  routePath: '/deductions-suppliers'),
+              _NavItem(
                   icon: Icons.local_shipping_outlined,
                   label: 'المخلصين',
                   routePath: '/clearing-agents'),
@@ -104,6 +126,10 @@ class _ShellPageState extends State<ShellPage> {
                   icon: Icons.receipt_long_outlined,
                   label: 'كشف حساب الموردين',
                   routePath: '/supplier-statement-page'),
+              _NavItem(
+                  icon: Icons.receipt_long_outlined,
+                  label: 'كشف حساب موردين النقل',
+                  routePath: '/transport-supplier-statement'),
               _NavItem(
                   icon: Icons.receipt_long_outlined,
                   label: 'كشف حساب المخلص',
@@ -206,10 +232,10 @@ class _ShellPageState extends State<ShellPage> {
                   icon: Icons.checklist_outlined,
                   label: 'التعبئة',
                   routePath: '/packing'),
-              _NavItem(
+              /*_NavItem(
                   icon: Icons.delete_sweep_outlined,
                   label: 'هالك التعبئة',
-                  routePath: '/packing/waste'),
+                  routePath: '/packing/waste'),*/
               _NavItem(
                   icon: Icons.sort_outlined,
                   label: 'الفرز',
@@ -241,7 +267,7 @@ class _ShellPageState extends State<ShellPage> {
                   routePath: '/exports/profit-distribution'),
               _NavItem(
                   icon: Icons.pie_chart_outline,
-                  label: 'تقارير التكاليف',
+                  label: 'مراكز التكلفه',
                   routePath: '/exports/cost-summary'),
               _NavItem(
                   icon: Icons.settings_outlined,
@@ -318,11 +344,19 @@ class _ShellPageState extends State<ShellPage> {
 
   @override
   Widget build(BuildContext context) {
-    final isCompact = MediaQuery.of(context).size.width < 768;
+    final size = MediaQuery.sizeOf(context);
+    if (size.width <= 50 || size.height <= 50) {
+      return const SizedBox.shrink();
+    }
+
+    final isCompact = size.width < 768;
     final tenant = TenantService();
+    final statusService = AccountStatusService();
+    final isAccountFrozen = statusService.isFrozen || !tenant.isActive;
+    final isAccountReadOnly = statusService.isReadOnly || tenant.isReadOnly;
 
     // If frozen — show full-screen frozen page
-    if (!tenant.isActive) {
+    if (isAccountFrozen) {
       return _buildFrozenPage(tenant);
     }
 
@@ -338,24 +372,49 @@ class _ShellPageState extends State<ShellPage> {
           child: Column(
             children: [
               // Read-only banner
-              if (tenant.isReadOnly)
+              if (isAccountReadOnly)
                 Container(
                   width: double.infinity,
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  color: AppTheme.accent.withAlpha(40),
-                  child: const Row(
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+                  color: const Color(0xFFD97706),
+                  child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.lock_outline,
-                          color: AppTheme.accent, size: 16),
-                      SizedBox(width: 8),
-                      Text('وضع القراءة فقط — لا يمكن إجراء تعديلات',
-                          style: TextStyle(
-                              color: AppTheme.accent,
-                              fontSize: 13,
-                              fontFamily: 'Cairo',
-                              fontWeight: FontWeight.w600)),
+                      const Icon(Icons.lock_outline,
+                          color: Colors.white, size: 18),
+                      const SizedBox(width: 8),
+                      const Text(
+                        'وضع القراءة فقط مفعّل من قبل الإدارة — لا يمكن إضافة، تعديل أو حذف أي بيانات',
+                        style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 13,
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold),
+                      ),
+                      const SizedBox(width: 16),
+                      InkWell(
+                        onTap: () async {
+                          await AccountStatusService().checkStatus(forceRefresh: true);
+                          await TenantService().refreshStatus();
+                          if (mounted) setState(() {});
+                        },
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: Colors.white.withAlpha(45),
+                            borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: Colors.white54),
+                          ),
+                          child: const Row(
+                            children: [
+                              Icon(Icons.refresh, color: Colors.white, size: 14),
+                              SizedBox(width: 4),
+                              Text('تحديث الحالة', style: TextStyle(color: Colors.white, fontSize: 11, fontFamily: 'Cairo')),
+                            ],
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -371,24 +430,44 @@ class _ShellPageState extends State<ShellPage> {
       ],
     );
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Scaffold(
       backgroundColor: Colors.transparent,
       drawer: isCompact ? _buildDrawer() : null,
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Background image
-          Image.asset(
-            'assets/images/login_bg.png',
-            fit: BoxFit.cover,
-            errorBuilder: (_, __, ___) =>
-                Container(color: const Color(0xFF041E42)),
-          ),
-          // Dark overlay
-          Container(color: Colors.black.withAlpha(100)),
+          // Background
+          if (isDark) ...[
+            SafeImage(
+              'assets/images/login_bg.png',
+              fit: BoxFit.cover,
+              errorBuilder: (_, __, ___) =>
+                  Container(color: const Color(0xFF041E42)),
+            ),
+            Container(
+              color: Colors.black.withAlpha(100),
+            ),
+          ] else ...[
+            Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [
+                    Color(0xFFF8FAFC),
+                    Color(0xFFF1F5F9),
+                    Color(0xFFE2E8F0),
+                  ],
+                ),
+              ),
+            ),
+          ],
           // Main content
           isCompact
               ? Stack(
+                  fit: StackFit.expand,
                   children: [
                     body,
                     Positioned(
@@ -416,6 +495,11 @@ class _ShellPageState extends State<ShellPage> {
                         ),
                       ),
                     ),
+                    const Positioned(
+                      top: 8,
+                      left: 8,
+                      child: ThemeSwitcherButton(),
+                    ),
                   ],
                 )
               : body,
@@ -425,8 +509,10 @@ class _ShellPageState extends State<ShellPage> {
   }
 
   Widget _buildSubscriptionBanner(TenantService tenant) {
-    final color = AppTheme.primary;
-    final bgColor = color.withAlpha(30);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final color = isDark ? AppTheme.primary : Colors.black;
+    final iconColor = isDark ? AppTheme.primary : const Color(0xFF0284C7);
+    final bgColor = isDark ? AppTheme.primary.withAlpha(30) : const Color(0xFFE0F2FE);
 
     if (!_showSubscriptionBanner) {
       return GestureDetector(
@@ -435,7 +521,7 @@ class _ShellPageState extends State<ShellPage> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
           color: bgColor,
-          child: Icon(Icons.keyboard_arrow_down, color: color, size: 16),
+          child: Icon(Icons.keyboard_arrow_down, color: iconColor, size: 16),
         ),
       );
     }
@@ -449,33 +535,37 @@ class _ShellPageState extends State<ShellPage> {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       color: bgColor,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(Icons.card_membership_outlined, color: color, size: 16),
-          const SizedBox(width: 8),
-          Text(
-            'اشتراك نشط حتى $dateStr',
-            style: TextStyle(
-                color: color,
-                fontSize: 13,
-                fontFamily: 'Cairo',
-                fontWeight: FontWeight.w600),
-          ),
-          const SizedBox(width: 12),
-          GestureDetector(
-            onTap: () async {
-              await TenantService().loadTenant();
-              if (mounted) setState(() {});
-            },
-            child: Icon(Icons.refresh, color: color, size: 16),
-          ),
-          const SizedBox(width: 12),
-          GestureDetector(
-            onTap: () => setState(() => _showSubscriptionBanner = false),
-            child: Icon(Icons.keyboard_arrow_up, color: color, size: 16),
-          ),
-        ],
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.center,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(Icons.card_membership_outlined, color: iconColor, size: 16),
+            const SizedBox(width: 8),
+            Text(
+              'اشتراك نشط حتى $dateStr',
+              style: TextStyle(
+                  color: color,
+                  fontSize: 13,
+                  fontFamily: 'Cairo',
+                  fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(width: 12),
+            GestureDetector(
+              onTap: () async {
+                await TenantService().loadTenant();
+                if (mounted) setState(() {});
+              },
+              child: Icon(Icons.refresh, color: iconColor, size: 16),
+            ),
+            const SizedBox(width: 12),
+            GestureDetector(
+              onTap: () => setState(() => _showSubscriptionBanner = false),
+              child: Icon(Icons.keyboard_arrow_up, color: iconColor, size: 16),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -486,7 +576,7 @@ class _ShellPageState extends State<ShellPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/images/login_bg.png',
+          SafeImage('assets/images/login_bg.png',
               fit: BoxFit.cover, opacity: const AlwaysStoppedAnimation(.15)),
           Container(color: Colors.black.withAlpha(150)),
           Center(
@@ -619,7 +709,7 @@ class _ShellPageState extends State<ShellPage> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          Image.asset('assets/images/login_bg.png',
+          SafeImage('assets/images/login_bg.png',
               fit: BoxFit.cover, opacity: const AlwaysStoppedAnimation(.15)),
           Container(color: Colors.black.withAlpha(150)),
           Center(
@@ -648,7 +738,7 @@ class _ShellPageState extends State<ShellPage> {
                             color: Colors.orange, size: 48),
                       ),
                       const SizedBox(height: 24),
-                      const Text('الحساب مجمد',
+                      const Text('الحساب موقوف مؤقتاً',
                           style: TextStyle(
                               color: Colors.white,
                               fontSize: 24,
@@ -656,11 +746,11 @@ class _ShellPageState extends State<ShellPage> {
                               fontFamily: 'Cairo')),
                       const SizedBox(height: 12),
                       Text(
-                        'تم تجميد حسابك من قبل الإدارة.\nتواصل مع الإدارة لإعادة التفعيل.',
+                        'الحساب موقوف مؤقتاً من قبل الإدارة، يرجى التواصل مع الدعم.',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             color: Colors.white.withAlpha(180),
-                            fontSize: 14,
+                            fontSize: 15,
                             fontFamily: 'Cairo',
                             height: 1.6),
                       ),
@@ -670,6 +760,7 @@ class _ShellPageState extends State<ShellPage> {
                         height: 48,
                         child: ElevatedButton.icon(
                           onPressed: () async {
+                            await AccountStatusService().checkStatus(forceRefresh: true);
                             await TenantService().loadTenant();
                             if (mounted) setState(() {});
                           },
@@ -781,30 +872,41 @@ class _ShellPageState extends State<ShellPage> {
           initial = fullName.isNotEmpty ? fullName.substring(0, 1) : 'م';
         }
 
+        final isDark = Theme.of(context).brightness == Brightness.dark;
+
         final userSection = Padding(
           padding:
               collapsed ? const EdgeInsets.all(8) : const EdgeInsets.all(12),
           child: collapsed
-              ? Tooltip(
-                  message: fullName,
-                  preferBelow: false,
-                  child: Container(
-                    width: 44,
-                    height: 44,
-                    decoration: BoxDecoration(
-                      color: const Color(0x1AFFFFFF),
-                      borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.white.withAlpha(20)),
+              ? Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Tooltip(
+                      message: fullName,
+                      preferBelow: false,
+                      child: Container(
+                        width: 44,
+                        height: 44,
+                        decoration: BoxDecoration(
+                          color: isDark ? const Color(0x1AFFFFFF) : const Color(0x140F172A),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isDark ? Colors.white.withAlpha(20) : const Color(0xFFCBD5E1),
+                          ),
+                        ),
+                        child: Center(
+                          child: Text(initial,
+                              style: TextStyle(
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cairo')),
+                        ),
+                      ),
                     ),
-                    child: Center(
-                      child: Text(initial,
-                          style: const TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              fontFamily: 'Cairo')),
-                    ),
-                  ),
+                    const SizedBox(height: 8),
+                    const ThemeSwitcherButton(isCompact: true),
+                  ],
                 )
               : Row(
                   children: [
@@ -812,14 +914,16 @@ class _ShellPageState extends State<ShellPage> {
                       width: 44,
                       height: 44,
                       decoration: BoxDecoration(
-                        color: const Color(0x1AFFFFFF),
+                        color: isDark ? const Color(0x1AFFFFFF) : const Color(0x140F172A),
                         borderRadius: BorderRadius.circular(14),
-                        border: Border.all(color: Colors.white.withAlpha(20)),
+                        border: Border.all(
+                          color: isDark ? Colors.white.withAlpha(20) : const Color(0xFFCBD5E1),
+                        ),
                       ),
                       child: Center(
                         child: Text(initial,
-                            style: const TextStyle(
-                                color: Colors.white,
+                            style: TextStyle(
+                                color: isDark ? Colors.white : const Color(0xFF0F172A),
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                                 fontFamily: 'Cairo')),
@@ -831,23 +935,25 @@ class _ShellPageState extends State<ShellPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(fullName,
-                              style: const TextStyle(
-                                  color: Colors.white,
+                              style: TextStyle(
+                                  color: isDark ? Colors.white : const Color(0xFF0F172A),
                                   fontSize: 14,
                                   fontWeight: FontWeight.bold,
                                   fontFamily: 'Cairo'),
                               overflow: TextOverflow.ellipsis),
-                          const Text('مستخدم',
+                          Text('مستخدم',
                               style: TextStyle(
-                                  color: Colors.white70,
+                                  color: isDark ? Colors.white70 : const Color(0xFF64748B),
                                   fontSize: 12,
                                   fontFamily: 'Cairo')),
                         ],
                       ),
                     ),
+                    const ThemeSwitcherButton(),
+                    const SizedBox(width: 4),
                     IconButton(
-                      icon: const Icon(Icons.logout,
-                          color: Colors.white54, size: 22),
+                      icon: Icon(Icons.logout,
+                          color: isDark ? Colors.white54 : const Color(0xFF64748B), size: 22),
                       tooltip: 'تسجيل الخروج',
                       onPressed: () => _confirmLogout(),
                     ),
@@ -875,38 +981,47 @@ class _ShellPageState extends State<ShellPage> {
   void _confirmLogout() {
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xCC05192D),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(24),
-          side: const BorderSide(color: AppTheme.glassBorder),
-        ),
-        title: const Text('تسجيل الخروج',
-            style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
-        content: const Text('هل أنت متأكد؟',
-            style:
-                TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text('إلغاء',
-                style: TextStyle(color: AppTheme.textSecondary)),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.pop(ctx);
-              context.read<AuthCubit>().signOut();
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: AppTheme.danger,
-              foregroundColor: Colors.white,
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        return AlertDialog(
+          backgroundColor: isDark ? const Color(0xCC05192D) : Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(
+              color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0),
             ),
-            child: const Text('خروج'),
           ),
-        ],
-      ),
+          title: Text('تسجيل الخروج',
+              style: TextStyle(
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  fontFamily: 'Cairo')),
+          content: Text('هل أنت متأكد؟',
+              style: TextStyle(
+                  color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
+                  fontFamily: 'Cairo')),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('إلغاء',
+                  style: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B))),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(ctx);
+                context.read<AuthCubit>().signOut();
+              },
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.danger,
+                foregroundColor: Colors.white,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+              ),
+              child: const Text('خروج'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

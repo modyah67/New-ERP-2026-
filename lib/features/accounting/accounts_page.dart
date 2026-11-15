@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
+import '../../core/widgets/read_only_guard.dart';
 import '../../data/models/account_model.dart';
 import '../../data/models/transaction_model.dart';
 import '../../data/dao/transaction_dao.dart';
@@ -81,6 +82,7 @@ class _AccountsPageState extends State<AccountsPage> {
             icon: const Icon(Icons.add, size: 18),
             label: const Text('إضافة حساب'),
             onPressed: () {
+              if (!ReadOnlyGuard.check(context)) return;
               c.prepareAddForm();
               showDialog(
                 context: context,
@@ -292,6 +294,7 @@ class _AccountsPageState extends State<AccountsPage> {
                   icon: const Icon(Icons.edit_outlined, size: 18, color: AppTheme.primary),
                   tooltip: 'تعديل',
                   onPressed: () {
+                    if (!ReadOnlyGuard.check(context)) return;
                     c.prepareEditForm(acc);
                     showDialog(
                       context: context,
@@ -316,6 +319,7 @@ class _AccountsPageState extends State<AccountsPage> {
   }
 
   void _confirmDelete(AccountModel acc, AccountCubit c) {
+    if (!ReadOnlyGuard.check(context)) return;
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(

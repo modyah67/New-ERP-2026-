@@ -20,15 +20,31 @@ class ReportCalculationService {
   static final _currencyPattern = RegExp(r'"original_currency"\s*:\s*"(\w+)"');
 
   static const _excludedFromCoreFinancialStatements = {
-    '2100',
     '2101',
     '2102',
     '2105',
     '5210',
+    '9000',
+    '9101',
+    '9102',
+    '9105',
+    '9210',
+    '9121',
+    '9122',
+    '9123',
+    '9124',
   };
 
   static bool _isExcludedFromStatements(String code) {
-    return _excludedFromCoreFinancialStatements.contains(code);
+    // Operational waste / loss / spoilage intermediary accounts participate in valuation entries
+    // and belong to Expenses & Costs / Cost of Activity (المصروفات والتكاليف).
+    // They must NEVER be excluded from financial statements or trial balance.
+    if (AccountClassifier.isOperationalLossOrCostAccount(code)) {
+      return false;
+    }
+    return _excludedFromCoreFinancialStatements.contains(code) ||
+        code == '9000' ||
+        (code.startsWith('9') && !AccountClassifier.isOperationalLossOrCostAccount(code));
   }
 
   // ─────────────────────────────────────────────
@@ -99,8 +115,12 @@ class ReportCalculationService {
         continue;
       }
 
-      // Exclude 2100 branch, sub-accounts (2101, 2102, 2105, 2106, 2107) and 5210
-      if (_isExcludedFromStatements(account.code)) {
+      // Operational loss/spoilage intermediary accounts (e.g. 9112 وسيط هالك وفاقد المحاصيل)
+      // participate in actual valuation and cost entries that affect asset or inventory ledgers.
+      // They must be included in the trial balance summation so debits and credits balance out cleanly.
+      // Exclude only true off-balance non-transactional memorandum accounts that do not have active double-entry movements.
+      if (!AccountClassifier.isOperationalLossOrCostAccount(account.code) &&
+          _isExcludedFromStatements(account.code)) {
         continue;
       }
 
@@ -198,7 +218,8 @@ class ReportCalculationService {
 
       final (debit, credit) = BalanceCalculator.normalizeRow(row);
       final dateStr = row['transaction_date']?.toString() ??
-          row['transaction_date']?.toString() ??
+          row['date']?.toString() ??
+          row['entry_date']?.toString() ??
           '';
       final date = DateTime.tryParse(dateStr) ?? DateTime.now();
 
@@ -442,20 +463,20 @@ class ReportCalculationService {
         accountCode: account.code,
         accountName: account.name,
         accountNameAr: account.nameAr,
-        amount: amount.abs(),
+        amount: amount,
       );
 
       if (account.classification == AccountClassification.revenue) {
         revenueLines.add(line);
-        totalRevenue += amount.abs();
+        totalRevenue += amount;
       } else {
         // COGS accounts: starting with 5
         if (account.code.startsWith('5')) {
           cogsLines.add(line);
-          totalCogs += amount.abs();
+          totalCogs += amount;
         } else {
           expenseLines.add(line);
-          totalExpenses += amount.abs();
+          totalExpenses += amount;
         }
       }
     }

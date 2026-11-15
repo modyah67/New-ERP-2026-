@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
@@ -14,13 +13,16 @@ import '../../data/models/clearing_agent_model.dart';
 import '../../data/dao/clearing_agent_dao.dart';
 import '../../ui/widgets/app_text_field.dart';
 import '../../ui/widgets/app_search_field.dart';
+import 'dart:async';
+import '../../core/data_change_event_bus.dart';
 import '../../data/dao/packing_order_dao.dart';
 import '../../data/models/packing_order_model.dart';
-import '../../data/services/packing_calculation_service.dart';
+import '../../data/models/packing_order_line_model.dart';
 import 'export_shipment_cubit.dart';
 import 'shipment_constants.dart';
 import 'invoice_preview_page.dart';
 import 'credit_note_pdf_service.dart';
+import '../../data/services/currency_conversion_service.dart';
 
 class ExportShipmentFormPage extends StatefulWidget {
   final ExportShipmentModel? shipment;
@@ -56,6 +58,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   late TextEditingController _clearingAgentSearchCtrl;
   late TextEditingController _discountAmountCtrl;
   late TextEditingController _discountReasonCtrl;
+  final TextEditingController _exchangeRateCtrl = TextEditingController(text: '1.00');
 
   String _transportMode = 'sea';
   String _incoterm = 'FOB';
@@ -80,11 +83,13 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   List<Map<String, dynamic>> _bankAccounts = [];
 
   final _packingOrderDao = PackingOrderDao();
-  List<PackingOrderModel>? _cachedAvailableOrders;
 
   List<CustomerModel> _customers = [];
   List<dynamic> _invoices = [];
   List<ClearingAgentModel> _clearingAgents = [];
+  List<PackingOrderModel> _availablePackingOrders = [];
+  StreamSubscription<void>? _packingOrdersSub;
+  StreamSubscription<void>? _exportsSub;
   double _totalExtraCosts = 0.0;
   List<_ShipmentItem> _items = [];
 
@@ -122,6 +127,19 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
     _transportMode = s?.transportMode ?? 'sea';
     _incoterm = s?.incoterm ?? 'FOB';
     _currency = s?.currency ?? s?.currencyCode ?? 'EGP';
+    final initialRate = (s?.exchangeRate ?? 0.0) > 0
+        ? s!.exchangeRate
+        : (_currency == 'EGP' ? 1.0 : 50.0);
+    _exchangeRateCtrl.text = initialRate.toStringAsFixed(2);
+    if (_currency != 'EGP' && (s?.exchangeRate ?? 0.0) <= 0) {
+      CurrencyConversionService.instance.getRate(_currency).then((rate) {
+        if (mounted && rate > 0) {
+          setState(() {
+            _exchangeRateCtrl.text = rate.toStringAsFixed(2);
+          });
+        }
+      });
+    }
     _shipmentDate = s?.shipmentDate;
     _selectedCustomerId = s?.customerId;
     _selectedInvoiceId = s?.invoiceId;
@@ -135,6 +153,8 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
     }
     _paidAmountCtrl = TextEditingController(
         text: (s?.paidAmount ?? 0.0) > 0 ? s!.paidAmount.toString() : '0');
+    _discountAmountCtrl.addListener(_onFinancialsChanged);
+    _paidAmountCtrl.addListener(_onFinancialsChanged);
     _selectedPaymentSourceType = s?.paymentSourceType ?? 'bank';
     _selectedTreasuryId = s?.paymentTreasuryId;
     _selectedBankAccountId = s?.paymentBankAccountId;
@@ -144,6 +164,14 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
       context.read<ExportShipmentCubit>().loadForm(widget.shipment?.id);
       _loadClearingAgents();
       _loadTreasuriesAndBanks();
+      _loadAvailablePackingOrders();
+    });
+    _packingOrdersSub =
+        DataChangeEventBus.instance.packingOrdersStream.listen((_) {
+      _loadAvailablePackingOrders();
+    });
+    _exportsSub = DataChangeEventBus.instance.exportsStream.listen((_) {
+      _loadAvailablePackingOrders();
     });
   }
 
@@ -193,13 +221,34 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
     _invoiceNoCtrl.dispose();
     _transportModeCtrl.dispose();
     _clearingAgentSearchCtrl.dispose();
+    _discountAmountCtrl.removeListener(_onFinancialsChanged);
+    _paidAmountCtrl.removeListener(_onFinancialsChanged);
     _discountAmountCtrl.dispose();
     _discountReasonCtrl.dispose();
     _paidAmountCtrl.dispose();
+    _exchangeRateCtrl.dispose();
+    _packingOrdersSub?.cancel();
+    _exportsSub?.cancel();
     for (final item in _items) {
       item.dispose();
     }
     super.dispose();
+  }
+
+  Future<List<PackingOrderModel>> _loadAvailablePackingOrders() async {
+    try {
+      final orders = await _packingOrderDao.getAvailableForShipment();
+      if (mounted) {
+        setState(() => _availablePackingOrders = orders);
+      }
+      return orders;
+    } catch (_) {
+      return _availablePackingOrders;
+    }
+  }
+
+  void _onFinancialsChanged() {
+    if (mounted) setState(() {});
   }
 
   String _currencySymbol() {
@@ -226,6 +275,15 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
       _customerSearchCtrl.text = _customerDisplayText;
       if (cu.currency.isNotEmpty) {
         _currency = cu.currency;
+        if (_currency != 'EGP') {
+          CurrencyConversionService.instance.getRate(_currency).then((rate) {
+            if (mounted && rate > 0) {
+              setState(() => _exchangeRateCtrl.text = rate.toStringAsFixed(2));
+            }
+          });
+        } else {
+          _exchangeRateCtrl.text = '1.00';
+        }
       }
       if (cu.country.isNotEmpty) {
         _countryCtrl.text = cu.country;
@@ -408,6 +466,23 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
               'quantity': i.qtyCtrl.text.trim(),
             })
         .toList();
+    final rate = _currency == 'EGP'
+        ? 1.0
+        : (double.tryParse(_exchangeRateCtrl.text.trim()) ?? 1.0);
+    final grossRevenueForeign =
+        _items.fold<double>(0.0, (sum, i) => sum + i.totalRevenueForeign);
+    final discountForeign =
+        double.tryParse(_discountAmountCtrl.text.trim()) ?? 0.0;
+    final discountEgp = discountForeign * rate;
+    final grossRevenueEgp = grossRevenueForeign * rate;
+    final netRevenueEgp =
+        (grossRevenueEgp - discountEgp).clamp(0.0, double.infinity);
+    final totalCostEgp =
+        _items.fold<double>(0.0, (sum, i) => sum + i.totalCostEgp);
+    final netProfitEgp = netRevenueEgp - totalCostEgp;
+    final paidAmount =
+        double.tryParse(_paidAmountCtrl.text.trim()) ?? 0.0;
+
     final shipment = ExportShipmentModel(
       id: widget.shipment?.id,
       shipmentNo: _getShipmentNo(),
@@ -469,6 +544,10 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
           : _paymentTermsCtrl.text.trim(),
       currency: _currency,
       currencyCode: _currency,
+      exchangeRate: rate,
+      totalRevenueForeign: grossRevenueForeign,
+      totalRevenueEgp: grossRevenueEgp,
+      netProfitEgp: netProfitEgp,
       termsConditions: _termsConditionsCtrl.text.trim().isEmpty
           ? null
           : _termsConditionsCtrl.text.trim(),
@@ -477,11 +556,11 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
           : _internalNotesCtrl.text.trim(),
       status: widget.shipment?.status ?? 'draft',
       shipmentDate: _shipmentDate ?? DateTime.now(),
-      discountAmount: double.tryParse(_discountAmountCtrl.text.trim()) ?? 0.0,
+      discountAmount: discountForeign,
       discountReason: _discountReasonCtrl.text.trim().isEmpty
           ? null
           : _discountReasonCtrl.text.trim(),
-      paidAmount: double.tryParse(_paidAmountCtrl.text.trim()) ?? 0.0,
+      paidAmount: paidAmount,
       paymentSourceType: _selectedPaymentSourceType ?? 'bank',
       paymentTreasuryId: _selectedTreasuryId,
       paymentBankAccountId: _selectedBankAccountId,
@@ -490,6 +569,23 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   void _openPreview() {
+    final rate = _currency == 'EGP'
+        ? 1.0
+        : (double.tryParse(_exchangeRateCtrl.text.trim()) ?? 1.0);
+    final grossRevenueForeign =
+        _items.fold<double>(0.0, (sum, i) => sum + i.totalRevenueForeign);
+    final discountForeign =
+        double.tryParse(_discountAmountCtrl.text.trim()) ?? 0.0;
+    final discountEgp = discountForeign * rate;
+    final grossRevenueEgp = grossRevenueForeign * rate;
+    final netRevenueEgp =
+        (grossRevenueEgp - discountEgp).clamp(0.0, double.infinity);
+    final totalCostEgp =
+        _items.fold<double>(0.0, (sum, i) => sum + i.totalCostEgp);
+    final netProfitEgp = netRevenueEgp - totalCostEgp;
+    final paidAmount =
+        double.tryParse(_paidAmountCtrl.text.trim()) ?? 0.0;
+
     final shipment = ExportShipmentModel(
       shipmentNo: _getShipmentNo(),
       customerId: _selectedCustomerId?.toString(),
@@ -549,9 +645,22 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
           ? _paymentTermsCtrl.text.trim()
           : null,
       currency: _currency,
+      currencyCode: _currency,
+      exchangeRate: rate,
+      totalRevenueForeign: grossRevenueForeign,
+      totalRevenueEgp: grossRevenueEgp,
+      netProfitEgp: netProfitEgp,
       termsConditions: _buildTermsText(),
       status: widget.shipment?.status ?? 'draft',
       shipmentDate: _shipmentDate,
+      discountAmount: discountForeign,
+      discountReason: _discountReasonCtrl.text.trim().isEmpty
+          ? null
+          : _discountReasonCtrl.text.trim(),
+      paidAmount: paidAmount,
+      paymentSourceType: _selectedPaymentSourceType ?? 'bank',
+      paymentTreasuryId: _selectedTreasuryId,
+      paymentBankAccountId: _selectedBankAccountId,
     );
     final itemsData = _items
         .where((i) => i.nameCtrl.text.trim().isNotEmpty)
@@ -683,22 +792,27 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             _selectedBankAccountId == null) ||
         hasInvalidExportPrice;
 
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.cyberBg,
+        backgroundColor: isDark ? AppTheme.cyberBg : const Color(0xFFF8FAFC),
         appBar: AppBar(
+          backgroundColor: isDark ? AppTheme.cyberSurface : Colors.white,
+          elevation: isDark ? 0 : 1,
           title: Text(
             widget.shipment != null
                 ? 'تعديل شحنة' // ${_getShipmentNo()}
                 : 'شحنة جديدة',
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
+            style: TextStyle(
+                color: isDark ? Colors.white : const Color(0xFF0F172A),
                 fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16),
           ),
           leading: IconButton(
-            icon: const Icon(Icons.arrow_back),
+            icon: Icon(Icons.arrow_back, color: isDark ? Colors.white : const Color(0xFF0F172A)),
             onPressed: () => Navigator.pop(context),
           ),
           actions: [
@@ -706,8 +820,8 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: OutlinedButton.icon(
                 style: OutlinedButton.styleFrom(
-                  foregroundColor: AppTheme.neonCyan,
-                  side: const BorderSide(color: AppTheme.neonCyan, width: 1.2),
+                  foregroundColor: isDark ? AppTheme.neonCyan : AppTheme.primary,
+                  side: BorderSide(color: isDark ? AppTheme.neonCyan : AppTheme.primary, width: 1.2),
                   shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12)),
                   padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -749,16 +863,20 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                 padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 8),
                 child: ElevatedButton.icon(
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: isSaveDisabled ? Colors.white38 : Colors.white,
-                    foregroundColor: AppTheme.primary,
+                    backgroundColor: isSaveDisabled
+                        ? (isDark ? Colors.white38 : Colors.grey.shade300)
+                        : (isDark ? Colors.white : AppTheme.primary),
+                    foregroundColor: isSaveDisabled
+                        ? Colors.white
+                        : (isDark ? AppTheme.primary : Colors.white),
                     padding: const EdgeInsets.symmetric(horizontal: 8),
                   ),
                   icon: _isSaving
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: AppTheme.primary))
+                              strokeWidth: 2, color: isDark ? AppTheme.primary : Colors.white))
                       : const Icon(Icons.save_outlined, size: 16),
                   label: Text(_isSaving ? 'جاري...' : 'حفظ',
                       style: const TextStyle(
@@ -814,10 +932,19 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                   _internalNotesCtrl.text = s.internalNotes ?? '';
                   _invoiceNoCtrl.text = s.invoiceNumber ?? '';
                   _countryOfOriginCtrl.text = s.countryOfOrigin ?? 'Egypt';
-                  _transportMode = s.transportMode ?? 'sea';
+                  _transportMode = s.transportMode;
                   _transportModeCtrl.text = s.transportMode == 'air' ? 'By Air' : 'By Sea';
                   _incoterm = s.incoterm ?? 'FOB';
-                  _currency = s.currency ?? s.currencyCode ?? 'EGP';
+                  _currency = s.currency ?? s.currencyCode;
+                  if (s.exchangeRate > 0) {
+                    _exchangeRateCtrl.text = s.exchangeRate.toStringAsFixed(2);
+                  } else if (_currency != 'EGP') {
+                    CurrencyConversionService.instance.getRate(_currency).then((rate) {
+                      if (mounted && rate > 0) {
+                        setState(() => _exchangeRateCtrl.text = rate.toStringAsFixed(2));
+                      }
+                    });
+                  }
                   _shipmentDate = s.shipmentDate;
                   if (s.clearingAgentName != null && s.clearingAgentName!.isNotEmpty) {
                     _clearingAgentSearchCtrl.text = s.clearingAgentName!;
@@ -875,9 +1002,24 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                 for (final poId in poIds) {
                   final freshPo = await _packingOrderDao.getById(poId);
                   if (freshPo != null) {
-                    final item = _items.firstWhere((i) => i.packingOrderId == poId, orElse: () => _ShipmentItem());
-                    final currentQty = int.tryParse(item.qtyCtrl.text) ?? 0;
-                    item._maxCartons = freshPo.remainingCartons + currentQty;
+                    final matchingItems = _items.where((i) => i.packingOrderId == poId);
+                    for (final mItem in matchingItems) {
+                      mItem.packingOrderNumber = freshPo.orderNumber;
+                      mItem.exportShipmentNo = freshPo.exportShipmentNo;
+                      mItem.customerName = freshPo.customerName;
+                      final currentQty = int.tryParse(mItem.qtyCtrl.text) ?? 0;
+                      if (mItem.lineId != null && freshPo.lines.isNotEmpty) {
+                        final line = freshPo.lines
+                            .where((l) => l.id == mItem.lineId.toString())
+                            .firstOrNull;
+                        if (line != null) {
+                          mItem._maxCartons =
+                              (line.cartonCount - line.soldCartons) + currentQty;
+                          continue;
+                        }
+                      }
+                      mItem._maxCartons = freshPo.remainingCartons + currentQty;
+                    }
                   }
                 }
                 if (mounted) setState(() {});
@@ -934,8 +1076,9 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _buildRightPanelStacked(bool isTablet) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      color: AppTheme.cyberBg,
+      color: isDark ? AppTheme.cyberBg : const Color(0xFFF8FAFC),
       padding: const EdgeInsets.all(16),
       child: AbsorbPointer(
         absorbing: widget.isReadOnly,
@@ -1095,27 +1238,48 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
           }
         }
 
-        // Fallback: fetch packing order header (legacy behavior)
+        // Primary: fetch packing order header (authoritative cost per carton after discounts)
         final po = await _packingOrderDao.getById(item.packingOrderId!);
         if (po == null || !mounted) continue;
 
+        double cost = 0.0;
+        if (lineData != null) {
+          final unitCost = (lineData['final_unit_cost'] as num?)?.toDouble() ?? 0.0;
+          final totalCost = (lineData['final_cost'] as num?)?.toDouble() ?? 0.0;
+          final lineCartons = (lineData['carton_count'] as num?)?.toInt() ?? 0;
+          if (unitCost > 0) {
+            cost = unitCost;
+          } else if (totalCost > 0 && lineCartons > 0) {
+            cost = totalCost / lineCartons;
+          }
+        }
+        if (cost <= 0) {
+          cost = po.packingCostPerCarton;
+        }
+        if (cost <= 0 && po.fruitTypeId != null) {
+          try {
+            final fallbackLine = await Supabase.instance.client
+                .from('packing_order_lines')
+                .select('final_cost, carton_count, final_unit_cost')
+                .eq('fruit_type_id', po.fruitTypeId!)
+                .gt('final_cost', 0)
+                .order('id', ascending: false)
+                .limit(1)
+                .maybeSingle();
+            if (fallbackLine != null) {
+              final fCost = (fallbackLine['final_cost'] as num?)?.toDouble() ?? 0.0;
+              final fQty = (fallbackLine['carton_count'] as num?)?.toInt() ?? 0;
+              if (fCost > 0 && fQty > 0) {
+                cost = fCost / fQty;
+              } else {
+                cost = (fallbackLine['final_unit_cost'] as num?)?.toDouble() ?? 0.0;
+              }
+            }
+          } catch (_) {}
+        }
+
         setState(() {
           item.packingOrderNumber = po.orderNumber;
-          double cost = po.packingCostPerCarton;
-          if (lineData != null) {
-            final totalCost = (lineData['final_cost'] as num?)?.toDouble() ?? 0.0;
-            final lineCartons = (lineData['carton_count'] as num?)?.toInt() ?? 0;
-            if (totalCost > 0 && lineCartons > 0) {
-              cost = totalCost / lineCartons;
-            } else if (po.packingCostPerCarton > 0) {
-              cost = po.packingCostPerCarton;
-            } else {
-              final unitCost = (lineData['final_unit_cost'] as num?)?.toDouble() ?? 0.0;
-              if (unitCost > 0) cost = unitCost;
-            }
-          } else {
-            cost = po.packingCostPerCarton;
-          }
           item.priceCtrl.text = cost.toStringAsFixed(2);
           final currentQty = int.tryParse(item.qtyCtrl.text) ?? 0;
           if (currentQty == 0) {
@@ -1126,6 +1290,55 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
           item.recalculate();
         });
       } catch (_) {}
+    }
+  }
+
+  Future<void> _refreshItemCost(_ShipmentItem item) async {
+    if (item.packingOrderId == null) return;
+    try {
+      final po = await _packingOrderDao.getById(item.packingOrderId!);
+      if (po == null || !mounted) return;
+
+      double cost = po.packingCostPerCarton;
+      if (cost <= 0 && item.lineId != null) {
+        try {
+          final lineData = await Supabase.instance.client
+              .from('packing_order_lines')
+              .select('final_unit_cost, final_cost, carton_count')
+              .eq('id', item.lineId!)
+              .maybeSingle();
+          if (lineData != null) {
+            final totalCost = (lineData['final_cost'] as num?)?.toDouble() ?? 0.0;
+            final lineCartons = (lineData['carton_count'] as num?)?.toInt() ?? 0;
+            if (totalCost > 0 && lineCartons > 0) {
+              cost = totalCost / lineCartons;
+            } else {
+              final unitCost = (lineData['final_unit_cost'] as num?)?.toDouble() ?? 0.0;
+              if (unitCost > 0) cost = unitCost;
+            }
+          }
+        } catch (_) {}
+      }
+
+      setState(() {
+        item.priceCtrl.text = cost.toStringAsFixed(2);
+        item.recalculate();
+      });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              'تم تحديث تكلفة الكرتونة لأمر التعبئة (${po.orderNumber}) إلى ${cost.toStringAsFixed(2)} ج.م',
+              style: const TextStyle(fontFamily: 'Cairo'),
+            ),
+            backgroundColor: AppTheme.success,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('❌ _refreshItemCost error: $e');
     }
   }
 
@@ -1201,6 +1414,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _sectionTitle(String t) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return LayoutBuilder(
       builder: (context, constraints) {
         final fontSize = constraints.maxWidth < 400 ? 16.0 : 18.0;
@@ -1208,38 +1422,39 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             style: TextStyle(
                 fontSize: fontSize,
                 fontWeight: FontWeight.bold,
-                color: Colors.white,
+                color: isDark ? Colors.white : const Color(0xFF0F172A),
                 fontFamily: 'Cairo'));
       },
     );
   }
 
   Widget _termsField(String label, TextEditingController ctrl) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(label,
             textAlign: TextAlign.left,
-            style: const TextStyle(
-                color: AppTheme.textSecondary,
+            style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
                 fontSize: 12,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo')),
         const SizedBox(height: 2),
         TextField(
           controller: ctrl,
           textAlign: TextAlign.left,
-          style: const TextStyle(
-              color: AppTheme.textPrimary, fontSize: 13, fontFamily: 'Cairo'),
+          style: TextStyle(
+              color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A), fontSize: 13, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
           decoration: InputDecoration(
             isDense: true,
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 0, vertical: 6),
             filled: false,
             border: UnderlineInputBorder(
-                borderSide: BorderSide(color: AppTheme.glassBorder)),
+                borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
             enabledBorder: UnderlineInputBorder(
-                borderSide: BorderSide(color: AppTheme.glassBorder)),
+                borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
             focusedBorder: const UnderlineInputBorder(
                 borderSide: BorderSide(color: AppTheme.primary, width: 1.5)),
           ),
@@ -1248,17 +1463,21 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
     );
   }
 
-  Widget _formLabel(String t) => Padding(
+  Widget _formLabel(String t) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Padding(
         padding: const EdgeInsets.only(bottom: 4),
         child: Text(t,
-            style: const TextStyle(
-                color: AppTheme.textSecondary,
-                fontWeight: FontWeight.w600,
+            style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF1E293B),
+                fontWeight: FontWeight.bold,
                 fontFamily: 'Cairo',
                 fontSize: 13)),
       );
+  }
 
   Widget _buildLeftPanel(ExportShipmentCubit c, bool isDesktop) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     Widget content = AbsorbPointer(
       absorbing: widget.isReadOnly,
       child: Column(
@@ -1319,6 +1538,12 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                   initialDate: _shipmentDate ?? DateTime.now(),
                   firstDate: DateTime(2020),
                   lastDate: DateTime(2030),
+                  builder: (context, child) => Theme(
+                    data: isDark
+                        ? ThemeData.dark().copyWith(colorScheme: const ColorScheme.dark(primary: AppTheme.primary))
+                        : ThemeData.light().copyWith(colorScheme: const ColorScheme.light(primary: AppTheme.primary)),
+                    child: child!,
+                  ),
                 );
                 if (date != null) setState(() => _shipmentDate = date);
               },
@@ -1327,13 +1552,13 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   border: Border.all(
-                      color: AppTheme.neonCyan.withValues(alpha: 0.3)),
+                      color: isDark ? AppTheme.neonCyan.withValues(alpha: 0.3) : const Color(0xFFCBD5E1)),
                   borderRadius: BorderRadius.circular(8),
-                  color: AppTheme.cyberSurface,
+                  color: isDark ? AppTheme.cyberSurface : const Color(0xFFF1F5F9),
                 ),
                 child: Row(children: [
-                  const Icon(Icons.calendar_today_outlined,
-                      size: 16, color: AppTheme.textSecondary),
+                  Icon(Icons.calendar_today_outlined,
+                      size: 16, color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B)),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -1342,8 +1567,8 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                           : 'اختر التاريخ',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                          color: Colors.white, fontFamily: 'Cairo', fontSize: 14),
+                      style: TextStyle(
+                          color: isDark ? Colors.white : const Color(0xFF0F172A), fontFamily: 'Cairo', fontSize: 14, fontWeight: FontWeight.bold),
                     ),
                   ),
                 ]),
@@ -1351,29 +1576,33 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             ),
             const SizedBox(height: 12),
             AppSearchField<CustomerModel>(
-              label: 'العميل',
+              label: 'العميل (تصدير)',
               controller: _customerSearchCtrl,
               isRequired: true,
-              hint: 'ابحث بالاسم أو الكود...',
-              prefixIcon: const Icon(Icons.person_outline, size: 18),
+              hint: 'ابحث عن عميل تصدير بالاسم أو الكود...',
+              prefixIcon: const Icon(Icons.flight_takeoff, size: 18, color: Colors.lightBlueAccent),
               highlightColor: AppTheme.primary.withValues(alpha: 0.5),
               suggestionsCallback: (pattern) {
-                if (pattern.isEmpty) return _customers;
-                return _customers
+                final exportList = _customers.where((cu) => cu.customerType != 'local').toList();
+                if (pattern.isEmpty) return exportList;
+                final lower = pattern.toLowerCase();
+                return exportList
                     .where((cu) =>
-                        cu.name.toLowerCase().contains(pattern.toLowerCase()))
+                        cu.name.toLowerCase().contains(lower) ||
+                        cu.code.toLowerCase().contains(lower))
                     .toList();
               },
               itemBuilder: (context, cu) {
                 return ListTile(
                   title: Text(cu.name,
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
                           fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
                           fontSize: 15)),
                   subtitle: Text(cu.name,
-                      style: const TextStyle(
-                          color: AppTheme.textSecondary,
+                      style: TextStyle(
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
                           fontFamily: 'Cairo',
                           fontSize: 13)),
                 );
@@ -1409,13 +1638,14 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
               itemBuilder: (context, agent) {
                 return ListTile(
                   title: Text(agent.name,
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
                           fontFamily: 'Cairo',
+                          fontWeight: FontWeight.bold,
                           fontSize: 15)),
                   subtitle: Text('${agent.phone} - ${agent.city}',
-                      style: const TextStyle(
-                          color: AppTheme.textSecondary,
+                      style: TextStyle(
+                          color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
                           fontFamily: 'Cairo',
                           fontSize: 13)),
                 );
@@ -1430,31 +1660,76 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             const SizedBox(height: 12),
             _formLabel('العملة'),
             _buildCurrencyRadios(),
+            if (_currency != 'EGP') ...[
+              const SizedBox(height: 12),
+              AppTextField(
+                label: 'سعر الصرف ($_currency → ج.م)',
+                controller: _exchangeRateCtrl,
+                readOnly: true,
+                hint: '50.00',
+                helperText: 'سعر تحويل 1 $_currency إلى الجنيه معتمد ومقفل تلقائياً',
+                prefixIcon: const Icon(Icons.currency_exchange,
+                    size: 18, color: AppTheme.neonCyan),
+                suffixIcon: const Tooltip(
+                  message: 'سعر الصرف مقفل لمنع التعديل اليدوي',
+                  child: Icon(Icons.lock_outline, size: 18, color: Color(0xFF64748B)),
+                ),
+              ),
+            ],
             const SizedBox(height: 12),
-            _formLabel('مبلغ الخصم (اختياري)'),
-            AppTextField(
-              label: 'مبلغ الخصم (اختياري)',
-              controller: _discountAmountCtrl,
-              hint: '0.00',
-              keyboardType: TextInputType.number,
-              onChanged: (_) => setState(() {}),
-            ),
-            const SizedBox(height: 12),
-            // AppTextField(
-            //   label: 'سبب الخصم (اختياري)',
-            //   controller: _discountReasonCtrl,
-            //   hint: 'سبب الخصم...',
-            //   maxLines: 2,
-            // ),
+            Builder(builder: (context) {
+              final rate = _currency == 'EGP'
+                  ? 1.0
+                  : (double.tryParse(_exchangeRateCtrl.text.trim()) ?? 1.0);
+              final grossRevForeign = _items.fold<double>(0.0, (sum, i) => sum + i.totalRevenueForeign);
+              final dVal = double.tryParse(_discountAmountCtrl.text.trim()) ?? 0.0;
+              String? dHelper;
+              if (dVal > 0) {
+                final dEgp = dVal * rate;
+                final pct = grossRevForeign > 0 ? (dVal / grossRevForeign * 100) : 0.0;
+                dHelper = _currency != 'EGP'
+                    ? 'يخصم ${dVal.toStringAsFixed(2)} $_currency (${dEgp.toStringAsFixed(2)} ج.م) — نسبة: ${pct.toStringAsFixed(1)}%'
+                    : 'يخصم ${dVal.toStringAsFixed(2)} ج.م — نسبة: ${pct.toStringAsFixed(1)}%';
+              }
+              return AppTextField(
+                label: 'مبلغ الخصم (اختياري)',
+                controller: _discountAmountCtrl,
+                hint: '0.00',
+                prefixIcon: const Icon(Icons.discount_outlined, size: 18, color: AppTheme.warning),
+                helperText: dHelper,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => setState(() {}),
+              );
+            }),
             const SizedBox(height: 16),
-            _formLabel('المبلغ المدفوع من العميل ($_currency)'),
-            AppTextField(
-              label: 'المبلغ المدفوع من العميل ($_currency)',
-              controller: _paidAmountCtrl,
-              hint: '0',
-              keyboardType: TextInputType.number,
-              onChanged: (_) => setState(() {}),
-            ),
+            Builder(builder: (context) {
+              final grossRevForeign = _items.fold<double>(0.0, (sum, i) => sum + i.totalRevenueForeign);
+              final dVal = double.tryParse(_discountAmountCtrl.text.trim()) ?? 0.0;
+              final netRevForeign = (grossRevForeign - dVal).clamp(0.0, double.infinity);
+              final pVal = double.tryParse(_paidAmountCtrl.text.trim()) ?? 0.0;
+              final remaining = netRevForeign - pVal;
+              String? pHelper;
+              if (grossRevForeign > 0) {
+                if (pVal == 0) {
+                  pHelper = 'المتبقي بالكامل على العميل: ${_currencySymbol()} ${netRevForeign.toStringAsFixed(2)}';
+                } else if (remaining > 0) {
+                  pHelper = 'المتبقي بعد السداد: ${_currencySymbol()} ${remaining.toStringAsFixed(2)}';
+                } else if (remaining == 0) {
+                  pHelper = 'تم سداد كامل صافي الفاتورة';
+                } else {
+                  pHelper = 'تنبيه: تم سداد زيادة بمقدار ${_currencySymbol()} ${(-remaining).toStringAsFixed(2)}';
+                }
+              }
+              return AppTextField(
+                label: 'المبلغ المدفوع من العميل ($_currency)',
+                controller: _paidAmountCtrl,
+                hint: '0.00',
+                prefixIcon: const Icon(Icons.payments_outlined, size: 18, color: Color(0xFF10B981)),
+                helperText: pHelper,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                onChanged: (_) => setState(() {}),
+              );
+            }),
             if ((double.tryParse(_paidAmountCtrl.text) ?? 0) > 0) ...[
               const SizedBox(height: 12),
               _buildPaymentSourceDropdown(),
@@ -1466,13 +1741,17 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
     );
 
     return Container(
-      color: AppTheme.cyberSurface,
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.cyberSurface : Colors.white,
+        border: isDark || !isDesktop ? null : const Border(left: BorderSide(color: Color(0xFFCBD5E1))),
+      ),
       padding: const EdgeInsets.all(16),
       child: isDesktop ? SingleChildScrollView(child: content) : content,
     );
   }
 
   Widget _buildPaymentSourceDropdown() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final paid = double.tryParse(_paidAmountCtrl.text) ?? 0.0;
     if (paid <= 0) return const SizedBox.shrink();
     if (_bankAccounts.isEmpty) {
@@ -1522,14 +1801,15 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
           child: DropdownButtonFormField<String>(
             value: dropdownValue,
             isExpanded: true,
-            dropdownColor: const Color(0xFF0A2A4A),
-            style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13),
+            dropdownColor: isDark ? const Color(0xFF0A2A4A) : Colors.white,
+            style: TextStyle(color: isDark ? Colors.white : const Color(0xFF0F172A), fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold),
             decoration: InputDecoration(
               labelText: 'اختر الحساب البنكي',
-              labelStyle: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+              labelStyle: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontFamily: 'Cairo'),
               filled: true,
-              fillColor: const Color(0x3805192D),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: AppTheme.glassBorder)),
+              fillColor: isDark ? const Color(0x3805192D) : const Color(0xFFF1F5F9),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
               contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
             ),
             items: matchingBanks.map((b) {
@@ -1540,12 +1820,12 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                 value: 'bank_${b['id']}',
                 child: Row(
                   children: [
-                    const Icon(Icons.account_balance, size: 14, color: AppTheme.cyan),
+                    Icon(Icons.account_balance, size: 14, color: isDark ? AppTheme.cyan : AppTheme.primary),
                     const SizedBox(width: 6),
                     Expanded(
                       child: Text(
                         'بنك - $bName ($bCurr) — ${balance.toStringAsFixed(2)}',
-                        style: const TextStyle(fontSize: 12),
+                        style: TextStyle(fontSize: 12, color: isDark ? Colors.white : const Color(0xFF0F172A), fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),
@@ -1612,25 +1892,27 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _bankRow(String label, String value) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.only(top: 2),
       child: Row(children: [
         Text('$label: ',
-            style: const TextStyle(
-                color: AppTheme.textSecondary,
+            style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B),
                 fontSize: 11,
                 fontFamily: 'Cairo')),
         Expanded(
             child: Text(value,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 11, fontFamily: 'Cairo'))),
+                style: TextStyle(
+                    color: isDark ? Colors.white : const Color(0xFF0F172A), fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold))),
       ]),
     );
   }
 
   Widget _buildTransportRadios() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     const modes = ['sea', 'air'];
     const labels = ['بحري', 'جوي'];
     return Row(
@@ -1645,11 +1927,13 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
             decoration: BoxDecoration(
               color: selected
-                  ? AppTheme.neonCyan.withValues(alpha: 0.08)
-                  : AppTheme.cyberSurface,
+                  ? (isDark ? AppTheme.neonCyan.withValues(alpha: 0.08) : const Color(0xFFE0F2FE))
+                  : (isDark ? AppTheme.cyberSurface : const Color(0xFFF1F5F9)),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                  color: selected ? AppTheme.neonCyan : AppTheme.border,
+                  color: selected
+                      ? (isDark ? AppTheme.neonCyan : AppTheme.primary)
+                      : (isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
                   width: selected ? 1.5 : 1),
             ),
             child: Row(
@@ -1660,15 +1944,16 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                       ? Icons.radio_button_checked
                       : Icons.radio_button_off,
                   size: 18,
-                  color: selected ? AppTheme.neonCyan : Colors.grey,
+                  color: selected ? (isDark ? AppTheme.neonCyan : AppTheme.primary) : Colors.grey,
                 ),
                 const SizedBox(width: 6),
                 Text(labels[i],
                     style: TextStyle(
                       fontFamily: 'Cairo',
                       fontSize: 13,
-                      color:
-                          selected ? AppTheme.neonCyan : AppTheme.textSecondary,
+                      color: selected
+                          ? (isDark ? AppTheme.neonCyan : AppTheme.primary)
+                          : (isDark ? AppTheme.textSecondary : const Color(0xFF475569)),
                       fontWeight:
                           selected ? FontWeight.bold : FontWeight.normal,
                     )),
@@ -1681,6 +1966,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _buildCurrencyRadios() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     const values = ['EGP', 'USD', 'EUR', 'GBP'];
     const labels = ['جنيه', 'دولار', 'يورو', 'جنيه إسترليني'];
     final locked = _selectedCustomerId != null;
@@ -1690,17 +1976,38 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
       children: List.generate(4, (i) {
         final selected = _currency == values[i];
         return GestureDetector(
-          onTap: locked ? null : () => setState(() => _currency = values[i]),
+          onTap: locked
+              ? null
+              : () async {
+                  final newCurr = values[i];
+                  double newRate = 1.0;
+                  if (newCurr != 'EGP') {
+                    try {
+                      newRate = await CurrencyConversionService.instance
+                          .getRate(newCurr);
+                      if (newRate <= 0) newRate = 50.0;
+                    } catch (_) {
+                      newRate = 50.0;
+                    }
+                  }
+                  if (!mounted) return;
+                  setState(() {
+                    _currency = newCurr;
+                    _exchangeRateCtrl.text = newRate.toStringAsFixed(2);
+                  });
+                },
           child: AnimatedContainer(
             duration: const Duration(milliseconds: 150),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             decoration: BoxDecoration(
               color: selected
-                  ? AppTheme.neonCyan.withValues(alpha: 0.08)
-                  : AppTheme.cyberSurface,
+                  ? (isDark ? AppTheme.neonCyan.withValues(alpha: 0.08) : const Color(0xFFE0F2FE))
+                  : (isDark ? AppTheme.cyberSurface : const Color(0xFFF1F5F9)),
               borderRadius: BorderRadius.circular(8),
               border: Border.all(
-                  color: selected ? AppTheme.neonCyan : AppTheme.border,
+                  color: selected
+                      ? (isDark ? AppTheme.neonCyan : AppTheme.primary)
+                      : (isDark ? AppTheme.border : const Color(0xFFCBD5E1)),
                   width: selected ? 1.5 : 1),
             ),
             child: Row(
@@ -1711,7 +2018,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                       ? Icons.radio_button_checked
                       : Icons.radio_button_off,
                   size: 14,
-                  color: selected ? AppTheme.neonCyan : Colors.grey,
+                  color: selected ? (isDark ? AppTheme.neonCyan : AppTheme.primary) : Colors.grey,
                 ),
                 const SizedBox(width: 3),
                 Text(labels[i],
@@ -1719,8 +2026,8 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                       fontFamily: 'Cairo',
                       fontSize: 11,
                       color: selected
-                          ? AppTheme.neonCyan
-                          : AppTheme.textSecondary,
+                          ? (isDark ? AppTheme.neonCyan : AppTheme.primary)
+                          : (isDark ? AppTheme.textSecondary : const Color(0xFF475569)),
                       fontWeight:
                           selected ? FontWeight.bold : FontWeight.normal,
                     )),
@@ -1733,6 +2040,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _buildItemCard(int index, _ShipmentItem item) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final symbol = _currencySymbol();
     final qty = int.tryParse(item.qtyCtrl.text) ?? 0;
     final wpc = double.tryParse(item.weightPerCartonCtrl.text) ?? 0;
@@ -1746,9 +2054,15 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.neonCyan.withValues(alpha: 0.03),
+        color: isDark
+            ? AppTheme.neonCyan.withValues(alpha: 0.03)
+            : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.neonCyan.withValues(alpha: 0.12)),
+        border: Border.all(
+          color: isDark
+              ? AppTheme.neonCyan.withValues(alpha: 0.12)
+              : const Color(0xFFCBD5E1),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1780,6 +2094,32 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                   child: Text('أمر التعبئة: ${item.packingOrderNumber}',
                       style: const TextStyle(
                           color: AppTheme.primary,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo')),
+                ),
+              if (item.exportShipmentNo != null && item.exportShipmentNo!.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6)),
+                  child: Text('شحنة: ${item.exportShipmentNo}',
+                      style: const TextStyle(
+                          color: Colors.blue,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo')),
+                ),
+              if (item.customerName != null && item.customerName!.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                      color: Colors.teal.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(6)),
+                  child: Text('عميل: ${item.customerName}',
+                      style: const TextStyle(
+                          color: Colors.teal,
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo')),
@@ -1829,58 +2169,134 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             label: 'امر التعبئة',
             controller: item.nameCtrl,
             isRequired: true,
-            displayStringForOption: (po) => po.productName ?? po.orderNumber,
+            displayStringForOption: (po) {
+              if (po.lineId != null && po.productName != null && po.productName!.isNotEmpty) {
+                return '${po.productName} (أمر #${po.orderNumber})';
+              }
+              return po.productName ?? po.orderNumber;
+            },
             suggestionsCallback: (pattern) async {
-              _cachedAvailableOrders ??=
-                  await _packingOrderDao.getAvailableForShipment();
-                  
-              final selectedIds = _items
-                  .where((i) => i != item && (i.lineId != null || i.packingOrderId != null))
-                  .map((i) => i.lineId?.toString() ?? i.packingOrderId?.toString())
+              List<PackingOrderModel> orders;
+              try {
+                orders = await _packingOrderDao.getAvailableForShipment();
+                _availablePackingOrders = orders;
+              } catch (_) {
+                orders = _availablePackingOrders;
+              }
+
+              final selectedKeys = _items
+                  .where((i) =>
+                      i != item &&
+                      (i.lineId != null || i.packingOrderId != null))
+                  .map((i) => i.lineId != null
+                      ? 'line_${i.lineId}'
+                      : 'po_${i.packingOrderId}')
                   .toSet();
 
-              final filteredOrders = _cachedAvailableOrders!
-                  .where((po) => !selectedIds.contains(po.lineId?.toString() ?? po.id?.toString()))
-                  .toList();
-
-              if (pattern.isEmpty) return filteredOrders;
-              final lower = pattern.toLowerCase();
-              return filteredOrders
-                  .where((po) =>
-                      (po.productName?.toLowerCase().contains(lower) ??
-                          false) ||
-                      po.orderNumber.toLowerCase().contains(lower))
-                  .toList();
+              return PackingOrderDao.filterAvailableOrdersForSelector(
+                orders: orders,
+                excludedSelectionKeys: selectedKeys,
+                pattern: pattern,
+              );
             },
             itemBuilder: (context, po) => Padding(
               padding: const EdgeInsets.all(12),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(po.orderNumber,
-                      style: const TextStyle(
-                          color: AppTheme.primary,
-                          fontWeight: FontWeight.bold,
-                          fontFamily: 'Cairo',
-                          fontSize: 13)),
+                  Row(
+                    children: [
+                      Text(po.orderNumber,
+                          style: const TextStyle(
+                              color: AppTheme.primary,
+                              fontWeight: FontWeight.bold,
+                              fontFamily: 'Cairo',
+                              fontSize: 13)),
+                      if (po.exportShipmentNo != null &&
+                          po.exportShipmentNo!.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.blue.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'شحنة: ${po.exportShipmentNo}',
+                            style: const TextStyle(
+                              color: Colors.blue,
+                              fontSize: 10,
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (po.customerName != null &&
+                          po.customerName!.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            'عميل: ${po.customerName}',
+                            style: const TextStyle(
+                              color: Colors.teal,
+                              fontSize: 10,
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                      if (po.lineId != null) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: AppTheme.primary.withValues(alpha: 0.15),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                                color: AppTheme.primary.withValues(alpha: 0.4)),
+                          ),
+                          child: const Text(
+                            'بند محصول',
+                            style: TextStyle(
+                              color: AppTheme.primary,
+                              fontSize: 10,
+                              fontFamily: 'Cairo',
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
                   const SizedBox(height: 4),
                   Text(po.productName ?? po.orderNumber,
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo',
                           fontSize: 14)),
                   Text(
                       'متبقي: ${po.remainingCartons} كرتونة من ${po.cartonCount} | Net: ${po.totalNetWeight.toStringAsFixed(1)} KG',
-                      style: const TextStyle(
-                          color: AppTheme.textMuted,
+                      style: TextStyle(
+                          color: isDark ? AppTheme.textMuted : const Color(0xFF475569),
                           fontFamily: 'Cairo',
                           fontSize: 12)),
                   if (po.packedAt != null || po.createdAt != null) ...[
                     const SizedBox(height: 2),
                     Text(
                         'تاريخ التعبئة: ${AppUtils.formatDate(po.packedAt ?? po.createdAt!)}',
-                        style: const TextStyle(
-                            color: AppTheme.textMuted,
+                        style: TextStyle(
+                            color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
                             fontFamily: 'Cairo',
                             fontSize: 11)),
                   ],
@@ -1889,11 +2305,50 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             ),
             onSelected: (po) async {
               if (!mounted) return;
-              _cachedAvailableOrders = null;
               
-              double packingCostPerCarton = po.packingCostPerCarton;
+              // 1. Fetch fresh packing order from DB by ID
+              final poId = int.tryParse(po.id ?? '');
+              PackingOrderModel freshPo = po;
+              PackingOrderLineModel? matchingLine;
+              if (poId != null) {
+                try {
+                  final dbPo = await _packingOrderDao.getById(poId);
+                  if (dbPo != null) {
+                    freshPo = dbPo;
+                    if (po.lineId != null) {
+                      for (final l in dbPo.lines) {
+                        if (l.id == po.lineId.toString()) {
+                          matchingLine = l;
+                          break;
+                        }
+                      }
+                    }
+                  }
+                } catch (e) {
+                  debugPrint('Error fetching fresh packing order: $e');
+                }
+              }
+
+              // 2. Authoritative cost per carton for this line or header
+              double packingCostPerCarton = 0.0;
+              if (matchingLine != null) {
+                if (matchingLine.finalCost > 0 && matchingLine.cartonCount > 0) {
+                  packingCostPerCarton = matchingLine.finalCost / matchingLine.cartonCount;
+                } else if (matchingLine.finalUnitCost > 0) {
+                  packingCostPerCarton = matchingLine.finalUnitCost;
+                }
+              }
               
-              if (po.lineId != null) {
+              if (packingCostPerCarton <= 0 && po.packingCostPerCarton > 0) {
+                packingCostPerCarton = po.packingCostPerCarton;
+              }
+
+              if (packingCostPerCarton <= 0 && freshPo.packingCostPerCarton > 0) {
+                packingCostPerCarton = freshPo.packingCostPerCarton;
+              }
+              
+              // 3. Fallback only if cost is still 0
+              if (packingCostPerCarton <= 0 && po.lineId != null) {
                 try {
                   final lineData = await Supabase.instance.client
                       .from('packing_order_lines')
@@ -1905,8 +2360,6 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                     final lineCartons = (lineData['carton_count'] as num?)?.toInt() ?? 0;
                     if (totalCost > 0 && lineCartons > 0) {
                       packingCostPerCarton = totalCost / lineCartons;
-                    } else if (po.packingCostPerCarton > 0) {
-                      packingCostPerCarton = po.packingCostPerCarton;
                     } else {
                       final unitCost = (lineData['final_unit_cost'] as num?)?.toDouble() ?? 0.0;
                       if (unitCost > 0) packingCostPerCarton = unitCost;
@@ -1917,50 +2370,205 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                 }
               }
 
-              final remaining = po.remainingCartons;
-              final weightRatio = remaining > 0 && po.cartonCount > 0
-                  ? remaining / po.cartonCount
+              if (packingCostPerCarton <= 0 && (freshPo.fruitTypeId != null || po.fruitTypeId != null)) {
+                try {
+                  final fruitId = freshPo.fruitTypeId ?? po.fruitTypeId!;
+                  final fallbackLine = await Supabase.instance.client
+                      .from('packing_order_lines')
+                      .select('final_cost, carton_count, final_unit_cost')
+                      .eq('fruit_type_id', fruitId)
+                      .gt('final_cost', 0)
+                      .order('id', ascending: false)
+                      .limit(1)
+                      .maybeSingle();
+                  if (fallbackLine != null) {
+                    final fCost = (fallbackLine['final_cost'] as num?)?.toDouble() ?? 0.0;
+                    final fQty = (fallbackLine['carton_count'] as num?)?.toInt() ?? 0;
+                    if (fCost > 0 && fQty > 0) {
+                      packingCostPerCarton = fCost / fQty;
+                    } else {
+                      packingCostPerCarton = (fallbackLine['final_unit_cost'] as num?)?.toDouble() ?? 0.0;
+                    }
+                  }
+                } catch (_) {}
+              }
+
+              // 4. Resolve remaining cartons, total cartons, weights, and product name
+              final int remaining;
+              final int totalCartons;
+              final double netWtPerCarton;
+              final double grossWtPerCarton;
+              final String selectedProductName;
+              final int? fruitTypeId;
+              final String grade;
+              final String? recipeName;
+              final int? recipeVersion;
+
+              if (matchingLine != null) {
+                totalCartons = matchingLine.cartonCount;
+                remaining = (matchingLine.cartonCount - matchingLine.soldCartons).clamp(0, matchingLine.cartonCount);
+                netWtPerCarton = matchingLine.netWeightPerCarton > 0
+                    ? matchingLine.netWeightPerCarton
+                    : (po.netWeightPerCarton > 0 ? po.netWeightPerCarton : freshPo.netWeightPerCarton);
+                grossWtPerCarton = matchingLine.grossWeightPerCarton > 0
+                    ? matchingLine.grossWeightPerCarton
+                    : (po.grossWeightPerCarton > 0 ? po.grossWeightPerCarton : freshPo.grossWeightPerCarton);
+                selectedProductName = matchingLine.productName.isNotEmpty
+                    ? matchingLine.productName
+                    : (po.productName ?? freshPo.productName ?? freshPo.orderNumber);
+                fruitTypeId = matchingLine.fruitTypeId ?? int.tryParse(freshPo.fruitTypeId ?? po.fruitTypeId ?? '');
+                grade = matchingLine.grade.isNotEmpty
+                    ? matchingLine.grade
+                    : (freshPo.grade.isNotEmpty ? freshPo.grade : po.grade);
+                recipeName = freshPo.recipeName ?? po.recipeName;
+                recipeVersion = freshPo.recipeVersion ?? po.recipeVersion;
+              } else if (po.lineId != null) {
+                totalCartons = po.cartonCount;
+                remaining = po.remainingCartons;
+                netWtPerCarton = po.netWeightPerCarton > 0 ? po.netWeightPerCarton : freshPo.netWeightPerCarton;
+                grossWtPerCarton = po.grossWeightPerCarton > 0 ? po.grossWeightPerCarton : freshPo.grossWeightPerCarton;
+                selectedProductName = po.productName ?? freshPo.productName ?? freshPo.orderNumber;
+                fruitTypeId = int.tryParse(po.fruitTypeId ?? freshPo.fruitTypeId ?? '');
+                grade = po.grade.isNotEmpty ? po.grade : freshPo.grade;
+                recipeName = po.recipeName ?? freshPo.recipeName;
+                recipeVersion = po.recipeVersion ?? freshPo.recipeVersion;
+              } else {
+                totalCartons = freshPo.cartonCount;
+                remaining = freshPo.remainingCartons;
+                netWtPerCarton = freshPo.netWeightPerCarton > 0 ? freshPo.netWeightPerCarton : po.netWeightPerCarton;
+                grossWtPerCarton = freshPo.grossWeightPerCarton > 0 ? freshPo.grossWeightPerCarton : po.grossWeightPerCarton;
+                selectedProductName = freshPo.productName ?? freshPo.orderNumber;
+                fruitTypeId = int.tryParse(freshPo.fruitTypeId ?? po.fruitTypeId ?? '');
+                grade = freshPo.grade.isNotEmpty ? freshPo.grade : po.grade;
+                recipeName = freshPo.recipeName ?? po.recipeName;
+                recipeVersion = freshPo.recipeVersion ?? po.recipeVersion;
+              }
+
+              final weightRatio = remaining > 0 && totalCartons > 0
+                  ? remaining / totalCartons
                   : 1.0;
 
               setState(() {
-                item.packingOrderId = int.tryParse(po.id ?? '');
-                item.packingOrderNumber = po.orderNumber;
+                item.packingOrderId = int.tryParse(freshPo.id ?? po.id ?? '');
+                item.packingOrderNumber = freshPo.orderNumber;
+                item.exportShipmentNo = freshPo.exportShipmentNo ?? po.exportShipmentNo;
+                item.customerName = freshPo.customerName ?? po.customerName;
                 item.lineId = po.lineId;
-                item.productId = int.tryParse(po.fruitTypeId ?? '');
-                item.grade = po.grade;
-                item.recipeName = po.recipeName;
-                item.recipeVersion = po.recipeVersion;
-                item.nameCtrl.text = po.productName ?? po.orderNumber;
-                item.invoiceProductCtrl.text = po.productName ?? '';
+                item.productId = fruitTypeId;
+                item.grade = grade;
+                item.recipeName = recipeName;
+                item.recipeVersion = recipeVersion;
+                item.nameCtrl.text = selectedProductName;
+                item.invoiceProductCtrl.text = selectedProductName;
                 item._maxCartons = remaining;
                 item.qtyCtrl.text = remaining.toString();
                 item.weightPerCartonCtrl.text =
-                    po.netWeightPerCarton.toStringAsFixed(0);
+                    (netWtPerCarton > 0 ? netWtPerCarton : 15.0).toStringAsFixed(0);
                 item.priceCtrl.text = packingCostPerCarton.toStringAsFixed(2);
-                if (po.productName != null) {
-                  item.hsCode = '';
-                  item.hsCodeCtrl.text = '';
-                }
+                item.hsCode = '';
+                item.hsCodeCtrl.text = '';
                 item.recalculate();
-                final remainingGross = po.totalGrossWeight * weightRatio;
+
+                final remainingGross = grossWtPerCarton > 0
+                    ? (remaining * grossWtPerCarton)
+                    : (freshPo.totalGrossWeight * weightRatio);
                 if (remainingGross > 0) {
                   item.grossWtCtrl.text = remainingGross.toStringAsFixed(0);
-                } else if (po.totalNetWeight > 0) {
-                  item.grossWtCtrl.text =
-                      (po.totalNetWeight * weightRatio).toStringAsFixed(0);
+                } else if (netWtPerCarton > 0) {
+                  item.grossWtCtrl.text = (remaining * netWtPerCarton).toStringAsFixed(0);
                 }
               });
             },
-            emptyBuilder: (context) => const Padding(
-              padding: EdgeInsets.all(12),
-              child: Text('لا توجد أوامر تعبئة جاهزة للشحن',
-                  style: TextStyle(
-                      color: AppTheme.textMuted, fontFamily: 'Cairo')),
+            emptyBuilder: (context) => Padding(
+              padding: const EdgeInsets.all(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Icon(Icons.info_outline, size: 16, color: isDark ? AppTheme.warning : const Color(0xFFD97706)),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'لا توجد أوامر تعبئة جاهزة للشحن',
+                          style: TextStyle(
+                            color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '• تأكد من أن أمر التعبئة تم اعتماده نهائياً\n• تأكد أن الكراتين لم تُباع بالكامل في شحنات سابقة',
+                    style: TextStyle(
+                      color: isDark ? AppTheme.textMuted : const Color(0xFF94A3B8),
+                      fontFamily: 'Cairo',
+                      fontSize: 11,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
           if (item.hsCode.isNotEmpty) ...[
             const SizedBox(height: 6),
             _infoLabel('كود HS الجمركي: ${item.hsCode}'),
+          ],
+          if ((item.exportShipmentNo != null &&
+                  item.exportShipmentNo!.isNotEmpty) ||
+              (item.customerName != null && item.customerName!.isNotEmpty)) ...[
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 8,
+              runSpacing: 4,
+              children: [
+                if (item.exportShipmentNo != null &&
+                    item.exportShipmentNo!.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.blue.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                          color: Colors.blue.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      'رقم شحنة أمر التعبئة: ${item.exportShipmentNo}',
+                      style: const TextStyle(
+                        color: Colors.blue,
+                        fontSize: 11,
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                if (item.customerName != null && item.customerName!.isNotEmpty)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: Colors.teal.withValues(alpha: 0.1),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(
+                          color: Colors.teal.withValues(alpha: 0.3)),
+                    ),
+                    child: Text(
+                      'عميل أمر التعبئة: ${item.customerName}',
+                      style: const TextStyle(
+                        color: Colors.teal,
+                        fontSize: 11,
+                        fontFamily: 'Cairo',
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ],
           const SizedBox(height: 8),
           AppTextField(
@@ -2060,8 +2668,9 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                 return Column(
                   children: [
                     _buildReadOnlyField(
-                        'تكلفة التعبئة للكرتونة (ج.م)',
-                        '${(double.tryParse(item.priceCtrl.text) ?? 0).toStringAsFixed(2)} ج.م'),
+                        'تكلفة الإنتاج للكرتونة (مركز التكلفة)',
+                        '${(double.tryParse(item.priceCtrl.text) ?? 0).toStringAsFixed(2)} ج.م',
+                        onRefresh: item.packingOrderId != null ? () => _refreshItemCost(item) : null),
                     const SizedBox(height: 8),
                     AppTextField(
                       label: 'سعر الكرتونة التصديري ($symbol)',
@@ -2094,8 +2703,9 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
               return Row(children: [
                 Expanded(
                     child: _buildReadOnlyField(
-                        'تكلفة التعبئة للكرتونة (ج.م)',
-                        '${(double.tryParse(item.priceCtrl.text) ?? 0).toStringAsFixed(2)} ج.م')),
+                        'تكلفة الإنتاج للكرتونة (مركز التكلفة)',
+                        '${(double.tryParse(item.priceCtrl.text) ?? 0).toStringAsFixed(2)} ج.م',
+                        onRefresh: item.packingOrderId != null ? () => _refreshItemCost(item) : null)),
                 const SizedBox(width: 8),
                 Expanded(
                     child: AppTextField(
@@ -2130,7 +2740,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
           const SizedBox(height: 8),
 
           // 4- Summary
-          _sectionLabel('بيانات التصدير'),
+          _sectionLabel('بيانات التصدير والربحية'),
           const SizedBox(height: 8),
           _buildSummaryRow(item, symbol),
         ],
@@ -2139,9 +2749,10 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _sectionLabel(String text) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Text(text,
-        style: const TextStyle(
-            color: AppTheme.textSecondary,
+        style: TextStyle(
+            color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
             fontSize: 12,
             fontWeight: FontWeight.bold,
             fontFamily: 'Cairo',
@@ -2149,38 +2760,141 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _buildSummaryRow(_ShipmentItem item, String symbol) {
-    final qty = int.tryParse(item.qtyCtrl.text) ?? 0;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final rate = _currency == 'EGP'
+        ? 1.0
+        : (double.tryParse(_exchangeRateCtrl.text.trim()) ?? 1.0);
+    final qty = item.qty;
     final netWt = double.tryParse(item.netWtCtrl.text) ?? 0;
     final grossWt = double.tryParse(item.grossWtCtrl.text) ?? 0;
-    final exportPrice =
-        double.tryParse(item.exportPricePerCartonCtrl.text) ?? 0;
+    final unitCost = item.unitCostEgp;
+    final totalCost = item.totalCostEgp;
+    final exportPrice = item.exportPrice;
+    final revenueForeign = item.totalRevenueForeign;
+    final revenueEgp = item.totalRevenueEgp(rate);
+    final netProfit = item.netProfitEgp(rate);
+    final marginPct = item.profitMarginPct(rate);
+    final isProfit = netProfit >= 0;
+    final hasMetrics = qty > 0 && (revenueForeign > 0 || totalCost > 0);
+
+    const profitGreen = Color(0xFF10B981);
+    const lossRed = Color(0xFFEF4444);
+    final profitColor = isProfit ? profitGreen : lossRed;
+
     return Container(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: AppTheme.neonCyan.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: AppTheme.neonCyan.withValues(alpha: 0.1)),
+        color: hasMetrics
+            ? profitColor.withValues(alpha: isDark ? 0.04 : 0.06)
+            : (isDark ? AppTheme.neonCyan.withValues(alpha: 0.05) : const Color(0xFFF1F5F9)),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: hasMetrics
+              ? profitColor.withValues(alpha: isDark ? 0.3 : 0.5)
+              : (isDark ? AppTheme.neonCyan.withValues(alpha: 0.15) : const Color(0xFFCBD5E1)),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('ملخص الصنف',
-              style: TextStyle(
-                  color: AppTheme.neonCyan,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Cairo')),
-          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    hasMetrics
+                        ? (isProfit ? Icons.trending_up : Icons.trending_down)
+                        : Icons.analytics_outlined,
+                    size: 16,
+                    color: hasMetrics ? profitColor : (isDark ? AppTheme.neonCyan : const Color(0xFF0284C7)),
+                  ),
+                  const SizedBox(width: 6),
+                  Text('ملخص الصنف والربحية التقديرية',
+                      style: TextStyle(
+                          color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo')),
+                ],
+              ),
+              if (hasMetrics)
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                  decoration: BoxDecoration(
+                    color: profitColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(6),
+                    border:
+                        Border.all(color: profitColor.withValues(alpha: 0.4)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isProfit
+                            ? Icons.check_circle_outline
+                            : Icons.error_outline,
+                        size: 13,
+                        color: profitColor,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        isProfit
+                            ? 'صافي ربح: +${netProfit.toStringAsFixed(2)} ج.م (${marginPct.toStringAsFixed(1)}%)'
+                            : 'صافي خسارة: ${netProfit.toStringAsFixed(2)} ج.م (${marginPct.toStringAsFixed(1)}%)',
+                        style: TextStyle(
+                          color: profitColor,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
           Wrap(
-            spacing: 4,
+            spacing: 8,
             runSpacing: 8,
             children: [
-              _summaryCell('عدد الكراتين', '$qty'),
+              _summaryCell('عدد الكراتين', '$qty كرتونة'),
               _summaryCell('الوزن الصافي', '${netWt.toStringAsFixed(0)} كجم'),
               _summaryCell('الوزن الإجمالي', '${grossWt.toStringAsFixed(0)} كجم'),
-              _summaryCell('سعر الكرتونة التصديري', exportPrice > 0 ? '$symbol ${exportPrice.toStringAsFixed(2)}' : '—'),
-              _summaryCell('إجمالي القيمة',
-                  '$symbol ${(qty * exportPrice).toStringAsFixed(2)}'),
+              _summaryCell(
+                'تكلفة الوحدة (مركز التكلفة)',
+                unitCost > 0 ? '${unitCost.toStringAsFixed(2)} ج.م' : '—',
+              ),
+              _summaryCell(
+                'إجمالي التكلفة (ج.م)',
+                totalCost > 0 ? '${totalCost.toStringAsFixed(2)} ج.م' : '0.00 ج.م',
+                valueColor: isDark ? const Color(0xFFFBBF24) : const Color(0xFFB45309),
+              ),
+              _summaryCell(
+                'سعر الكرتونة التصديري',
+                exportPrice > 0 ? '$symbol ${exportPrice.toStringAsFixed(2)}' : '—',
+              ),
+              _summaryCell(
+                'إيراد التصدير ($_currency)',
+                revenueForeign > 0 ? '$symbol ${revenueForeign.toStringAsFixed(2)}' : '—',
+              ),
+              if (_currency != 'EGP') ...[
+                _summaryCell('سعر الصرف المعتمد', '${rate.toStringAsFixed(2)} ج.م'),
+                _summaryCell(
+                  'الإيراد بالمصري (ج.م)',
+                  '${revenueEgp.toStringAsFixed(2)} ج.م',
+                  valueColor: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
+                ),
+              ],
+              _summaryCell(
+                'صافي الربح / الخسارة',
+                hasMetrics
+                    ? '${isProfit ? '+' : ''}${netProfit.toStringAsFixed(2)} ج.م'
+                    : '—',
+                valueColor: hasMetrics ? profitColor : null,
+              ),
             ],
           ),
         ],
@@ -2188,136 +2902,333 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
     );
   }
 
-  Widget _summaryCell(String label, String value) {
+  Widget _summaryCell(String label, String value,
+      {Color? valueColor, Widget? customValue}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return SizedBox(
-      width: 120,
+      width: 130,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(label,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: AppTheme.textSecondary,
+              style: TextStyle(
+                  color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                  fontWeight: FontWeight.w600,
                   fontSize: 10,
                   fontFamily: 'Cairo')),
           const SizedBox(height: 2),
-          Text(value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 12,
-                  fontWeight: FontWeight.bold,
-                  fontFamily: 'Cairo')),
+          customValue ??
+              Text(value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      color: valueColor ?? (isDark ? AppTheme.textPrimary : const Color(0xFF0F172A)),
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo')),
         ],
       ),
     );
   }
 
   Widget _infoLabel(String text, {bool bold = false, bool primary = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Text(text,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-            color: primary ? AppTheme.primary : AppTheme.textPrimary,
+            color: primary
+                ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                : (isDark ? AppTheme.textPrimary : const Color(0xFF0F172A)),
             fontSize: 13,
             fontWeight: bold ? FontWeight.bold : FontWeight.normal,
             fontFamily: 'Cairo'));
   }
 
-  Widget _buildReadOnlyField(String label, String value) {
+  Widget _buildReadOnlyField(String label, String value, {VoidCallback? onRefresh}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.04),
+        color: isDark ? Colors.white.withValues(alpha: 0.04) : const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppTheme.glassBorder),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Text(label,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: AppTheme.textSecondary,
-                  fontSize: 11,
-                  fontFamily: 'Cairo')),
-          const SizedBox(height: 2),
-          Text(value.isEmpty ? '0' : value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(
-                  color: AppTheme.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
-                  fontFamily: 'Cairo')),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        fontFamily: 'Cairo')),
+                const SizedBox(height: 2),
+                Text(value.isEmpty ? '0' : value,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo')),
+              ],
+            ),
+          ),
+          if (onRefresh != null)
+            IconButton(
+              icon: const Icon(Icons.refresh, size: 18, color: AppTheme.primary),
+              tooltip: 'تحديث التكلفة من أمر التعبئة',
+              onPressed: onRefresh,
+              constraints: const BoxConstraints(),
+              padding: const EdgeInsets.all(4),
+            ),
         ],
       ),
     );
   }
 
   Widget _buildTotalsRow() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final symbol = _currencySymbol();
+    final rate = _currency == 'EGP'
+        ? 1.0
+        : (double.tryParse(_exchangeRateCtrl.text.trim()) ?? 1.0);
     final itemsCount =
         _items.where((i) => i.nameCtrl.text.trim().isNotEmpty).length;
-    final totalCartons =
-        _items.fold(0, (sum, i) => sum + (int.tryParse(i.qtyCtrl.text) ?? 0));
+    final totalCartons = _items.fold(0, (sum, i) => sum + i.qty);
     final totalNetWt = _items.fold(
         0.0, (sum, i) => sum + (double.tryParse(i.netWtCtrl.text) ?? 0));
     final totalGrossWt = _items.fold(
         0.0, (sum, i) => sum + (double.tryParse(i.grossWtCtrl.text) ?? 0));
-    final totalAmount = _items.fold(
-        0.0, (sum, i) => sum + (double.tryParse(i.amountCtrl.text) ?? 0));
     final totalPallets = _items.fold(
         0, (sum, i) => sum + (int.tryParse(i.palletsCtrl.text) ?? 0));
-    final totalCostEgp = _items.fold<double>(0.0, (sum, i) {
-      final cost = double.tryParse(i.priceCtrl.text) ?? 0;
-      final qty = int.tryParse(i.qtyCtrl.text) ?? 0;
-      return sum + (cost * qty);
-    });
-    final totalExportRevenue = _items.fold<double>(0.0, (sum, i) {
-      final ep = double.tryParse(i.exportPricePerCartonCtrl.text) ?? 0;
-      final qty = int.tryParse(i.qtyCtrl.text) ?? 0;
-      return sum + (ep * qty);
-    });
+
+    // Production cost dynamically fetched from product cost centers
+    final totalCostEgp =
+        _items.fold<double>(0.0, (sum, i) => sum + i.totalCostEgp);
+
+    // Export revenue in foreign currency (e.g., USD / EUR)
+    final totalExportRevenueForeign =
+        _items.fold<double>(0.0, (sum, i) => sum + i.totalRevenueForeign);
+
+    // Converted revenue in EGP
+    final totalRevenueEgp = totalExportRevenueForeign * rate;
+
+    // Optional discount
+    final discountForeign =
+        double.tryParse(_discountAmountCtrl.text.trim()) ?? 0.0;
+    final discountEgp = discountForeign * rate;
+    final netRevenueForeign =
+        (totalExportRevenueForeign - discountForeign).clamp(0.0, double.infinity);
+    final netRevenueEgp =
+        (totalRevenueEgp - discountEgp).clamp(0.0, double.infinity);
+
+    // Customer payment and remaining balance
+    final paidForeign =
+        double.tryParse(_paidAmountCtrl.text.trim()) ?? 0.0;
+    final paidEgp = paidForeign * rate;
+    final remainingDueForeign = netRevenueForeign - paidForeign;
+    final remainingDueEgp = netRevenueEgp - paidEgp;
+
+    // Net Profit / Loss & Margin Calculation
+    final totalNetProfitEgp = netRevenueEgp - totalCostEgp;
+    final totalMarginPct =
+        netRevenueEgp > 0 ? (totalNetProfitEgp / netRevenueEgp) * 100 : 0.0;
+    final isOverallProfit = totalNetProfitEgp >= 0;
+    final hasMetrics = totalCartons > 0 &&
+        (totalExportRevenueForeign > 0 || totalCostEgp > 0);
+
+    const profitGreen = Color(0xFF10B981);
+    const lossRed = Color(0xFFEF4444);
+    final profitColor = isOverallProfit ? profitGreen : lossRed;
+
     return Container(
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: AppTheme.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+        color: isDark ? AppTheme.cyberSurface : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark
+              ? (hasMetrics
+                  ? profitColor.withValues(alpha: 0.35)
+                  : AppTheme.primary.withValues(alpha: 0.25))
+              : const Color(0xFFCBD5E1),
+        ),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(children: [
-            const Icon(Icons.calculate_outlined,
-                size: 16, color: AppTheme.primary),
-            const SizedBox(width: 6),
-            const Text('ملخص الشحنة ككل',
-                style: TextStyle(
-                    color: AppTheme.primary,
-                    fontSize: 14,
-                    fontWeight: FontWeight.bold,
-                    fontFamily: 'Cairo')),
-          ]),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 4,
+          // Header row
+          Row(
             children: [
-              _totalItem('الأصناف', '$itemsCount'),
-              _totalItem('عدد الكراتين', '$totalCartons'),
+              Icon(Icons.analytics_outlined,
+                  size: 18, color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7)),
+              const SizedBox(width: 8),
+              Text(
+                'ملخص الشحنة ككل وحساب الربحية التقديرية',
+                style: TextStyle(
+                  color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo',
+                ),
+              ),
+              const Spacer(),
+              if (_currency != 'EGP')
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppTheme.neonCyan.withValues(alpha: 0.08) : const Color(0xFFE0F2FE),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(
+                        color: isDark ? AppTheme.neonCyan.withValues(alpha: 0.25) : const Color(0xFFBAE6FD)),
+                  ),
+                  child: Text(
+                    '1 $_currency = ${rate.toStringAsFixed(2)} ج.م',
+                    style: TextStyle(
+                      color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+
+          // Real-time Profitability Dashboard Card
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: hasMetrics
+                  ? profitColor.withValues(alpha: isDark ? 0.07 : 0.05)
+                  : (isDark ? Colors.white.withValues(alpha: 0.02) : const Color(0xFFF8FAFC)),
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: hasMetrics
+                    ? profitColor.withValues(alpha: isDark ? 0.4 : 0.5)
+                    : (isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
+                width: 1.2,
+              ),
+            ),
+            child: Column(
+              children: [
+                LayoutBuilder(builder: (context, constraints) {
+                  final isNarrow = constraints.maxWidth < 650;
+                  final costBlock = _profitKpiBlock(
+                    title: 'إجمالي تكلفة الإنتاج (مراكز التكلفة)',
+                    value: '${totalCostEgp.toStringAsFixed(2)} ج.م',
+                    valueColor: isDark ? const Color(0xFFFBBF24) : const Color(0xFFB45309),
+                    icon: Icons.inventory_2_outlined,
+                    iconColor: isDark ? const Color(0xFFFBBF24) : const Color(0xFFB45309),
+                    subtitle: totalCartons > 0
+                        ? 'متوسط: ${(totalCostEgp / totalCartons).toStringAsFixed(2)} ج.م / كرتونة'
+                        : '—',
+                  );
+                  final revenueBlock = _profitKpiBlock(
+                    title: discountForeign > 0
+                        ? 'صافي إيراد التصدير (بعد الخصم)'
+                        : 'إجمالي إيراد التصدير',
+                    value: _currency != 'EGP'
+                        ? '$symbol ${netRevenueForeign.toStringAsFixed(2)}'
+                        : '${netRevenueEgp.toStringAsFixed(2)} ج.م',
+                    valueColor: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
+                    icon: Icons.monetization_on_outlined,
+                    iconColor: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
+                    subtitle: discountForeign > 0
+                        ? 'إجمالي: $symbol ${totalExportRevenueForeign.toStringAsFixed(2)} | خصم: $symbol ${discountForeign.toStringAsFixed(2)}'
+                        : (_currency != 'EGP'
+                            ? 'يعادل بالمصري: ${totalRevenueEgp.toStringAsFixed(2)} ج.م'
+                            : 'العملة الأساسية: جنيه مصري'),
+                  );
+                  final profitBlock = _profitKpiBlock(
+                    title: isOverallProfit
+                        ? 'صافي الربح المتوقع'
+                        : 'صافي الخسارة المتوقعة',
+                    value: hasMetrics
+                        ? '${isOverallProfit ? '+' : ''}${totalNetProfitEgp.toStringAsFixed(2)} ج.م'
+                        : '—',
+                    valueColor: hasMetrics ? profitColor : (isDark ? AppTheme.textMuted : const Color(0xFF64748B)),
+                    icon: hasMetrics
+                        ? (isOverallProfit
+                            ? Icons.trending_up
+                            : Icons.trending_down)
+                        : Icons.hourglass_empty,
+                    iconColor: hasMetrics ? profitColor : (isDark ? AppTheme.textMuted : const Color(0xFF64748B)),
+                    subtitle: hasMetrics
+                        ? (isOverallProfit
+                            ? 'هامش ربح إيجابي: ${totalMarginPct.toStringAsFixed(1)}%'
+                            : 'نسبة خسارة: ${totalMarginPct.toStringAsFixed(1)}%')
+                        : 'أدخل الكراتين والأسعار',
+                    isEmphasized: true,
+                  );
+
+                  if (isNarrow) {
+                    return Column(
+                      children: [
+                        costBlock,
+                        const SizedBox(height: 10),
+                        revenueBlock,
+                        const SizedBox(height: 10),
+                        profitBlock,
+                      ],
+                    );
+                  }
+
+                  return Row(
+                    children: [
+                      Expanded(child: costBlock),
+                      const SizedBox(width: 12),
+                      Expanded(child: revenueBlock),
+                      const SizedBox(width: 12),
+                      Expanded(child: profitBlock),
+                    ],
+                  );
+                }),
+              ],
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          // Logistics & shipment specs row
+          Wrap(
+            spacing: 12,
+            runSpacing: 6,
+            children: [
+              _totalItem('الأصناف', '$itemsCount صنف'),
+              _totalItem('عدد الكراتين', '$totalCartons كرتونة'),
               if (_transportMode != 'air')
-                _totalItem('عدد البالتات', '$totalPallets'),
+                _totalItem('عدد البالتات', '$totalPallets طبلية'),
               _totalItem('الوزن الصافي', '${totalNetWt.toStringAsFixed(0)} كجم'),
-              _totalItem('الوزن الإجمالي', '${totalGrossWt.toStringAsFixed(0)} كجم'),
-              _totalItem('إجمالي القيمة',
-                  '$symbol ${totalAmount.toStringAsFixed(2)} $_currency'),
-              _totalItem('إجمالي التكلفة', '${totalCostEgp.toStringAsFixed(2)} ج.م'),
-              _totalItem('إجمالي التصدير', totalExportRevenue > 0 ? '$symbol ${totalExportRevenue.toStringAsFixed(2)}' : '—'),
+              _totalItem(
+                  'الوزن الإجمالي', '${totalGrossWt.toStringAsFixed(0)} كجم'),
+              if (discountForeign > 0)
+                _totalItem('الخصم المطبق',
+                    '$symbol ${discountForeign.toStringAsFixed(2)} (${discountEgp.toStringAsFixed(2)} ج.م)',
+                    valueColor: isDark ? AppTheme.warning : const Color(0xFFD97706)),
+              if (paidForeign > 0) ...[
+                _totalItem('المسدد من العميل',
+                    '$symbol ${paidForeign.toStringAsFixed(2)} (${paidEgp.toStringAsFixed(2)} ج.م)',
+                    valueColor: const Color(0xFF10B981)),
+                _totalItem(
+                    remainingDueForeign >= 0
+                        ? 'المتبقي على العميل'
+                        : 'فائض دفع العميل',
+                    '$symbol ${remainingDueForeign.abs().toStringAsFixed(2)} (${remainingDueEgp.abs().toStringAsFixed(2)} ج.م)',
+                    valueColor: remainingDueForeign > 0
+                        ? (isDark ? const Color(0xFFFBBF24) : const Color(0xFFB45309))
+                        : const Color(0xFF10B981)),
+              ],
             ],
           ),
         ],
@@ -2325,9 +3236,85 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
     );
   }
 
-  Widget _totalItem(String label, String value) {
+  Widget _profitKpiBlock({
+    required String title,
+    required String value,
+    required Color valueColor,
+    required IconData icon,
+    required Color iconColor,
+    required String subtitle,
+    bool isEmphasized = false,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: isEmphasized
+            ? valueColor.withValues(alpha: isDark ? 0.1 : 0.12)
+            : (isDark ? Colors.black.withValues(alpha: 0.2) : Colors.white),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: isEmphasized
+              ? valueColor.withValues(alpha: 0.4)
+              : (isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFCBD5E1)),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 14, color: iconColor),
+              const SizedBox(width: 5),
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
+                    fontSize: 10,
+                    fontFamily: 'Cairo',
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: valueColor,
+              fontSize: isEmphasized ? 16 : 14,
+              fontWeight: FontWeight.bold,
+              fontFamily: 'Cairo',
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            subtitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: isEmphasized
+                  ? valueColor.withValues(alpha: 0.85)
+                  : (isDark ? AppTheme.textMuted : const Color(0xFF64748B)),
+              fontSize: 10,
+              fontFamily: 'Cairo',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _totalItem(String label, String value, {Color? valueColor}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return SizedBox(
-      width: 140,
+      width: 155,
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 2),
         child: Row(
@@ -2335,16 +3322,17 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             Text('$label: ',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: AppTheme.textSecondary,
+                style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                     fontSize: 11,
+                    fontWeight: FontWeight.w600,
                     fontFamily: 'Cairo')),
             Expanded(
                 child: Text(value,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                        color: AppTheme.textPrimary,
+                    style: TextStyle(
+                        color: valueColor ?? (isDark ? AppTheme.textPrimary : const Color(0xFF0F172A)),
                         fontSize: 12,
                         fontWeight: FontWeight.bold,
                         fontFamily: 'Cairo'))),
@@ -2359,6 +3347,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
     final match = _customers.where((c) => c.id == _selectedCustomerId);
     if (match.isEmpty) return const SizedBox.shrink();
     final cu = match.first;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -2370,10 +3359,14 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             width: double.infinity,
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: AppTheme.neonCyan.withValues(alpha: 0.04),
+              color: isDark
+                  ? AppTheme.neonCyan.withValues(alpha: 0.04)
+                  : Colors.white,
               borderRadius: BorderRadius.circular(12),
-              border:
-                  Border.all(color: AppTheme.neonCyan.withValues(alpha: 0.15)),
+              border: Border.all(
+                  color: isDark
+                      ? AppTheme.neonCyan.withValues(alpha: 0.15)
+                      : const Color(0xFFCBD5E1)),
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -2387,10 +3380,12 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                 if (cu.vatNumber.isNotEmpty) _infoRow('VAT', cu.vatNumber),
                 if (cu.eoriNo.isNotEmpty) _infoRow('EORI', cu.eoriNo),
                 if (cu.contactPersonName.isNotEmpty) ...[
-                  const Divider(height: 16, color: AppTheme.glassBorder),
-                  const Text('جهة الاتصال',
+                  Divider(
+                      height: 16,
+                      color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
+                  Text('جهة الاتصال',
                       style: TextStyle(
-                          color: AppTheme.neonCyan,
+                          color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo')),
@@ -2402,10 +3397,12 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                     _infoRow('البريد', cu.contactPersonEmail),
                 ],
                 if (cu.addresses.isNotEmpty) ...[
-                  const Divider(height: 16, color: AppTheme.glassBorder),
-                  const Text('العناوين',
+                  Divider(
+                      height: 16,
+                      color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
+                  Text('العناوين',
                       style: TextStyle(
-                          color: AppTheme.neonCyan,
+                          color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
                           fontSize: 12,
                           fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo')),
@@ -2416,8 +3413,9 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                             '• ${a['full_address'] ?? a['address_line_1'] ?? ''}',
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                                color: AppTheme.textPrimary,
+                            style: TextStyle(
+                                color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
+                                fontWeight: FontWeight.w600,
                                 fontSize: 12,
                                 fontFamily: 'Cairo')),
                       )),
@@ -2427,7 +3425,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
           ),
         ),
         const SizedBox(height: 20),
-        const Divider(),
+        Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
         const SizedBox(height: 12),
       ],
     );
@@ -2439,6 +3437,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
     if (match.isEmpty) return const SizedBox.shrink();
     final cu = match.first;
     if (cu.addresses.isEmpty) return const SizedBox.shrink();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
@@ -2450,9 +3449,10 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 12),
             decoration: BoxDecoration(
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(
+                  color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
               borderRadius: BorderRadius.circular(12),
-              color: AppTheme.cyberSurface,
+              color: isDark ? AppTheme.cyberSurface : Colors.white,
             ),
             child: DropdownButtonHideUnderline(
               child: DropdownButton<String>(
@@ -2466,7 +3466,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                         color: AppTheme.textMuted,
                         fontFamily: 'Cairo',
                         fontSize: 14)),
-                dropdownColor: const Color(0xCC05192D),
+                dropdownColor: isDark ? const Color(0xCC05192D) : Colors.white,
                 items: List.generate(cu.addresses.length, (i) {
                   final a = cu.addresses[i];
                   final addr = a['address_line_1']?.toString() ?? '';
@@ -2479,8 +3479,9 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                     value: i.toString(),
                     child: Text(
                       display.isNotEmpty ? '(${i + 1}) $display' : 'عنوان ${i + 1}',
-                      style: const TextStyle(
-                          color: Colors.white,
+                      style: TextStyle(
+                          color: isDark ? Colors.white : const Color(0xFF0F172A),
+                          fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo',
                           fontSize: 13),
                       maxLines: 1,
@@ -2508,6 +3509,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _infoRow(String label, String value) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 2),
       child: Row(
@@ -2515,19 +3517,20 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
           Flexible(
             flex: 0,
             child: Text('$label: ',
-                style: const TextStyle(
-                    color: AppTheme.textSecondary,
+                style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                     fontSize: 12,
+                    fontWeight: FontWeight.w600,
                     fontFamily: 'Cairo')),
           ),
           Expanded(
             child: Text(value,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                    color: AppTheme.textPrimary,
+                style: TextStyle(
+                    color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                     fontSize: 13,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo')),
           ),
         ],
@@ -2536,16 +3539,18 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _buildCountrySearchField() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return AppSearchField<String>(
       label: 'دولة الوجهة',
       isRequired: true,
       controller: _countryCtrl,
       hint: 'أدخل الدولة الوجهة',
-      emptyBuilder: (context) => const Padding(
-        padding: EdgeInsets.all(12.0),
+      emptyBuilder: (context) => Padding(
+        padding: const EdgeInsets.all(12.0),
         child: Text('اكتب اسم الدولة مباشرة',
             style: TextStyle(
-                color: AppTheme.textMuted, fontFamily: 'Cairo')),
+                color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                fontFamily: 'Cairo')),
       ),
       suggestionsCallback: (pattern) async {
         try {
@@ -2569,7 +3574,11 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
         dense: true,
         leading: const Icon(Icons.public, size: 16, color: AppTheme.primary),
         title: Text(country,
-            style: const TextStyle(color: Colors.white, fontSize: 14, fontFamily: 'Cairo')),
+            style: TextStyle(
+                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+                fontFamily: 'Cairo')),
       ),
       onSelected: (country) {
         _countryCtrl.text = country;
@@ -2579,8 +3588,9 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _buildRightPanel() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
-      color: AppTheme.cyberBg,
+      color: isDark ? AppTheme.cyberBg : const Color(0xFFF8FAFC),
       padding: const EdgeInsets.all(20),
       child: SingleChildScrollView(
         child: AbsorbPointer(
@@ -2637,7 +3647,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
               maxLines: 2,
             ),
             const SizedBox(height: 20),
-            const Divider(),
+            Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
             const SizedBox(height: 12),
             _sectionTitle('الأصناف المشحونة'),
             const SizedBox(height: 12),
@@ -2652,10 +3662,14 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                 width: double.infinity,
                 padding: const EdgeInsets.symmetric(vertical: 12),
                 decoration: BoxDecoration(
-                  color: AppTheme.neonCyan.withValues(alpha: 0.06),
+                  color: isDark
+                      ? AppTheme.neonCyan.withValues(alpha: 0.06)
+                      : const Color(0xFFE0F2FE),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                      color: AppTheme.neonCyan.withValues(alpha: 0.25),
+                      color: isDark
+                          ? AppTheme.neonCyan.withValues(alpha: 0.25)
+                          : const Color(0xFF0284C7),
                       width: 1.5,
                       style: BorderStyle.solid),
                 ),
@@ -2663,11 +3677,12 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Icon(Icons.add_circle_outline,
-                        color: AppTheme.neonCyan, size: 20),
+                        color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
+                        size: 20),
                     const SizedBox(width: 8),
                     Text('إضافة صنف آخر',
                         style: TextStyle(
-                            color: AppTheme.neonCyan,
+                            color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo')),
@@ -2678,7 +3693,7 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             const SizedBox(height: 12),
             _buildTotalsRow(),
             const SizedBox(height: 20),
-            const Divider(),
+            Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
             const SizedBox(height: 12),
             _sectionTitle('الشروط والأحكام'),
             const SizedBox(height: 12),
@@ -2692,15 +3707,17 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
   }
 
   Widget _buildTermsSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: TextDirection.ltr,
       child: Container(
         width: double.infinity,
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.04),
+          color: isDark ? Colors.white.withValues(alpha: 0.04) : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.glassBorder),
+          border: Border.all(
+              color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2710,12 +3727,13 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
               padding: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
                 border: Border(
-                    bottom: BorderSide(color: AppTheme.glassBorder)),
+                    bottom: BorderSide(
+                        color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0))),
               ),
-              child: const Text('TERMS OF SALE AND OTHER COMMENTS',
+              child: Text('TERMS OF SALE AND OTHER COMMENTS',
                   textAlign: TextAlign.left,
                   style: TextStyle(
-                      color: AppTheme.textPrimary,
+                      color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                       fontSize: 14,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo')),
@@ -2726,23 +3744,24 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
               padding: const EdgeInsets.symmetric(vertical: 6),
               decoration: BoxDecoration(
                 border: Border(
-                    bottom: BorderSide(color: AppTheme.glassBorder)),
+                    bottom: BorderSide(
+                        color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0))),
               ),
-              child: const Text('TERMS AND CONDITIONS',
+              child: Text('TERMS AND CONDITIONS',
                   textAlign: TextAlign.left,
                   style: TextStyle(
-                      color: AppTheme.textSecondary,
+                      color: isDark ? AppTheme.textSecondary : const Color(0xFF334155),
                       fontSize: 12,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo')),
             ),
             const SizedBox(height: 6),
-            const Text('Fruity Farms',
+            Text('Fruity Farms',
                 textAlign: TextAlign.left,
                 style: TextStyle(
-                    color: AppTheme.textPrimary,
+                    color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A),
                     fontSize: 13,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.bold,
                     fontFamily: 'Cairo')),
             const SizedBox(height: 12),
             _termsField('Port Of Loading', _portOfLoadingCtrl),
@@ -2753,19 +3772,19 @@ class _ExportShipmentFormPageState extends State<ExportShipmentFormPage> {
             const SizedBox(height: 10),
             _termsField('Mode Of Transport', _transportModeCtrl),
             const SizedBox(height: 12),
-            const Text(
+            Text(
                 'All Banking Charges Out Of Egypt Including Remitting Charges Are On Applicants Account',
                 textAlign: TextAlign.left,
                 style: TextStyle(
-                    color: AppTheme.textSecondary,
+                    color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                     fontSize: 11,
                     fontFamily: 'Cairo')),
             const SizedBox(height: 6),
-            const Text(
+            Text(
                 'I Certify The Above To Be True And Correct To The Best Of My Knowledge',
                 textAlign: TextAlign.left,
                 style: TextStyle(
-                    color: AppTheme.textSecondary,
+                    color: isDark ? AppTheme.textSecondary : const Color(0xFF475569),
                     fontSize: 11,
                     fontFamily: 'Cairo')),
           ],
@@ -2798,10 +3817,14 @@ class _ShipmentItem {
   final TextEditingController invoiceProductCtrl;
 
   String? packingOrderNumber;
+  String? exportShipmentNo;
+  String? customerName;
 
   _ShipmentItem(
       {this.packingOrderId,
       this.packingOrderNumber,
+      this.exportShipmentNo,
+      this.customerName,
       this.productId,
       this.grade = '',
       this.recipeName,
@@ -2820,16 +3843,47 @@ class _ShipmentItem {
         palletsCtrl = TextEditingController(text: '0'),
         invoiceProductCtrl = TextEditingController();
 
+  /// Number of cartons
+  int get qty => int.tryParse(qtyCtrl.text.trim()) ?? 0;
+
+  /// Production cost per carton in EGP (from product cost center / packing order)
+  double get unitCostEgp => double.tryParse(priceCtrl.text.trim()) ?? 0.0;
+
+  /// Total production cost in EGP = cartons * unit cost
+  double get totalCostEgp => qty * unitCostEgp;
+
+  /// Export price per carton in foreign currency (e.g., USD / EUR)
+  double get exportPrice =>
+      double.tryParse(exportPricePerCartonCtrl.text.trim()) ?? 0.0;
+
+  /// Total export revenue in foreign currency (e.g., USD / EUR)
+  double get totalRevenueForeign => qty * exportPrice;
+
+  /// Total export revenue normalized into EGP using shipment active exchange rate
+  double totalRevenueEgp(double exchangeRate) {
+    final rate = exchangeRate > 0 ? exchangeRate : 1.0;
+    return totalRevenueForeign * rate;
+  }
+
+  /// Net Profit / Loss in EGP = Converted Revenue (EGP) - Total Production Cost (EGP)
+  double netProfitEgp(double exchangeRate) {
+    return totalRevenueEgp(exchangeRate) - totalCostEgp;
+  }
+
+  /// Profit Margin % = (Net Profit (EGP) / Converted Revenue (EGP)) * 100
+  double profitMarginPct(double exchangeRate) {
+    final rev = totalRevenueEgp(exchangeRate);
+    if (rev <= 0) return 0.0;
+    return (netProfitEgp(exchangeRate) / rev) * 100;
+  }
+
   void recalculate() {
-    final qty = int.tryParse(qtyCtrl.text) ?? 0;
-    final price = double.tryParse(exportPricePerCartonCtrl.text.isNotEmpty
-            ? exportPricePerCartonCtrl.text
-            : priceCtrl.text) ??
-        0;
-    final wpc = double.tryParse(weightPerCartonCtrl.text) ?? 0;
-    final totalNet = wpc * qty;
+    final q = qty;
+    final activePrice = exportPrice > 0 ? exportPrice : unitCostEgp;
+    final wpc = double.tryParse(weightPerCartonCtrl.text.trim()) ?? 0;
+    final totalNet = wpc * q;
     netWtCtrl.text = totalNet.toStringAsFixed(0);
-    amountCtrl.text = (qty * price).toStringAsFixed(2);
+    amountCtrl.text = (q * activePrice).toStringAsFixed(2);
   }
 
   void dispose() {

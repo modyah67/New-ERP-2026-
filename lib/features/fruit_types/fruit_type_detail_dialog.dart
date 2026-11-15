@@ -33,65 +33,78 @@ class FruitTypeDetailDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final screenWidth = MediaQuery.of(context).size.width;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    return Dialog(
-      clipBehavior: Clip.antiAlias,
-      backgroundColor: const Color(0xCC05192D),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: AppTheme.glassBorder),
+    final dialogContent = Container(
+      width: screenWidth < 500 ? screenWidth * 0.95 : 520,
+      constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xB305192D) : Colors.white,
+        borderRadius: const BorderRadius.all(Radius.circular(24)),
       ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(24),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: Container(
-            width: screenWidth < 500 ? screenWidth * 0.95 : 520,
-            constraints: BoxConstraints(maxHeight: MediaQuery.of(context).size.height * 0.8),
-            decoration: const BoxDecoration(
-              color: Color(0xB305192D),
-              borderRadius: BorderRadius.all(Radius.circular(24)),
-            ),
-            child: Directionality(
-              textDirection: TextDirection.rtl,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
+      child: Directionality(
+        textDirection: TextDirection.rtl,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _buildHeader(context, isDark),
+            Flexible(
+              child: ListView(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
                 children: [
-                  _buildHeader(context),
-                  Flexible(
-                    child: ListView(
-                      padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                      children: [
-                        const SizedBox(height: 16),
-                        _buildSummaryCard(),
-                        const SizedBox(height: 16),
-                        _buildPriceSection(),
-                        const SizedBox(height: 16),
-                        _buildWarehouseSection(),
-                      ],
-                    ),
-                  ),
+                  const SizedBox(height: 16),
+                  _buildSummaryCard(isDark),
+                  const SizedBox(height: 16),
+                  _buildPriceSection(isDark),
+                  const SizedBox(height: 16),
+                  _buildWarehouseSection(isDark),
                 ],
               ),
             ),
-          ),
+          ],
         ),
       ),
     );
+
+    return Dialog(
+      clipBehavior: Clip.antiAlias,
+      backgroundColor: isDark ? const Color(0xCC05192D) : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(24),
+        side: BorderSide(
+          color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
+      ),
+      child: isDark
+          ? ClipRRect(
+              borderRadius: BorderRadius.circular(24),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: dialogContent,
+              ),
+            )
+          : dialogContent,
+    );
   }
 
-  Widget _buildHeader(BuildContext context) {
+  Widget _buildHeader(BuildContext context, bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 18),
       decoration: BoxDecoration(
-        border: Border(bottom: BorderSide(color: Colors.white.withValues(alpha: 0.08))),
+        border: Border(
+          bottom: BorderSide(
+            color: isDark ? Colors.white.withValues(alpha: 0.08) : const Color(0xFFE2E8F0),
+          ),
+        ),
       ),
       child: Row(
         children: [
           Container(
-            width: 44, height: 44,
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
-              color: _avatarColor(fruitType.name).withValues(alpha: 0.1),
+              color: _avatarColor(fruitType.name).withValues(alpha: isDark ? 0.1 : 0.15),
               borderRadius: BorderRadius.circular(14),
             ),
             child: Center(
@@ -116,7 +129,12 @@ class FruitTypeDetailDialog extends StatelessWidget {
                     Expanded(
                       child: Text(
                         fruitType.name,
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo'),
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: isDark ? Colors.white : Colors.black,
+                          fontFamily: 'Cairo',
+                        ),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                       ),
@@ -125,16 +143,18 @@ class FruitTypeDetailDialog extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: AppTheme.warning.withValues(alpha: 0.15),
+                        color: isDark ? AppTheme.warning.withValues(alpha: 0.15) : const Color(0xFFFEF3C7),
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppTheme.warning.withValues(alpha: 0.3)),
+                        border: Border.all(
+                          color: isDark ? AppTheme.warning.withValues(alpha: 0.3) : const Color(0xFFF59E0B),
+                        ),
                       ),
                       child: Text(
                         fruitType.currency,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
                           fontWeight: FontWeight.bold,
-                          color: AppTheme.warning,
+                          color: isDark ? AppTheme.warning : Colors.black,
                           fontFamily: 'Cairo',
                         ),
                       ),
@@ -143,13 +163,18 @@ class FruitTypeDetailDialog extends StatelessWidget {
                 ),
                 Text(
                   fruitType.code,
-                  style: TextStyle(fontSize: 12, color: AppTheme.primary.withValues(alpha: 0.8), fontFamily: 'Cairo'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: isDark ? AppTheme.primary.withValues(alpha: 0.8) : Colors.black,
+                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                    fontFamily: 'Cairo',
+                  ),
                 ),
               ],
             ),
           ),
           IconButton(
-            icon: const Icon(Icons.close, color: Colors.white70, size: 22),
+            icon: Icon(Icons.close, color: isDark ? Colors.white70 : Colors.black, size: 22),
             onPressed: () => Navigator.pop(context),
           ),
         ],
@@ -157,18 +182,33 @@ class FruitTypeDetailDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildSummaryCard() {
+  Widget _buildSummaryCard(bool isDark) {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            AppTheme.primary.withValues(alpha: 0.12),
-            AppTheme.accent.withValues(alpha: 0.08),
-          ],
-        ),
+        color: isDark ? null : Colors.white,
+        gradient: isDark
+            ? LinearGradient(
+                colors: [
+                  AppTheme.primary.withValues(alpha: 0.12),
+                  AppTheme.accent.withValues(alpha: 0.08),
+                ],
+              )
+            : null,
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+        border: Border.all(
+          color: isDark ? AppTheme.primary.withValues(alpha: 0.2) : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: const Color(0xFF0F172A).withValues(alpha: 0.04),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2),
+                ),
+              ],
       ),
       child: Row(
         children: [
@@ -177,46 +217,67 @@ class FruitTypeDetailDialog extends StatelessWidget {
             'الكمية الإجمالية',
             '${_formatQty(_totalQuantity)} $_unitLabel',
             AppTheme.primary,
+            isDark,
           ),
-          Container(width: 1, height: 40, color: Colors.white.withValues(alpha: 0.1)),
+          Container(
+            width: 1,
+            height: 40,
+            color: isDark ? Colors.white.withValues(alpha: 0.1) : const Color(0xFFE2E8F0),
+          ),
           _buildSummaryItem(
             Icons.warehouse_outlined,
             'عدد المخازن',
             '${distribution.where((d) => (d['quantity'] as double? ?? 0) > 0).length}',
             AppTheme.accent,
+            isDark,
           ),
         ],
       ),
     );
   }
 
-  Widget _buildSummaryItem(IconData icon, String label, String value, Color color) {
+  Widget _buildSummaryItem(IconData icon, String label, String value, Color color, bool isDark) {
     return Expanded(
       child: Column(
         children: [
-          Icon(icon, size: 20, color: color),
+          Icon(icon, size: 20, color: isDark ? color : const Color(0xFF0284C7)),
           const SizedBox(height: 6),
           Text(
             value,
-            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: color, fontFamily: 'Cairo'),
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.bold,
+              color: isDark ? color : Colors.black,
+              fontFamily: 'Cairo',
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             label,
-            style: TextStyle(fontSize: 10, color: AppTheme.textSecondary.withValues(alpha: 0.8), fontFamily: 'Cairo'),
+            style: TextStyle(
+              fontSize: 10,
+              color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.8) : Colors.black,
+              fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+              fontFamily: 'Cairo',
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildPriceSection() {
+  Widget _buildPriceSection(bool isDark) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'أسعار الشراء',
-          style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo'),
+          style: TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: isDark ? Colors.white : Colors.black,
+            fontFamily: 'Cairo',
+          ),
         ),
         const SizedBox(height: 10),
         Row(
@@ -227,6 +288,7 @@ class FruitTypeDetailDialog extends StatelessWidget {
                 _formatPrice(fruitType.latestPurchasePrice),
                 Icons.attach_money,
                 fruitType.latestPurchasePrice != null ? AppTheme.success : AppTheme.textMuted,
+                isDark,
               ),
             ),
             const SizedBox(width: 10),
@@ -236,6 +298,7 @@ class FruitTypeDetailDialog extends StatelessWidget {
                 _formatPrice(fruitType.averagePurchasePrice),
                 Icons.trending_up,
                 fruitType.averagePurchasePrice != null ? AppTheme.info : AppTheme.textMuted,
+                isDark,
               ),
             ),
           ],
@@ -245,7 +308,12 @@ class FruitTypeDetailDialog extends StatelessWidget {
           Center(
             child: Text(
               'آخر شراء: ${AppUtils.formatDate(DateTime.parse(fruitType.lastPurchaseDate!))}',
-              style: TextStyle(fontSize: 11, color: AppTheme.textSecondary.withValues(alpha: 0.7), fontFamily: 'Cairo'),
+              style: TextStyle(
+                fontSize: 11,
+                color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.7) : Colors.black,
+                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                fontFamily: 'Cairo',
+              ),
             ),
           ),
         ],
@@ -253,33 +321,46 @@ class FruitTypeDetailDialog extends StatelessWidget {
     );
   }
 
-  Widget _buildPriceCard(String label, String value, IconData icon, Color color) {
+  Widget _buildPriceCard(String label, String value, IconData icon, Color color, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
+        color: isDark ? color.withValues(alpha: 0.08) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.2)),
+        border: Border.all(
+          color: isDark ? color.withValues(alpha: 0.2) : const Color(0xFFCBD5E1),
+          width: 1.2,
+        ),
       ),
       child: Column(
         children: [
-          Icon(icon, size: 18, color: color),
+          Icon(icon, size: 18, color: isDark ? color : const Color(0xFF0284C7)),
           const SizedBox(height: 6),
           Text(
             value,
-            style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: color, fontFamily: 'Cairo'),
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.bold,
+              color: isDark ? color : Colors.black,
+              fontFamily: 'Cairo',
+            ),
           ),
           const SizedBox(height: 2),
           Text(
             label,
-            style: TextStyle(fontSize: 10, color: AppTheme.textSecondary.withValues(alpha: 0.8), fontFamily: 'Cairo'),
+            style: TextStyle(
+              fontSize: 10,
+              color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.8) : Colors.black,
+              fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+              fontFamily: 'Cairo',
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildWarehouseSection() {
+  Widget _buildWarehouseSection(bool isDark) {
     final activeDistribution = distribution.where((d) => (d['quantity'] as double? ?? 0) > 0).toList();
 
     return Column(
@@ -287,11 +368,16 @@ class FruitTypeDetailDialog extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Icon(Icons.warehouse_outlined, size: 16, color: AppTheme.accent),
+            Icon(Icons.warehouse_outlined, size: 16, color: isDark ? AppTheme.accent : const Color(0xFF0284C7)),
             const SizedBox(width: 8),
-            const Text(
+            Text(
               'التوزيع على المخازن',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo'),
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : Colors.black,
+                fontFamily: 'Cairo',
+              ),
             ),
           ],
         ),
@@ -300,13 +386,21 @@ class FruitTypeDetailDialog extends StatelessWidget {
           Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.04),
+              color: isDark ? Colors.white.withValues(alpha: 0.04) : const Color(0xFFF1F5F9),
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1),
+              ),
             ),
             child: Center(
               child: Text(
                 'لا يوجد مخزون في أي مخزن',
-                style: TextStyle(fontSize: 13, color: AppTheme.textSecondary.withValues(alpha: 0.6), fontFamily: 'Cairo'),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.6) : Colors.black,
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                  fontFamily: 'Cairo',
+                ),
               ),
             ),
           )
@@ -321,21 +415,29 @@ class FruitTypeDetailDialog extends StatelessWidget {
               margin: const EdgeInsets.only(bottom: 8),
               padding: const EdgeInsets.all(12),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.04),
+                color: isDark ? Colors.white.withValues(alpha: 0.04) : const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.glassBorder.withValues(alpha: 0.3)),
+                border: Border.all(
+                  color: isDark ? AppTheme.glassBorder.withValues(alpha: 0.3) : const Color(0xFFCBD5E1),
+                  width: 1.2,
+                ),
               ),
               child: Column(
                 children: [
                   Row(
                     children: [
                       Container(
-                        width: 32, height: 32,
+                        width: 32,
+                        height: 32,
                         decoration: BoxDecoration(
-                          color: AppTheme.accent.withValues(alpha: 0.12),
+                          color: isDark ? AppTheme.accent.withValues(alpha: 0.12) : const Color(0xFFE0F2FE),
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        child: const Icon(Icons.warehouse_outlined, size: 16, color: AppTheme.accent),
+                        child: Icon(
+                          Icons.warehouse_outlined,
+                          size: 16,
+                          color: isDark ? AppTheme.accent : const Color(0xFF0284C7),
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -344,11 +446,21 @@ class FruitTypeDetailDialog extends StatelessWidget {
                           children: [
                             Text(
                               stationName,
-                              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo'),
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.bold,
+                                color: isDark ? Colors.white : Colors.black,
+                                fontFamily: 'Cairo',
+                              ),
                             ),
                             Text(
                               stationCode,
-                              style: TextStyle(fontSize: 10, color: AppTheme.accent.withValues(alpha: 0.7), fontFamily: 'Cairo'),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: isDark ? AppTheme.accent.withValues(alpha: 0.7) : Colors.black87,
+                                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                                fontFamily: 'Cairo',
+                              ),
                             ),
                           ],
                         ),
@@ -358,11 +470,21 @@ class FruitTypeDetailDialog extends StatelessWidget {
                         children: [
                           Text(
                             '${_formatQty(qty)} $_unitLabel',
-                            style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: AppTheme.warning, fontFamily: 'Cairo'),
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? AppTheme.warning : Colors.black,
+                              fontFamily: 'Cairo',
+                            ),
                           ),
                           Text(
                             '${percentage.toStringAsFixed(1)}%',
-                            style: TextStyle(fontSize: 10, color: AppTheme.textSecondary.withValues(alpha: 0.7), fontFamily: 'Cairo'),
+                            style: TextStyle(
+                              fontSize: 10,
+                              color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.7) : Colors.black,
+                              fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                              fontFamily: 'Cairo',
+                            ),
                           ),
                         ],
                       ),
@@ -373,9 +495,11 @@ class FruitTypeDetailDialog extends StatelessWidget {
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
                       value: _totalQuantity > 0 ? qty / _totalQuantity : 0,
-                      backgroundColor: Colors.white.withValues(alpha: 0.06),
+                      backgroundColor: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFE2E8F0),
                       valueColor: AlwaysStoppedAnimation<Color>(
-                        AppTheme.primary.withValues(alpha: 0.6 + (percentage / 100 * 0.4)),
+                        isDark
+                            ? AppTheme.primary.withValues(alpha: 0.6 + (percentage / 100 * 0.4))
+                            : const Color(0xFF0284C7),
                       ),
                       minHeight: 4,
                     ),

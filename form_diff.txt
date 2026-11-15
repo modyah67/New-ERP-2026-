@@ -1,0 +1,706 @@
+diff --git a/lib/features/packing/packing_order_form_page.dart b/lib/features/packing/packing_order_form_page.dart
+index f31d3f6..74daffa 100644
+--- a/lib/features/packing/packing_order_form_page.dart
++++ b/lib/features/packing/packing_order_form_page.dart
+@@ -211,6 +211,48 @@ class _PackingOrderFormPageState extends State<PackingOrderFormPage> {
+   List<Map<String, dynamic>> _costCategories = [];
+ 
+   int? _selectedStationId;
++  Set<int> _selectedStationIds = {};
++  final Map<int, TextEditingController> _warehouseWeightCtrls = {};
++
++  double get _totalEffectiveWeight =>
++      _lotEntries.fold<double>(0.0, (s, e) => s + e.effectiveWeight);
++
++  double get _totalAllocatedWarehouseWeight {
++    if (_selectedStationIds.length <= 1) {
++      return _totalEffectiveWeight;
++    }
++    double sum = 0.0;
++    for (final stId in _selectedStationIds) {
++      final ctrl = _warehouseWeightCtrls[stId];
++      if (ctrl != null) {
++        sum += double.tryParse(ctrl.text.replaceAll(',', '').trim()) ?? 0.0;
++      }
++    }
++    return sum;
++  }
++
++  void _autoDistributeWarehouseWeights() {
++    if (_selectedStationIds.isEmpty) return;
++    final total = _totalEffectiveWeight;
++    if (total <= 0) return;
++    final count = _selectedStationIds.length;
++    final perWarehouse = (total / count).roundToDouble();
++    double distributed = 0.0;
++    final list = _selectedStationIds.toList();
++    for (int i = 0; i < list.length; i++) {
++      final stId = list[i];
++      final ctrl = _warehouseWeightCtrls.putIfAbsent(stId, () => TextEditingController());
++      if (i == list.length - 1) {
++        final remainder = total - distributed;
++        ctrl.text = (remainder > 0 ? remainder : 0.0).toStringAsFixed(2);
++      } else {
++        ctrl.text = perWarehouse.toStringAsFixed(2);
++        distributed += perWarehouse;
++      }
++    }
++    setState(() {});
++  }
++
+   bool _loading = true;
+   bool _saving = false;
+ 
+@@ -337,6 +379,43 @@ class _PackingOrderFormPageState extends State<PackingOrderFormPage> {
+   Future<void> _prefillFromOrder(PackingOrderModel order) async {
+     _selectedStationId = int.tryParse(order.stationId ?? '');
+ 
++    // Multi-warehouse prefill from notes
++    _selectedStationIds.clear();
++    _warehouseWeightCtrls.clear();
++    if (order.notes != null && order.notes!.isNotEmpty) {
++      try {
++        final notesData = jsonDecode(order.notes!);
++        if (notesData is Map) {
++          if (notesData['selected_station_ids'] is List) {
++            for (final id in notesData['selected_station_ids']) {
++              final stId = (id as num?)?.toInt();
++              if (stId != null) _selectedStationIds.add(stId);
++            }
++          }
++          if (notesData['warehouse_allocations'] is List) {
++            for (final alloc in notesData['warehouse_allocations']) {
++              if (alloc is Map) {
++                final stId = (alloc['station_id'] as num?)?.toInt();
++                final w = (alloc['allocated_weight_kg'] as num?)?.toDouble() ?? 0.0;
++                if (stId != null) {
++                  _selectedStationIds.add(stId);
++                  _warehouseWeightCtrls[stId] = TextEditingController(
++                    text: w > 0 ? w.toStringAsFixed(2) : '',
++                  );
++                }
++              }
++            }
++          }
++        }
++      } catch (_) {}
++    }
++    if (_selectedStationIds.isEmpty && _selectedStationId != null) {
++      _selectedStationIds.add(_selectedStationId!);
++    }
++    if (_selectedStationIds.isNotEmpty) {
++      _selectedStationId = _selectedStationIds.first;
++    }
++
+     if (_selectedStationId != null) {
+       await _filterLots(_selectedStationId!, keepLotId: order.lotId);
+       final products =
+@@ -556,10 +635,12 @@ class _PackingOrderFormPageState extends State<PackingOrderFormPage> {
+       final lots = await _lotDao.getAll();
+       if (mounted) _allLots = lots;
+     } catch (_) {}
+-    final stationStr = stationId.toString();
++    final targetIds = _selectedStationIds.isNotEmpty
++        ? _selectedStationIds.map((id) => id.toString()).toSet()
++        : {stationId.toString()};
+     _filteredLots = _allLots
+         .where((l) =>
+-            l.stationId == stationStr &&
++            targetIds.contains(l.stationId) &&
+             (l.status == 'received' ||
+                 l.status == 'sorting' ||
+                 l.id == keepLotId))
+@@ -567,10 +648,12 @@ class _PackingOrderFormPageState extends State<PackingOrderFormPage> {
+   }
+ 
+   void _filterLotsFromCache(int stationId) {
+-    final stationStr = stationId.toString();
++    final targetIds = _selectedStationIds.isNotEmpty
++        ? _selectedStationIds.map((id) => id.toString()).toSet()
++        : {stationId.toString()};
+     _filteredLots = _allLots
+         .where((l) =>
+-            l.stationId == stationStr &&
++            targetIds.contains(l.stationId) &&
+             (l.status == 'received' || l.status == 'sorting'))
+         .toList();
+   }
+@@ -578,11 +661,12 @@ class _PackingOrderFormPageState extends State<PackingOrderFormPage> {
+   Future<void> _fetchLotRemainingQuantities(int stationId,
+       {String? keepBatchId, Set<String>? keepBatchIds}) async {
+     try {
+-      final batchesData = await Supabase.instance.client
++      final baseBatchQuery = Supabase.instance.client
+           .from('station_product_batches')
+-          .select()
+-          .eq('station_id', stationId)
+-          .order('created_at', ascending: true);
++          .select();
++      final batchesData = _selectedStationIds.isNotEmpty
++          ? await baseBatchQuery.inFilter('station_id', _selectedStationIds.toList()).order('created_at', ascending: true)
++          : await baseBatchQuery.eq('station_id', stationId).order('created_at', ascending: true);
+ 
+       final parsedBatches =
+           batchesData.map(StationProductBatch.fromMap).toList();
+@@ -659,12 +743,14 @@ class _PackingOrderFormPageState extends State<PackingOrderFormPage> {
+         debugPrint('Error fetching raw materials: $e');
+       }
+ 
+-      final batchData = await Supabase.instance.client
++      final baseMatQuery = Supabase.instance.client
+           .from('station_product_batches')
+           .select(
+               'id, product_code, product_name, remaining_quantity, quantity, source_type')
+-          .eq('station_id', stationId)
+           .inFilter('source_type', ['purchase', 'opening', 'transfer', 'manual']);
++      final batchData = _selectedStationIds.isNotEmpty
++          ? await baseMatQuery.inFilter('station_id', _selectedStationIds.toList())
++          : await baseMatQuery.eq('station_id', stationId);
+ 
+       final batches = (batchData is List)
+           ? List<Map<String, dynamic>>.from(batchData)
+@@ -774,6 +860,9 @@ class _PackingOrderFormPageState extends State<PackingOrderFormPage> {
+   @override
+   void dispose() {
+     _materialWastePercentCtrl.dispose();
++    for (final c in _warehouseWeightCtrls.values) {
++      c.dispose();
++    }
+     for (final e in _lotEntries) {
+       e.dispose();
+     }
+@@ -1176,63 +1265,431 @@ class _PackingOrderFormPageState extends State<PackingOrderFormPage> {
+       return int.tryParse(s.id ?? '') ?? s.id.hashCode.abs();
+     }
+ 
+-    final validStationIds = _stations.map(getStationKey).toSet();
++    final isDark = AppTheme.isDark(context);
++    final totalRequired = _totalEffectiveWeight;
++    final totalAllocated = _totalAllocatedWarehouseWeight;
++    final isAllocMatched = (totalAllocated - totalRequired).abs() <= 0.1;
++    final isUnderAlloc = totalAllocated < totalRequired - 0.1;
++    final isOverAlloc = totalAllocated > totalRequired + 0.1;
+ 
+-    final selectedValue = validStationIds.contains(_selectedStationId)
+-        ? _selectedStationId
+-        : null;
++    return Column(
++      crossAxisAlignment: CrossAxisAlignment.start,
++      children: [
++        // ── Header & Badge ──
++        Row(
++          mainAxisAlignment: MainAxisAlignment.spaceBetween,
++          children: [
++            Row(
++              children: [
++                Icon(
++                  Icons.warehouse_rounded,
++                  size: 20,
++                  color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
++                ),
++                const SizedBox(width: 8),
++                Text(
++                  'المخازن المسحوب منها (سحب متعدد)',
++                  style: TextStyle(
++                    fontFamily: 'Cairo',
++                    fontSize: 14,
++                    fontWeight: FontWeight.bold,
++                    color: isDark ? Colors.white : Colors.black87,
++                  ),
++                ),
++              ],
++            ),
++            Container(
++              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
++              decoration: BoxDecoration(
++                color: _selectedStationIds.isEmpty
++                    ? Colors.orange.withValues(alpha: 0.15)
++                    : const Color(0xFF10B981).withValues(alpha: 0.15),
++                borderRadius: BorderRadius.circular(20),
++                border: Border.all(
++                  color: _selectedStationIds.isEmpty
++                      ? Colors.orange.withValues(alpha: 0.4)
++                      : const Color(0xFF10B981).withValues(alpha: 0.4),
++                ),
++              ),
++              child: Row(
++                mainAxisSize: MainAxisSize.min,
++                children: [
++                  Icon(
++                    _selectedStationIds.isEmpty
++                        ? Icons.warning_amber_rounded
++                        : Icons.check_circle_rounded,
++                    size: 14,
++                    color: _selectedStationIds.isEmpty ? Colors.orange : const Color(0xFF10B981),
++                  ),
++                  const SizedBox(width: 4),
++                  Text(
++                    _selectedStationIds.isEmpty
++                        ? 'لم يتم تحديد مخزن'
++                        : '${_selectedStationIds.length} ${_selectedStationIds.length > 1 ? "مخازن محددة" : "مخزن محدد"}',
++                    style: TextStyle(
++                      fontFamily: 'Cairo',
++                      fontSize: 11,
++                      fontWeight: FontWeight.bold,
++                      color: _selectedStationIds.isEmpty ? Colors.orange : const Color(0xFF10B981),
++                    ),
++                  ),
++                ],
++              ),
++            ),
++          ],
++        ),
++        const SizedBox(height: 12),
++
++        // ── Multi-Select Warehouse Cards ──
++        Wrap(
++          spacing: 10,
++          runSpacing: 10,
++          children: _stations.map((s) {
++            final stId = getStationKey(s);
++            final isSelected = _selectedStationIds.contains(stId);
++            return InkWell(
++              borderRadius: BorderRadius.circular(10),
++              onTap: () async {
++                if (_stockFieldsLocked) {
++                  ScaffoldMessenger.of(context).showSnackBar(
++                    const SnackBar(
++                      content: Text('لا يمكن تعديل المخازن بعد تأكيد مرحلة المحاصيل', style: TextStyle(fontFamily: 'Cairo')),
++                      backgroundColor: AppTheme.warning,
++                    ),
++                  );
++                  return;
++                }
++                setState(() {
++                  if (isSelected) {
++                    if (_selectedStationIds.length > 1) {
++                      _selectedStationIds.remove(stId);
++                      _warehouseWeightCtrls.remove(stId)?.dispose();
++                    } else {
++                      ScaffoldMessenger.of(context).showSnackBar(
++                        const SnackBar(
++                          content: Text('يجب اختيار مخزن واحد على الأقل', style: TextStyle(fontFamily: 'Cairo')),
++                          backgroundColor: AppTheme.warning,
++                        ),
++                      );
++                      return;
++                    }
++                  } else {
++                    _selectedStationIds.add(stId);
++                    _warehouseWeightCtrls.putIfAbsent(stId, () => TextEditingController());
++                  }
++                  _selectedStationId = _selectedStationIds.isNotEmpty ? _selectedStationIds.first : null;
++                });
++
++                // Auto-refresh cache and products for all selected stations
++                if (_selectedStationId != null) {
++                  _filterLotsFromCache(_selectedStationId!);
++                  final products = await _stationProductDao.getByStation(_selectedStationId!);
++                  if (mounted) {
++                    setState(() => _warehouseProducts = products);
++                  }
++                  await Future.wait([
++                    _loadMaterialProducts(_selectedStationId!),
++                    _fetchLotRemainingQuantities(_selectedStationId!),
++                  ]);
++                }
++              },
++              child: AnimatedContainer(
++                duration: const Duration(milliseconds: 200),
++                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
++                decoration: BoxDecoration(
++                  color: isSelected
++                      ? (isDark ? const Color(0xFF0284C7).withValues(alpha: 0.25) : const Color(0xFFE0F2FE))
++                      : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC)),
++                  borderRadius: BorderRadius.circular(10),
++                  border: Border.all(
++                    color: isSelected
++                        ? const Color(0xFF0284C7)
++                        : (isDark ? Colors.white12 : const Color(0xFFCBD5E1)),
++                    width: isSelected ? 1.8 : 1,
++                  ),
++                  boxShadow: isSelected
++                      ? [
++                          BoxShadow(
++                            color: const Color(0xFF0284C7).withValues(alpha: 0.2),
++                            blurRadius: 6,
++                            offset: const Offset(0, 2),
++                          )
++                        ]
++                      : [],
++                ),
++                child: Row(
++                  mainAxisSize: MainAxisSize.min,
++                  children: [
++                    Icon(
++                      isSelected ? Icons.check_box_rounded : Icons.check_box_outline_blank_rounded,
++                      size: 20,
++                      color: isSelected ? const Color(0xFF0284C7) : (isDark ? Colors.white38 : const Color(0xFF94A3B8)),
++                    ),
++                    const SizedBox(width: 8),
++                    Text(
++                      s.name,
++                      style: TextStyle(
++                        fontFamily: 'Cairo',
++                        fontSize: 13,
++                        fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
++                        color: isSelected
++                            ? (isDark ? Colors.white : const Color(0xFF0369A1))
++                            : (isDark ? Colors.white70 : const Color(0xFF334155)),
++                      ),
++                    ),
++                    if (s.id != null && s.id!.isNotEmpty) ...[
++                      const SizedBox(width: 6),
++                      Container(
++                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
++                        decoration: BoxDecoration(
++                          color: isDark ? Colors.black26 : Colors.white,
++                          borderRadius: BorderRadius.circular(4),
++                          border: Border.all(color: isDark ? Colors.white10 : const Color(0xFFE2E8F0)),
++                        ),
++                        child: Text(
++                          s.id!,
++                          style: TextStyle(
++                            fontFamily: 'Cairo',
++                            fontSize: 10.5,
++                            color: isDark ? Colors.white54 : const Color(0xFF64748B),
++                            fontWeight: FontWeight.w600,
++                          ),
++                        ),
++                      ),
++                    ],
++                  ],
++                ),
++              ),
++            );
++          }).toList(),
++        ),
+ 
+-    return DropdownButtonFormField<int>(
+-      value: selectedValue,
+-      decoration: _inputDecoration('المخزن'),
+-      dropdownColor: const Color(0xFF05192D),
+-      style: const TextStyle(
+-          color: Colors.white, fontFamily: 'Cairo', fontSize: 15),
+-      items: _stations.map((s) {
+-        final stId = getStationKey(s);
+-        return DropdownMenuItem<int>(
+-          value: stId,
+-          child: Text(
+-            s.name,
+-            style: const TextStyle(fontFamily: 'Cairo', color: Colors.white),
++        // ── Allocation Sub-Panel when Multiple Warehouses are Selected ──
++        if (_selectedStationIds.length > 1) ...[
++          const SizedBox(height: 16),
++          Container(
++            padding: const EdgeInsets.all(14),
++            decoration: BoxDecoration(
++              color: isDark ? const Color(0xFF0F172A).withValues(alpha: 0.8) : const Color(0xFFF1F5F9),
++              borderRadius: BorderRadius.circular(12),
++              border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.3)),
++            ),
++            child: Column(
++              crossAxisAlignment: CrossAxisAlignment.start,
++              children: [
++                Row(
++                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
++                  children: [
++                    Row(
++                      children: [
++                        const Icon(Icons.tune_rounded, size: 18, color: Color(0xFF0284C7)),
++                        const SizedBox(width: 6),
++                        const Text(
++                          'توزيع الكميات المسحوبة على المخازن',
++                          style: TextStyle(
++                            fontFamily: 'Cairo',
++                            fontSize: 13,
++                            fontWeight: FontWeight.bold,
++                          ),
++                        ),
++                      ],
++                    ),
++                    TextButton.icon(
++                      onPressed: _autoDistributeWarehouseWeights,
++                      icon: const Icon(Icons.balance_rounded, size: 15),
++                      label: const Text(
++                        'توزيع بالتساوي ⚖️',
++                        style: TextStyle(fontFamily: 'Cairo', fontSize: 11.5, fontWeight: FontWeight.bold),
++                      ),
++                      style: TextButton.styleFrom(
++                        foregroundColor: const Color(0xFF0284C7),
++                        backgroundColor: const Color(0xFF0284C7).withValues(alpha: 0.1),
++                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
++                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
++                      ),
++                    ),
++                  ],
++                ),
++                const Divider(height: 18),
++
++                // Table of Warehouses and Input Fields
++                ..._selectedStationIds.map((stId) {
++                  final stMatches = _stations.where((s) => getStationKey(s) == stId);
++                  final stName = stMatches.isNotEmpty ? stMatches.first.name : 'مخزن $stId';
++                  final stCode = stMatches.isNotEmpty ? stMatches.first.code : stId.toString();
++                  final ctrl = _warehouseWeightCtrls.putIfAbsent(stId, () => TextEditingController());
++                  final enteredVal = double.tryParse(ctrl.text.replaceAll(',', '').trim()) ?? 0.0;
++                  final pct = totalRequired > 0 ? (enteredVal / totalRequired) * 100 : 0.0;
++
++                  return Padding(
++                    padding: const EdgeInsets.only(bottom: 10),
++                    child: Row(
++                      children: [
++                        Expanded(
++                          flex: 3,
++                          child: Row(
++                            children: [
++                              const Icon(Icons.storefront_rounded, size: 16, color: Color(0xFF64748B)),
++                              const SizedBox(width: 6),
++                              Text(
++                                stName,
++                                style: const TextStyle(
++                                  fontFamily: 'Cairo',
++                                  fontSize: 12.5,
++                                  fontWeight: FontWeight.bold,
++                                ),
++                              ),
++                              if (stCode.isNotEmpty) ...[
++                                const SizedBox(width: 4),
++                                Text(
++                                  '($stCode)',
++                                  style: const TextStyle(
++                                    fontFamily: 'Cairo',
++                                    fontSize: 10.5,
++                                    color: Color(0xFF94A3B8),
++                                  ),
++                                ),
++                              ],
++                            ],
++                          ),
++                        ),
++                        Expanded(
++                          flex: 3,
++                          child: TextFormField(
++                            controller: ctrl,
++                            keyboardType: const TextInputType.numberWithOptions(decimal: true),
++                            enabled: !_stockFieldsLocked,
++                            onChanged: (_) => setState(() {}),
++                            style: const TextStyle(fontFamily: 'Cairo', fontSize: 12.5, fontWeight: FontWeight.bold),
++                            decoration: InputDecoration(
++                              contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
++                              hintText: 'الكمية (كجم)',
++                              suffixText: 'كجم',
++                              suffixStyle: const TextStyle(fontFamily: 'Cairo', fontSize: 11),
++                              filled: true,
++                              fillColor: isDark ? const Color(0xFF1E293B) : Colors.white,
++                              border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
++                            ),
++                          ),
++                        ),
++                        const SizedBox(width: 10),
++                        Container(
++                          width: 60,
++                          alignment: Alignment.center,
++                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 6),
++                          decoration: BoxDecoration(
++                            color: const Color(0xFF0284C7).withValues(alpha: 0.1),
++                            borderRadius: BorderRadius.circular(6),
++                          ),
++                          child: Text(
++                            '${pct.toStringAsFixed(1)}%',
++                            style: const TextStyle(
++                              fontFamily: 'Cairo',
++                              fontSize: 11,
++                              fontWeight: FontWeight.bold,
++                              color: Color(0xFF0284C7),
++                            ),
++                          ),
++                        ),
++                      ],
++                    ),
++                  );
++                }),
++
++                const SizedBox(height: 8),
++                // Live Allocation Status Bar
++                Container(
++                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
++                  decoration: BoxDecoration(
++                    color: isAllocMatched
++                        ? const Color(0xFF10B981).withValues(alpha: 0.1)
++                        : (isOverAlloc
++                            ? const Color(0xFFEF4444).withValues(alpha: 0.1)
++                            : Colors.orange.withValues(alpha: 0.1)),
++                    borderRadius: BorderRadius.circular(8),
++                    border: Border.all(
++                      color: isAllocMatched
++                          ? const Color(0xFF10B981).withValues(alpha: 0.3)
++                          : (isOverAlloc
++                              ? const Color(0xFFEF4444).withValues(alpha: 0.3)
++                              : Colors.orange.withValues(alpha: 0.3)),
++                    ),
++                  ),
++                  child: Row(
++                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
++                    children: [
++                      Row(
++                        children: [
++                          Icon(
++                            isAllocMatched
++                                ? Icons.verified_rounded
++                                : (isOverAlloc ? Icons.error_rounded : Icons.info_rounded),
++                            size: 16,
++                            color: isAllocMatched
++                                ? const Color(0xFF10B981)
++                                : (isOverAlloc ? const Color(0xFFEF4444) : Colors.orange),
++                          ),
++                          const SizedBox(width: 6),
++                          Text(
++                            isAllocMatched
++                                ? '✓ التوزيع متطابق تماماً مع إجمالي أمر التعبئة'
++                                : (isOverAlloc
++                                    ? '❌ زيادة في التوزيع: +${(totalAllocated - totalRequired).toStringAsFixed(1)} كجم'
++                                    : '⚠ متبقي للتوزيع: ${(totalRequired - totalAllocated).toStringAsFixed(1)} كجم'),
++                            style: TextStyle(
++                              fontFamily: 'Cairo',
++                              fontSize: 11.5,
++                              fontWeight: FontWeight.bold,
++                              color: isAllocMatched
++                                  ? const Color(0xFF10B981)
++                                  : (isOverAlloc ? const Color(0xFFEF4444) : Colors.orange),
++                            ),
++                          ),
++                        ],
++                      ),
++                      Text(
++                        'الموزع: ${totalAllocated.toStringAsFixed(1)} / المطلوب: ${totalRequired.toStringAsFixed(1)} كجم',
++                        style: const TextStyle(
++                          fontFamily: 'Cairo',
++                          fontSize: 11,
++                          fontWeight: FontWeight.bold,
++                        ),
++                      ),
++                    ],
++                  ),
++                ),
++              ],
++            ),
+           ),
+-        );
+-      }).toList(),
+-      onChanged: (v) async {
+-        if (v != null && _selectedStationId != v && _hasAnyLotsSelected()) {
+-          final confirmed = await _showWarehouseChangeDialog();
+-          if (!confirmed) return;
+-          for (final e in _lotEntries) {
+-            e.dispose();
+-          }
+-          _lotEntries
+-            ..clear()
+-            ..add(_LotEntry());
+-          _materialItems.clear();
+-          _costItems.clear();
+-        }
+-        setState(() {
+-          _selectedStationId = v;
+-        });
+-        if (v != null) {
+-          final matchedStation = _stations.firstWhere(
+-            (s) => getStationKey(s) == v,
+-            orElse: () => _stations.first,
+-          );
+-          final rawId = int.tryParse(matchedStation.id ?? '') ?? v;
+-          _filterLotsFromCache(rawId);
+-          if (mounted) setState(() {});
+-          final products = await _stationProductDao.getByStation(rawId);
+-          if (mounted) {
+-            setState(() => _warehouseProducts = products);
+-          }
+-          await Future.wait([
+-            _loadMaterialProducts(rawId),
+-            _fetchLotRemainingQuantities(rawId),
+-          ]);
+-        }
+-      },
+-      validator: (v) => v == null ? 'اختر المخزن' : null,
++        ] else if (_selectedStationIds.length == 1) ...[
++          const SizedBox(height: 10),
++          Container(
++            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
++            decoration: BoxDecoration(
++              color: const Color(0xFF0284C7).withValues(alpha: 0.08),
++              borderRadius: BorderRadius.circular(8),
++              border: Border.all(color: const Color(0xFF0284C7).withValues(alpha: 0.2)),
++            ),
++            child: Row(
++              children: [
++                const Icon(Icons.info_outline_rounded, size: 16, color: Color(0xFF0284C7)),
++                const SizedBox(width: 8),
++                Expanded(
++                  child: Text(
++                    'سيتم سحب كامل الكمية (${totalRequired.toStringAsFixed(1)} كجم - 100%) من المخزن المحدد تلقائياً.',
++                    style: const TextStyle(
++                      fontFamily: 'Cairo',
++                      fontSize: 11.5,
++                      color: Color(0xFF0369A1),
++                      fontWeight: FontWeight.w600,
++                    ),
++                  ),
++                ),
++              ],
++            ),
++          ),
++        ],
++      ],
+     );
+   }
+ 
+@@ -5654,6 +6111,20 @@ class _PackingOrderFormPageState extends State<PackingOrderFormPage> {
+     // Full validation for draft orders
+     // ═══════════════════════════════════════════════
+ 
++    if (_selectedStationIds.isEmpty) {
++      _showError('يرجى اختيار مخزن واحد على الأقل للسحب منه');
++      return;
++    }
++
++    if (_selectedStationIds.length > 1 && _totalEffectiveWeight > 0) {
++      final allocTotal = _totalAllocatedWarehouseWeight;
++      final diff = (allocTotal - _totalEffectiveWeight).abs();
++      if (diff > 0.5) {
++        _showError('إجمالي الكميات الموزعة على المخازن (${allocTotal.toStringAsFixed(1)} كجم) لا يطابق إجمالي وزن أمر التعبئة (${_totalEffectiveWeight.toStringAsFixed(1)} كجم)');
++        return;
++      }
++    }
++
+     for (int i = 0; i < _lotEntries.length; i++) {
+       final entry = _lotEntries[i];
+       final label = _lotEntries.length > 1 ? 'المحصول #${i + 1}' : 'المحصول';
+@@ -5852,6 +6323,27 @@ class _PackingOrderFormPageState extends State<PackingOrderFormPage> {
+       }
+       notesMap['product_cost_per_kg'] = firstEntry.productCostPerKg;
+       if (_materialItems.isNotEmpty) notesMap['materials'] = _materialItems;
++
++      // Multi-warehouse allocations
++      if (_selectedStationIds.isNotEmpty) {
++        final List<Map<String, dynamic>> whAllocations = [];
++        for (final stId in _selectedStationIds) {
++          final stMatches = _stations.where(
++            (s) => (int.tryParse(s.id ?? '') ?? s.id.hashCode.abs()) == stId);
++        final stName = stMatches.isNotEmpty ? stMatches.first.name : 'مخزن $stId';
++          final allocW = _selectedStationIds.length == 1
++              ? _totalEffectiveWeight
++              : (double.tryParse(_warehouseWeightCtrls[stId]?.text.replaceAll(',', '').trim() ?? '') ?? 0.0);
++          whAllocations.add({
++            'station_id': stId,
++            'station_name': stName,
++            'allocated_weight_kg': allocW,
++            'percentage': _totalEffectiveWeight > 0 ? (allocW / _totalEffectiveWeight) * 100 : 0.0,
++          });
++        }
++        notesMap['warehouse_allocations'] = whAllocations;
++        notesMap['selected_station_ids'] = _selectedStationIds.toList();
++      }
+       if (_materialWastePercent > 0)
+         notesMap['material_waste_percent'] = _materialWastePercent;
+       if (_costItems.isNotEmpty) notesMap['cost_items'] = _costItems;

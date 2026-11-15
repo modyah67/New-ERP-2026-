@@ -29,6 +29,20 @@ class _ShareholdersView extends StatefulWidget {
 }
 
 class _ShareholdersViewState extends State<_ShareholdersView> {
+  late final ScrollController _horizontalScrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _horizontalScrollController = ScrollController();
+  }
+
+  @override
+  void dispose() {
+    _horizontalScrollController.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -76,92 +90,30 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
 
   Widget _buildHeader(double w, double titleSize) {
     final iconSize = w < 400 ? 22.0 : 28.0;
+    final isDark = ThemeCubit.isCurrentDark;
+    final primaryColor = isDark ? AppTheme.primary : AppTheme.lightPrimary;
 
-    if (w < 700) {
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.people_outline, color: AppTheme.primary, size: iconSize),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Text('المساهمين',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                        fontSize: titleSize,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                        fontFamily: 'Cairo')),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primary,
-                padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              ),
-              onPressed: () => _showAddShareholderSheet(context),
-              icon: const Icon(Icons.add, color: Colors.white),
-              label: const Text('إضافة مساهم',
-                  style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: _ExportIconButton(
-                  onTap: () {
-                    final state = context.read<ShareholdersCubit>().state;
-                    if (state is ShareholdersLoaded) {
-                      ShareholdersExportService.exportShareholdersToExcel(state.shareholders);
-                    }
-                  },
-                  label: 'Excel',
-                  icon: Icons.grid_on,
-                  color: const Color(0xFF00D4AA),
-                ),
-              ),
-              const SizedBox(width: 8),
-              // Expanded(
-              //   child: _ExportIconButton(
-              //     onTap: () {
-              //       final state = context.read<ShareholdersCubit>().state;
-              //       if (state is ShareholdersLoaded) {
-              //         ShareholdersExportService.exportShareholdersToPdf(state.shareholders);
-              //       }
-              //     },
-              //     label: 'PDF',
-              //     icon: Icons.picture_as_pdf,
-              //     color: const Color(0xFFFF4757),
-              //   ),
-              // ),
-            ],
-          ),
-        ],
-      );
-    }
-
-    return Row(
+    final titleWidget = Row(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(Icons.people_outline, color: AppTheme.primary, size: iconSize),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Text('المساهمين',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                  fontSize: titleSize,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.white,
-                  fontFamily: 'Cairo')),
-        ),
-        const SizedBox(width: 12),
+        Icon(Icons.people_outline, color: primaryColor, size: iconSize),
+        const SizedBox(width: 10),
+        Text('المساهمين',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+                fontSize: titleSize,
+                fontWeight: FontWeight.bold,
+                color: isDark ? Colors.white : const Color(0xFF0F172A),
+                fontFamily: 'Cairo')),
+      ],
+    );
+
+    final actionsWidget = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
         _ExportIconButton(
           onTap: () {
             final state = context.read<ShareholdersCubit>().state;
@@ -173,29 +125,36 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
           icon: Icons.grid_on,
           color: const Color(0xFF00D4AA),
         ),
-        const SizedBox(width: 8),
-        // _ExportIconButton(
-        //   onTap: () {
-        //     final state = context.read<ShareholdersCubit>().state;
-        //     if (state is ShareholdersLoaded) {
-        //       ShareholdersExportService.exportShareholdersToPdf(state.shareholders);
-        //     }
-        //   },
-        //   label: 'PDF',
-        //   icon: Icons.picture_as_pdf,
-        //   color: const Color(0xFFFF4757),
-        // ),
-        const SizedBox(width: 8),
         ElevatedButton.icon(
           style: ElevatedButton.styleFrom(
-            backgroundColor: AppTheme.primary,
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+            backgroundColor: primaryColor,
+            padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
           ),
           onPressed: () => _showAddShareholderSheet(context),
-          icon: const Icon(Icons.add, color: Colors.white),
+          icon: const Icon(Icons.add, color: Colors.white, size: 18),
           label: const Text('إضافة مساهم',
-              style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+              style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 13)),
         ),
+      ],
+    );
+
+    if (w < 480) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          titleWidget,
+          const SizedBox(height: 12),
+          actionsWidget,
+        ],
+      );
+    }
+
+    return Row(
+      children: [
+        titleWidget,
+        const Spacer(),
+        actionsWidget,
       ],
     );
   }
@@ -212,71 +171,128 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
     final cellFontSize = w < 400 ? 10.0 : w < 700 ? 11.0 : 12.0;
     final cellVerticalPad = w < 400 ? 8.0 : 12.0;
 
+    final isDark = ThemeCubit.isCurrentDark;
+    final labelColor = isDark ? AppTheme.textSecondary : Colors.black;
+
     return Container(
       decoration: BoxDecoration(
-        color: AppTheme.surface,
+        color: isDark ? AppTheme.surface : Colors.white,
         borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : AppTheme.lightBorder),
+        boxShadow: isDark ? null : [
+          BoxShadow(
+            color: const Color(0xFF0F172A).withValues(alpha: 0.05),
+            blurRadius: 10,
+            offset: const Offset(0, 4),
+          ),
+        ],
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final minWidth = constraints.maxWidth > 900 ? constraints.maxWidth : 900.0;
-          return SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: minWidth,
-              child: Column(
-                children: [
-                  Container(
-                    padding: EdgeInsets.symmetric(horizontal: pad, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: AppTheme.primary.withValues(alpha: 0.1),
-                      borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+          final minWidth = constraints.maxWidth > 720 ? constraints.maxWidth : 720.0;
+          return Scrollbar(
+            controller: _horizontalScrollController,
+            thumbVisibility: constraints.maxWidth < 720,
+            child: SingleChildScrollView(
+              controller: _horizontalScrollController,
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: minWidth,
+                child: Column(
+                  children: [
+                    Container(
+                      padding: EdgeInsets.symmetric(horizontal: pad, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: isDark ? AppTheme.primary.withValues(alpha: 0.1) : const Color(0xFFF1F5F9),
+                        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(flex: 2, child: Text('الكود', style: TextStyle(color: labelColor, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+                          Expanded(flex: 3, child: Text('الاسم', style: TextStyle(color: labelColor, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+                          Expanded(flex: 3, child: Text('جنية', textAlign: TextAlign.center, style: TextStyle(color: labelColor, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+                          Expanded(flex: 3, child: Text('دولار', textAlign: TextAlign.center, style: TextStyle(color: labelColor, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+                          Expanded(flex: 3, child: Text('يورو', textAlign: TextAlign.center, style: TextStyle(color: labelColor, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+                          Expanded(flex: 3, child: Text('استرليني', textAlign: TextAlign.center, style: TextStyle(color: labelColor, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+                          Expanded(flex: 1, child: Text('تعديل', textAlign: TextAlign.center, style: TextStyle(color: labelColor, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+                        ],
+                      ),
                     ),
-                    child: Row(
-                      children: [
-                        Expanded(flex: 2, child: Text('الكود', style: TextStyle(color: AppTheme.textSecondary, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-                        Expanded(flex: 3, child: Text('الاسم', style: TextStyle(color: AppTheme.textSecondary, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-                        Expanded(flex: 3, child: Text('جنية', textAlign: TextAlign.center, style: TextStyle(color: AppTheme.textSecondary, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-                        Expanded(flex: 3, child: Text('دولار', textAlign: TextAlign.center, style: TextStyle(color: AppTheme.textSecondary, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-                        Expanded(flex: 3, child: Text('يورو', textAlign: TextAlign.center, style: TextStyle(color: AppTheme.textSecondary, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-                        Expanded(flex: 3, child: Text('استرليني', textAlign: TextAlign.center, style: TextStyle(color: AppTheme.textSecondary, fontSize: headerFontSize, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-                        Expanded(flex: 1, child: Text('', textAlign: TextAlign.center)),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView.separated(
-                      padding: EdgeInsets.zero,
-                      itemCount: state.shareholders.length,
-                      separatorBuilder: (_, __) => const Divider(color: AppTheme.divider, height: 1),
-                      itemBuilder: (ctx, index) {
-                        final s = state.shareholders[index];
-                        return Padding(
-                          padding: EdgeInsets.symmetric(horizontal: pad, vertical: cellVerticalPad),
-                          child: Row(
-                            children: [
-                              Expanded(flex: 2, child: Text(s.code, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: cellFontSize))),
-                              Expanded(flex: 3, child: Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: cellFontSize))),
-                              Expanded(flex: 3, child: _buildCurrencyStats(s.currentBalanceEgp, s.totalDepositsEgp, s.totalWithdrawalsEgp, cellFontSize)),
-                              Expanded(flex: 3, child: _buildCurrencyStats(s.currentBalanceUsd, s.totalDepositsUsd, s.totalWithdrawalsUsd, cellFontSize)),
-                              Expanded(flex: 3, child: _buildCurrencyStats(s.currentBalanceEur, s.totalDepositsEur, s.totalWithdrawalsEur, cellFontSize)),
-                              Expanded(flex: 3, child: _buildCurrencyStats(s.currentBalanceGbp, s.totalDepositsGbp, s.totalWithdrawalsGbp, cellFontSize)),
-                              Expanded(
-                                flex: 1, 
-                                child: IconButton(
-                                  icon: const Icon(Icons.edit, color: AppTheme.primary, size: 20),
-                                  onPressed: () => _showEditInitialBalanceDialog(context, s),
-                                  tooltip: 'تعديل الرصيد الافتتاحي (جنية)',
+                    Expanded(
+                      child: ListView.separated(
+                        padding: EdgeInsets.zero,
+                        itemCount: state.shareholders.length,
+                        separatorBuilder: (_, __) => Divider(color: isDark ? AppTheme.divider : AppTheme.lightBorder, height: 1),
+                        itemBuilder: (ctx, index) {
+                          final s = state.shareholders[index];
+                          final isEven = index % 2 == 0;
+                          return Container(
+                            color: isEven
+                                ? (isDark ? Colors.white.withValues(alpha: 0.02) : Colors.transparent)
+                                : (isDark ? Colors.white.withValues(alpha: 0.04) : const Color(0xFFF8FAFC)),
+                            padding: EdgeInsets.symmetric(horizontal: pad, vertical: cellVerticalPad),
+                            child: Row(
+                              children: [
+                                Expanded(
+                                  flex: 2,
+                                  child: Align(
+                                    alignment: AlignmentDirectional.centerStart,
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                      decoration: BoxDecoration(
+                                        color: (isDark ? AppTheme.accent : AppTheme.lightAccent).withValues(alpha: isDark ? 0.08 : 0.12),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        s.code,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: isDark ? AppTheme.accent : Colors.black,
+                                          fontFamily: 'Cairo',
+                                          fontSize: cellFontSize,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
-
-                            ],
-                          ),
-                        );
-                      },
+                                Expanded(
+                                  flex: 3,
+                                  child: Text(
+                                    s.name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color: isDark ? Colors.white : Colors.black,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                      fontSize: cellFontSize + 1,
+                                    ),
+                                  ),
+                                ),
+                                Expanded(flex: 3, child: _buildCurrencyStats(s.currentBalanceEgp, s.totalDepositsEgp, s.totalWithdrawalsEgp, cellFontSize)),
+                                Expanded(flex: 3, child: _buildCurrencyStats(s.currentBalanceUsd, s.totalDepositsUsd, s.totalWithdrawalsUsd, cellFontSize)),
+                                Expanded(flex: 3, child: _buildCurrencyStats(s.currentBalanceEur, s.totalDepositsEur, s.totalWithdrawalsEur, cellFontSize)),
+                                Expanded(flex: 3, child: _buildCurrencyStats(s.currentBalanceGbp, s.totalDepositsGbp, s.totalWithdrawalsGbp, cellFontSize)),
+                                Expanded(
+                                  flex: 1,
+                                  child: Center(
+                                    child: IconButton(
+                                      icon: Icon(Icons.edit_outlined, color: isDark ? AppTheme.primary : AppTheme.lightPrimary, size: 20),
+                                      onPressed: () => _showEditInitialBalanceDialog(context, s),
+                                      tooltip: 'تعديل الرصيد الافتتاحي (جنية)',
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           );
@@ -286,23 +302,52 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
   }
 
   Widget _buildCurrencyStats(double balance, double deposits, double withdrawals, double fontSize) {
+    final isDark = ThemeCubit.isCurrentDark;
     final labelSize = fontSize - 1;
+
+    final balanceColor = balance > 0
+        ? (isDark ? AppTheme.success : const Color(0xFF15803D))
+        : (balance < 0 ? (isDark ? AppTheme.danger : const Color(0xFFB91C1C)) : (isDark ? AppTheme.textSecondary : Colors.black));
+    final depositColor = isDark ? AppTheme.success : const Color(0xFF0284C7);
+    final withdrawalColor = isDark ? AppTheme.danger : const Color(0xFFDC2626);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.center,
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text('الرصيد: ${AppUtils.formatNumber(balance)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: balance != 0 ? AppTheme.success : AppTheme.textSecondary, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: fontSize)),
-        Text('إيداع: ${AppUtils.formatNumber(deposits)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: AppTheme.success, fontFamily: 'Cairo', fontSize: labelSize)),
-        Text('صرف: ${AppUtils.formatNumber(withdrawals)}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(color: AppTheme.danger, fontFamily: 'Cairo', fontSize: labelSize)),
+        Text(
+          'الرصيد: ${AppUtils.formatNumber(balance)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: balanceColor,
+            fontWeight: FontWeight.w900,
+            fontFamily: 'Cairo',
+            fontSize: fontSize,
+          ),
+        ),
+        Text(
+          'إيداع: ${AppUtils.formatNumber(deposits)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: depositColor,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Cairo',
+            fontSize: labelSize,
+          ),
+        ),
+        Text(
+          'صرف: ${AppUtils.formatNumber(withdrawals)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: withdrawalColor,
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Cairo',
+            fontSize: labelSize,
+          ),
+        ),
       ],
     );
   }
@@ -329,10 +374,11 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
       backgroundColor: Colors.transparent,
       isScrollControlled: true,
       builder: (sheetContext) {
+        final isDark = ThemeCubit.isCurrentDark;
         return StatefulBuilder(
           builder: (context, setState) {
             return Material(
-          color: const Color(0xFF0A1630),
+          color: isDark ? const Color(0xFF0A1630) : Colors.white,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           child: Padding(
             padding: EdgeInsets.fromLTRB(20, 20, 20, MediaQuery.of(sheetContext).viewInsets.bottom + 20),
@@ -341,33 +387,76 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('إضافة مساهم',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo')),
+                Text('إضافة مساهم',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo')),
                 const SizedBox(height: 16),
 
                 TextField(
                   controller: codeCtrl,
                   enabled: true,
-                  style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+                  keyboardType: TextInputType.number,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                    fontFamily: 'Cairo',
+                  ),
                   decoration: InputDecoration(
                     labelText: 'الكود',
-                    labelStyle: const TextStyle(color: AppTheme.textMuted),
+                    hintText: ShareholderModel.codeHint,
+                    labelStyle: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
+                    floatingLabelStyle: TextStyle(
+                      color: isDark ? AppTheme.primary : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
+                    hintStyle: TextStyle(
+                      color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
                     filled: true,
-                    fillColor: AppTheme.surface,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    fillColor: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFF94A3B8))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFF94A3B8))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? AppTheme.primary : Colors.black, width: 2.0)),
                   ),
                 ),
                 const SizedBox(height: 12),
 
                 TextField(
                   controller: nameCtrl,
-                  style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                  style: TextStyle(
+                    color: isDark ? Colors.white : Colors.black,
+                    fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                    fontFamily: 'Cairo',
+                  ),
                   decoration: InputDecoration(
                     labelText: 'الاسم',
-                    labelStyle: const TextStyle(color: AppTheme.textMuted),
+                    labelStyle: TextStyle(
+                      color: isDark ? AppTheme.textSecondary : Colors.black,
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
+                    floatingLabelStyle: TextStyle(
+                      color: isDark ? AppTheme.primary : Colors.black,
+                      fontWeight: FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
+                    hintStyle: TextStyle(
+                      color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                      fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                      fontFamily: 'Cairo',
+                    ),
                     filled: true,
-                    fillColor: AppTheme.surface,
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                    fillColor: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFF94A3B8))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFF94A3B8))),
+                    focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? AppTheme.primary : Colors.black, width: 2.0)),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -408,7 +497,7 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
                       padding: const EdgeInsets.symmetric(vertical: 16),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     ),
-                    onPressed: () {
+                    onPressed: () async {
                       final code = codeCtrl.text.trim();
                       final name = nameCtrl.text.trim();
                       final egp = double.tryParse(egpCtrl.text.trim()) ?? 0.0;
@@ -418,6 +507,32 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
 
                       if (code.isEmpty || name.isEmpty) {
                         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('الكود والاسم مطلوبان', style: TextStyle(fontFamily: 'Cairo'))));
+                        return;
+                      }
+
+                      // ── Form Validation Guard: Strict Numerical Boundary Check ──
+                      final codeErr = ShareholderModel.validateShareholderCode(code);
+                      if (codeErr != null) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(codeErr, style: const TextStyle(fontFamily: 'Cairo')),
+                            backgroundColor: AppTheme.danger,
+                          ),
+                        );
+                        return;
+                      }
+
+                      // ── Collision Check Guard ──
+                      final exists = await ShareholderDao().checkCodeExists(code);
+                      if (exists) {
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('كود المساهم ($code) مستخدم بالفعل، يرجى اختيار كود آخر',
+                                style: const TextStyle(fontFamily: 'Cairo')),
+                            backgroundColor: AppTheme.danger,
+                          ),
+                        );
                         return;
                       }
 
@@ -439,6 +554,7 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
                         createdAt: DateTime.now().toIso8601String(),
                       );
 
+                      if (!sheetContext.mounted) return;
                       cubit.addShareholder(shareholder);
                       Navigator.of(sheetContext).pop();
                     },
@@ -459,23 +575,24 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
     final cubit = context.read<ShareholdersCubit>();
     
     final egpCtrl = TextEditingController(text: shareholder.initialBalanceEgp.toString());
-    final usdCtrl = TextEditingController(text: (shareholder.initialBalanceUsd ?? 0.0).toString());
-    final eurCtrl = TextEditingController(text: (shareholder.initialBalanceEur ?? 0.0).toString());
-    final gbpCtrl = TextEditingController(text: (shareholder.initialBalanceGbp ?? 0.0).toString());
+    final usdCtrl = TextEditingController(text: shareholder.initialBalanceUsd.toString());
+    final eurCtrl = TextEditingController(text: shareholder.initialBalanceEur.toString());
+    final gbpCtrl = TextEditingController(text: shareholder.initialBalanceGbp.toString());
     
     String egpDir = shareholder.initialBalanceDirectionEgp;
-    String usdDir = shareholder.initialBalanceDirectionUsd ?? 'CREDIT';
-    String eurDir = shareholder.initialBalanceDirectionEur ?? 'CREDIT';
-    String gbpDir = shareholder.initialBalanceDirectionGbp ?? 'CREDIT';
+    String usdDir = shareholder.initialBalanceDirectionUsd;
+    String eurDir = shareholder.initialBalanceDirectionEur;
+    String gbpDir = shareholder.initialBalanceDirectionGbp;
 
+    final isDark = ThemeCubit.isCurrentDark;
     showDialog(
       context: context,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (context, setState) {
             return AlertDialog(
-              backgroundColor: AppTheme.surface,
-              title: Text('تعديل الرصيد الافتتاحي - ${shareholder.name}', style: const TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+              backgroundColor: isDark ? AppTheme.surface : Colors.white,
+              title: Text('تعديل الرصيد الافتتاحي - ${shareholder.name}', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
               content: SizedBox(
                 width: 400,
                 child: SingleChildScrollView(
@@ -516,7 +633,7 @@ class _ShareholdersViewState extends State<_ShareholdersView> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(ctx).pop(),
-                  child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                  child: Text('إلغاء', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontWeight: isDark ? FontWeight.normal : FontWeight.bold, fontFamily: 'Cairo')),
                 ),
                 ElevatedButton(
                   style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
@@ -560,6 +677,7 @@ class _CurrencyInputRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = ThemeCubit.isCurrentDark;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -571,13 +689,33 @@ class _CurrencyInputRow extends StatelessWidget {
             inputFormatters: [
               FilteringTextInputFormatter.allow(RegExp(r'^-?\d*\.?\d*')),
             ],
-            style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+            style: TextStyle(
+              color: isDark ? Colors.white : Colors.black,
+              fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+              fontFamily: 'Cairo',
+            ),
             decoration: InputDecoration(
               labelText: label,
-              labelStyle: const TextStyle(color: AppTheme.textMuted),
+              labelStyle: TextStyle(
+                color: isDark ? AppTheme.textSecondary : Colors.black,
+                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                fontFamily: 'Cairo',
+              ),
+              floatingLabelStyle: TextStyle(
+                color: isDark ? AppTheme.primary : Colors.black,
+                fontWeight: FontWeight.bold,
+                fontFamily: 'Cairo',
+              ),
+              hintStyle: TextStyle(
+                color: isDark ? AppTheme.textMuted : const Color(0xFF64748B),
+                fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
+                fontFamily: 'Cairo',
+              ),
               filled: true,
-              fillColor: AppTheme.surface,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              fillColor: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFF94A3B8))),
+              enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? Colors.transparent : const Color(0xFF94A3B8))),
+              focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? AppTheme.primary : Colors.black, width: 2.0)),
             ),
           ),
         ),
@@ -587,8 +725,9 @@ class _CurrencyInputRow extends StatelessWidget {
           child: Container(
             height: 56, // Match text field height
             decoration: BoxDecoration(
-              color: AppTheme.surface,
+              color: isDark ? AppTheme.surface : const Color(0xFFF8FAFC),
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: isDark ? Colors.transparent : const Color(0xFF94A3B8)),
             ),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -600,10 +739,26 @@ class _CurrencyInputRow extends StatelessWidget {
                       alignment: Alignment.center,
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       decoration: BoxDecoration(
-                        color: direction == 'CREDIT' ? AppTheme.primary.withValues(alpha: 0.2) : Colors.transparent,
+                        color: direction == 'CREDIT'
+                            ? (isDark ? AppTheme.primary.withValues(alpha: 0.2) : const Color(0xFFE0F2FE))
+                            : Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
+                        border: direction == 'CREDIT' && !isDark
+                            ? Border.all(color: const Color(0xFF0284C7), width: 1.5)
+                            : null,
                       ),
-                      child: FittedBox(child: Text('دائن', style: TextStyle(color: direction == 'CREDIT' ? AppTheme.primary : AppTheme.textMuted, fontFamily: 'Cairo', fontWeight: FontWeight.bold))),
+                      child: FittedBox(
+                        child: Text(
+                          'دائن',
+                          style: TextStyle(
+                            color: direction == 'CREDIT'
+                                ? (isDark ? AppTheme.primary : const Color(0xFF0369A1))
+                                : (isDark ? AppTheme.textMuted : Colors.black),
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -614,10 +769,26 @@ class _CurrencyInputRow extends StatelessWidget {
                       alignment: Alignment.center,
                       padding: const EdgeInsets.symmetric(vertical: 8),
                       decoration: BoxDecoration(
-                        color: direction == 'DEBIT' ? Colors.redAccent.withValues(alpha: 0.2) : Colors.transparent,
+                        color: direction == 'DEBIT'
+                            ? (isDark ? Colors.redAccent.withValues(alpha: 0.2) : const Color(0xFFFEE2E2))
+                            : Colors.transparent,
                         borderRadius: BorderRadius.circular(8),
+                        border: direction == 'DEBIT' && !isDark
+                            ? Border.all(color: const Color(0xFFDC2626), width: 1.5)
+                            : null,
                       ),
-                      child: FittedBox(child: Text('مدين', style: TextStyle(color: direction == 'DEBIT' ? Colors.redAccent : AppTheme.textMuted, fontFamily: 'Cairo', fontWeight: FontWeight.bold))),
+                      child: FittedBox(
+                        child: Text(
+                          'مدين',
+                          style: TextStyle(
+                            color: direction == 'DEBIT'
+                                ? Colors.redAccent
+                                : (isDark ? AppTheme.textMuted : Colors.black),
+                            fontFamily: 'Cairo',
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),

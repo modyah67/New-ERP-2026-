@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -6,27 +7,47 @@ import 'package:printing/printing.dart';
 import 'package:excel/excel.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:intl/intl.dart' hide TextDirection;
-import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
-import '../../core/constants.dart';
 import '../../core/utils.dart';
 import '../../data/models/bank_account_model.dart';
 import '../../data/models/bank_account_transaction_model.dart';
 import 'package:accounting_system/core/utils/file_helper.dart';
 
 class BankAccountExportService {
-  static pw.Font? _font;
-  static pw.Font? _boldFont;
+  static pw.Font? _cairoRegular;
+  static pw.Font? _cairoBold;
 
   static Future<void> _loadFonts() async {
-    if (_font != null) return;
-    final r = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
-    final b = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
-    _font = pw.Font.ttf(r);
-    _boldFont = pw.Font.ttf(b);
+    if (_cairoRegular != null && _cairoBold != null) return;
+    try {
+      final r = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
+      final b = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
+      _cairoRegular = pw.Font.ttf(r);
+      _cairoBold = pw.Font.ttf(b);
+    } catch (_) {
+      _cairoRegular = pw.Font.courier();
+      _cairoBold = pw.Font.courierBold();
+    }
   }
 
-  static Future<void> exportPdf({
+  static pw.Font get _regularFont => _cairoRegular ?? pw.Font.courier();
+  static pw.Font get _boldFont => _cairoBold ?? pw.Font.courierBold();
+
+  static pw.MemoryImage? _bgImage;
+
+  static Future<pw.MemoryImage> _getBgImage() async {
+    if (_bgImage != null) return _bgImage!;
+    try {
+      final bgData = await rootBundle.load('assets/images/statment.png');
+      _bgImage = pw.MemoryImage(bgData.buffer.asUint8List());
+      return _bgImage!;
+    } catch (_) {
+      final dummy = Uint8List(0);
+      return pw.MemoryImage(dummy);
+    }
+  }
+
+  static Future<Uint8List> exportPdf({
     required BankAccountModel account,
     required List<BankAccountTransactionModel> transactions,
     DateTime? startDate,
@@ -34,90 +55,263 @@ class BankAccountExportService {
   }) async {
     await _loadFonts();
     final doc = pw.Document();
-    final theme = pw.ThemeData.withFont(base: _font!, bold: _boldFont!);
+    final theme = pw.ThemeData.withFont(base: _regularFont, bold: _boldFont);
 
     final deposits = transactions.where((t) => t.isDeposit).toList();
     final withdrawals = transactions.where((t) => !t.isDeposit).toList();
-    final totalDeposits = deposits.fold<double>(0, (s, t) => s + t.amount.abs());
-    final totalWithdrawals = withdrawals.fold<double>(0, (s, t) => s + t.amount.abs());
+    final totalDeposits =
+        deposits.fold<double>(0, (s, t) => s + t.amount.abs());
+    final totalWithdrawals =
+        withdrawals.fold<double>(0, (s, t) => s + t.amount.abs());
+    final netMovement = totalDeposits - totalWithdrawals;
 
     final dateLabel = startDate != null && endDate != null
-        ? 'من ${DateFormat('yyyy-MM-dd').format(startDate)} إلى ${DateFormat('yyyy-MM-dd').format(endDate)}'
+        ? 'من تاريخ ${DateFormat('yyyy-MM-dd').format(startDate)} إلى تاريخ ${DateFormat('yyyy-MM-dd').format(endDate)}'
         : startDate != null
-            ? 'من ${DateFormat('yyyy-MM-dd').format(startDate)}'
+            ? 'من تاريخ ${DateFormat('yyyy-MM-dd').format(startDate)}'
             : endDate != null
-                ? 'إلى ${DateFormat('yyyy-MM-dd').format(endDate)}'
-                : 'جميع التواريخ';
+                ? 'إلى تاريخ ${DateFormat('yyyy-MM-dd').format(endDate)}'
+                : 'كافة الحركات المسجلة';
 
-    final bgData = await rootBundle.load('assets/images/statment.png');
-    final bgImage = pw.MemoryImage(bgData.buffer.asUint8List());
+    final bgImage = await _getBgImage();
+    final reportTitle = 'تقرير حركات الحساب البنكي - ${account.name}';
 
     doc.addPage(
       pw.MultiPage(
         pageTheme: pw.PageTheme(
           theme: theme,
           pageFormat: PdfPageFormat.a4.landscape,
+          orientation: pw.PageOrientation.landscape,
           textDirection: pw.TextDirection.rtl,
-          margin: const pw.EdgeInsets.symmetric(horizontal: 28, vertical: 24),
+          margin: const pw.EdgeInsets.symmetric(horizontal: 20, vertical: 18),
           buildBackground: (context) => pw.FullPage(
             ignoreMargins: true,
             child: pw.Image(bgImage, fit: pw.BoxFit.cover),
           ),
         ),
-        build: (ctx) => [
-          // Header
-          pw.Text(AppConstants.companyName,
-              style: pw.TextStyle(font: _boldFont, fontSize: 18, color: PdfColors.blueGrey)),
-          pw.Text('كشف حساب بنكي - ${account.name}',
-              style: pw.TextStyle(font: _boldFont, fontSize: 14, color: PdfColors.black)),
-          pw.Text('العملة: ${account.currency} | الرصيد الحالي: ${AppUtils.formatNumber(account.balance)} ${account.currency}',
-              style: pw.TextStyle(font: _font, fontSize: 11, color: PdfColors.blue800)),
-          pw.Text('الفترة: $dateLabel | تاريخ التقرير: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
-              style: pw.TextStyle(font: _font, fontSize: 10, color: PdfColors.grey700)),
-          pw.SizedBox(height: 8),
-          pw.Text('إجمالي الإيداعات: ${AppUtils.formatNumber(totalDeposits)} | إجمالي الصرف: ${AppUtils.formatNumber(totalWithdrawals)} | عدد الحركات: ${transactions.length}',
-              style: pw.TextStyle(font: _font, fontSize: 10, color: PdfColors.grey600)),
-          pw.SizedBox(height: 12),
-          pw.Divider(),
-          pw.SizedBox(height: 8),
-
+        header: (context) {
+          return pw.Column(
+            crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+            children: [
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.start,
+                children: [
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.start,
+                    children: [
+                      pw.Text('Fruity Farms - شركة فروتي فارمز',
+                          style: pw.TextStyle(
+                              font: _boldFont,
+                              fontSize: 16,
+                              color: PdfColors.blue900)),
+                      pw.Text('نظام Nova Soft ERP لإدارة الموارد المحاسبية',
+                          style: pw.TextStyle(
+                              font: _regularFont,
+                              fontSize: 9,
+                              color: PdfColors.grey700)),
+                    ],
+                  ),
+                  pw.Container(
+                    padding: const pw.EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 6),
+                    decoration: pw.BoxDecoration(
+                      color: PdfColors.teal50,
+                      borderRadius: pw.BorderRadius.circular(8),
+                      border: pw.Border.all(
+                        color: PdfColors.teal800,
+                        width: 1.2,
+                      ),
+                    ),
+                    child: pw.Column(
+                      children: [
+                        pw.Text(reportTitle,
+                            style: pw.TextStyle(
+                                font: _boldFont,
+                                fontSize: 13,
+                                color: PdfColors.teal900)),
+                        pw.SizedBox(height: 2),
+                        pw.Text(dateLabel,
+                            style: pw.TextStyle(
+                                font: _regularFont,
+                                fontSize: 9,
+                                color: PdfColors.grey800)),
+                      ],
+                    ),
+                  ),
+                  pw.Column(
+                    crossAxisAlignment: pw.CrossAxisAlignment.end,
+                    children: [
+                      pw.Text(
+                          'تاريخ الطباعة: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
+                          style: pw.TextStyle(
+                              font: _regularFont,
+                              fontSize: 9,
+                              color: PdfColors.grey700)),
+                      pw.Text('العملة: ${account.currency}',
+                          style: pw.TextStyle(
+                              font: _boldFont,
+                              fontSize: 10,
+                              color: PdfColors.black)),
+                      pw.Text('عدد الحركات: ${transactions.length}',
+                          style: pw.TextStyle(
+                              font: _boldFont,
+                              fontSize: 9,
+                              color: PdfColors.blueGrey800)),
+                    ],
+                  ),
+                ],
+              ),
+              pw.SizedBox(height: 8),
+              pw.Divider(color: PdfColors.grey400, thickness: 0.8),
+              pw.SizedBox(height: 6),
+            ],
+          );
+        },
+        footer: (context) {
+          return pw.Column(
+            children: [
+              pw.Divider(color: PdfColors.grey300, thickness: 0.5),
+              pw.SizedBox(height: 4),
+              pw.Row(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                children: [
+                  pw.Text('نظام Nova Soft ERP • مزارع فروتي للتصدير والاستيراد',
+                      style: pw.TextStyle(
+                          font: _regularFont,
+                          fontSize: 8,
+                          color: PdfColors.grey600)),
+                  pw.Text('صفحة ${context.pageNumber} من ${context.pagesCount}',
+                      style: pw.TextStyle(
+                          font: _regularFont,
+                          fontSize: 8,
+                          color: PdfColors.grey600)),
+                ],
+              ),
+            ],
+          );
+        },
+        build: (pw.Context context) => [
           // Transactions table
           pw.TableHelper.fromTextArray(
             headerAlignment: pw.Alignment.center,
             cellAlignment: pw.Alignment.centerRight,
-            headerStyle: pw.TextStyle(font: _boldFont, fontSize: 9, color: PdfColors.white),
-            cellStyle: pw.TextStyle(font: _font, fontSize: 8, color: PdfColors.black),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey),
+            headerStyle: pw.TextStyle(
+                font: _boldFont, fontSize: 9, color: PdfColors.white),
+            cellStyle: pw.TextStyle(font: _regularFont, fontSize: 8),
+            headerDecoration:
+                const pw.BoxDecoration(color: PdfColors.blueGrey800),
             cellHeight: 22,
             headerAlignments: {
               0: pw.Alignment.center,
               1: pw.Alignment.center,
               2: pw.Alignment.center,
               3: pw.Alignment.center,
-              4: pw.Alignment.center,
-              5: pw.Alignment.center,
+              4: pw.Alignment.centerRight,
+              5: pw.Alignment.centerRight,
               6: pw.Alignment.center,
+              7: pw.Alignment.center,
             },
-            headers: ['#', 'التاريخ', 'النوع', 'المبلغ', 'بواسطة', 'المورد/العميل', 'الوصف'],
+            columnWidths: {
+              0: const pw.FixedColumnWidth(30), // #
+              1: const pw.FixedColumnWidth(100), // التاريخ والوقت
+              2: const pw.FixedColumnWidth(90), // رقم القيد / المرجع
+              3: const pw.FixedColumnWidth(85), // نوع الحركة
+              4: const pw.FlexColumnWidth(2.8), // البيان والتفاصيل
+              5: const pw.FlexColumnWidth(2.0), // المورد / العميل / الجهة
+              6: const pw.FixedColumnWidth(95), // المبلغ
+              7: const pw.FixedColumnWidth(95), // الرصيد بعد الحركة
+            },
+            headers: [
+              '#',
+              'التاريخ والوقت',
+              'رقم القيد / المرجع',
+              'نوع الحركة',
+              'البيان والتفاصيل',
+              'المورد / العميل / الجهة',
+              'المبلغ',
+              'الرصيد بعد الحركة',
+            ],
             data: [
               for (int i = 0; i < transactions.length; i++)
                 _txRow(i + 1, transactions[i]),
             ],
           ),
+          pw.SizedBox(height: 12),
 
-          // Summary
-          pw.SizedBox(height: 16),
-          pw.Divider(),
-          pw.SizedBox(height: 6),
+          // ── بطاقات الإجماليات وملخص الحركات ──
+          pw.Container(
+            width: double.infinity,
+            padding: const pw.EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: pw.BoxDecoration(
+              color: PdfColors.grey100,
+              borderRadius: pw.BorderRadius.circular(8),
+              border: pw.Border.all(color: PdfColors.grey300),
+            ),
+            child: pw.Row(
+              mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+              children: [
+                pw.Expanded(
+                  child: _buildSummaryBox(
+                    title: 'إجمالي الوارد / الإيداعات',
+                    value:
+                        '+${AppUtils.formatNumber(totalDeposits)} ${account.currency}',
+                    color: PdfColors.green900,
+                    bgColor: PdfColors.green50,
+                    borderColor: PdfColors.green700,
+                  ),
+                ),
+                pw.SizedBox(width: 10),
+                pw.Expanded(
+                  child: _buildSummaryBox(
+                    title: 'إجمالي الصرف / المدفوعات',
+                    value:
+                        '-${AppUtils.formatNumber(totalWithdrawals)} ${account.currency}',
+                    color: PdfColors.red900,
+                    bgColor: PdfColors.red50,
+                    borderColor: PdfColors.red700,
+                  ),
+                ),
+                pw.SizedBox(width: 10),
+                pw.Expanded(
+                  child: _buildSummaryBox(
+                    title: 'صافي حركة الفترة',
+                    value:
+                        '${netMovement >= 0 ? '+' : ''}${AppUtils.formatNumber(netMovement)} ${account.currency}',
+                    color: netMovement >= 0
+                        ? PdfColors.blue900
+                        : PdfColors.red900,
+                    bgColor: netMovement >= 0
+                        ? PdfColors.blue50
+                        : PdfColors.red50,
+                    borderColor: netMovement >= 0
+                        ? PdfColors.blue700
+                        : PdfColors.red700,
+                  ),
+                ),
+                pw.SizedBox(width: 10),
+                pw.Expanded(
+                  child: _buildSummaryBox(
+                    title: 'الرصيد الدفتري الحالي',
+                    value:
+                        '${AppUtils.formatNumber(account.balance)} ${account.currency}',
+                    color: PdfColors.indigo900,
+                    bgColor: PdfColors.indigo50,
+                    borderColor: PdfColors.indigo700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          pw.SizedBox(height: 18),
+
+          // ── التوقيعات الرسمية ──
           pw.Row(
-            mainAxisAlignment: pw.MainAxisAlignment.end,
+            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
             children: [
-              pw.Text('الإجمالي: ', style: pw.TextStyle(font: _boldFont, fontSize: 11)),
-              pw.Text('إيداعات: ${AppUtils.formatNumber(totalDeposits)}', style: pw.TextStyle(font: _font, fontSize: 11, color: PdfColors.green700)),
-              pw.SizedBox(width: 12),
-              pw.Text('صرف: ${AppUtils.formatNumber(totalWithdrawals)}', style: pw.TextStyle(font: _font, fontSize: 11, color: PdfColors.red700)),
-              pw.SizedBox(width: 12),
-              pw.Text('الرصيد النهائي: ${AppUtils.formatNumber(account.balance)} ${account.currency}', style: pw.TextStyle(font: _boldFont, fontSize: 11, color: PdfColors.blue800)),
+              _signatureBox('المسؤول المالي'),
+              _signatureBox('مراجع الحسابات'),
+              _signatureBox('اعتماد الإدارة المالية'),
             ],
           ),
         ],
@@ -125,26 +319,96 @@ class BankAccountExportService {
     );
 
     final bytes = await doc.save();
-    final dir = await FileHelper.getExportDirectory();
-    final fileName = 'bank_${account.name}_${DateTime.now().millisecondsSinceEpoch}.pdf';
-    final file = File('${dir.path}/$fileName');
-    await file.writeAsBytes(bytes);
-    await Printing.sharePdf(bytes: bytes, filename: fileName);
+    try {
+      final dir = await FileHelper.getExportDirectory();
+      final safeName = account.name.replaceAll(RegExp(r'[\\/:*?"<>|]'), '_');
+      final fileName =
+          'bank_${safeName}_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final file = File('${dir.path}/$fileName');
+      await file.writeAsBytes(bytes);
+    } catch (_) {}
+
+    await Printing.layoutPdf(
+      onLayout: (PdfPageFormat format) async => bytes,
+      name: '${reportTitle.replaceAll(' ', '_')}.pdf',
+      format: PdfPageFormat.a4.landscape,
+    );
+
+    return bytes;
   }
 
   static List<String> _txRow(int index, BankAccountTransactionModel tx) {
     final isDeposit = tx.isDeposit;
-    final date = DateFormat('yyyy-MM-dd').format(tx.createdAt);
-    final partyName = tx.relatedPartyName ?? '—';
+    final date = DateFormat('yyyy-MM-dd HH:mm').format(tx.createdAt);
+    final partyName = tx.relatedPartyName ?? tx.createdByName ?? '—';
+    final ref = tx.referenceNumber ??
+        (tx.journalEntryId != null ? 'قيد #${tx.journalEntryId}' : '#${tx.id}');
+    final typeLabel = isDeposit ? 'إيداع / وارد' : 'صرف / مسحوبات';
+    final sign = isDeposit ? '+' : '-';
+    final formattedAmount = '$sign${AppUtils.formatNumber(tx.amount.abs())}';
+    final formattedBalance = AppUtils.formatNumber(tx.balanceAfter);
+
     return [
       index.toString(),
       date,
-      isDeposit ? 'إيداع' : 'صرف',
-      '${isDeposit ? '+' : '-'}${AppUtils.formatNumber(tx.amount.abs())}',
-      tx.createdByName ?? '—',
+      ref,
+      typeLabel,
+      tx.description ?? tx.notes ?? '—',
       partyName,
-      tx.description ?? '—',
+      formattedAmount,
+      formattedBalance,
     ];
+  }
+
+  static pw.Widget _buildSummaryBox({
+    required String title,
+    required String value,
+    required PdfColor color,
+    required PdfColor bgColor,
+    required PdfColor borderColor,
+  }) {
+    return pw.Container(
+      padding: const pw.EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+      decoration: pw.BoxDecoration(
+        color: bgColor,
+        borderRadius: pw.BorderRadius.circular(6),
+        border: pw.Border.all(color: borderColor, width: 0.8),
+      ),
+      child: pw.Column(
+        children: [
+          pw.Text(title,
+              style: pw.TextStyle(
+                  font: _regularFont, fontSize: 8, color: PdfColors.grey700)),
+          pw.SizedBox(height: 2),
+          pw.Text(value,
+              style: pw.TextStyle(font: _boldFont, fontSize: 10, color: color)),
+        ],
+      ),
+    );
+  }
+
+  static pw.Widget _signatureBox(String role) {
+    return pw.Container(
+      width: 140,
+      padding: const pw.EdgeInsets.symmetric(vertical: 4, horizontal: 8),
+      decoration: pw.BoxDecoration(
+        border: pw.Border.all(color: PdfColors.grey400, width: 0.8),
+        borderRadius: pw.BorderRadius.circular(4),
+      ),
+      child: pw.Column(
+        children: [
+          pw.Text(role,
+              style: pw.TextStyle(
+                  font: _boldFont, fontSize: 8, color: PdfColors.grey800)),
+          pw.SizedBox(height: 22),
+          pw.Container(height: 0.5, color: PdfColors.grey300),
+          pw.SizedBox(height: 2),
+          pw.Text('التوقيع / الختم',
+              style: pw.TextStyle(
+                  font: _regularFont, fontSize: 7, color: PdfColors.grey500)),
+        ],
+      ),
+    );
   }
 
   static Future<void> exportExcel({

@@ -117,6 +117,8 @@ class PackingOrderLineModel {
       'carton_count': cartonCount,
       'net_weight_per_carton': netWeightPerCarton,
       'gross_weight_per_carton': grossWeightPerCarton,
+      'total_net_weight': totalNetWeight,
+      'total_gross_weight': totalGrossWeight,
       'unit_cost': unitCost,
       'raw_material_cost': rawMaterialCost,
       'expected_loss_percent': expectedLossPercent,
@@ -130,10 +132,11 @@ class PackingOrderLineModel {
       'final_cost': finalCost,
       'final_unit_cost': finalUnitCost,
       'sold_cartons': soldCartons,
+      if (notes != null) 'notes': notes,
     };
   }
 
-  /// Insert map — excludes generated columns (total_net_weight, total_gross_weight)
+  /// Insert map — excludes id
   Map<String, dynamic> toInsertMap() {
     final m = toMap();
     m.remove('id');
@@ -239,8 +242,8 @@ enum CostAllocationMethod {
       case CostAllocationMethod.byProductValue: return 'حسب القيمة المالية للمحصول';
       case CostAllocationMethod.byQuantity: return 'حسب الكمية';
       case CostAllocationMethod.byPackages: return 'حسب عدد الكراتين';
-      case CostAllocationMethod.equal: return 'بالتساوي';
-      case CostAllocationMethod.manual: return 'تخصيص لمحصول محدد';
+      case CostAllocationMethod.equal: return 'توزيع بالتساوي على كل المنتجات';
+      case CostAllocationMethod.manual: return 'تخصيص لمحصول / مركز تكلفة محدد';
     }
   }
 
@@ -259,9 +262,9 @@ enum CostAllocationMethod {
       case CostAllocationMethod.byPackages:
         return 'يتم توزيع التكلفة حسب عدد الكراتين المنتجة لكل محصول.';
       case CostAllocationMethod.equal:
-        return 'يتم توزيع التكلفة بالتساوي على جميع المحاصيل.';
+        return 'توزيع مبلغ التكلفة بالتساوي بنسب متطابقة على جميع المحاصيل النشطة.';
       case CostAllocationMethod.manual:
-        return 'تحديد محصول معين لتحمل هذه التكلفة بالكامل.';
+        return 'تحميل كامل مبلغ التكلفة على هذا المحصول أو مركز التكلفة حصراً دون تقسيمه.';
     }
   }
 

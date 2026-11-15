@@ -7,6 +7,7 @@ class TreasuryModel {
   final String? notes;
   final String createdAt;
   final List<TreasuryBalanceModel> balances;
+  final String? accountId;
 
   const TreasuryModel({
     this.id,
@@ -17,6 +18,7 @@ class TreasuryModel {
     this.notes,
     required this.createdAt,
     this.balances = const [],
+    this.accountId,
   });
 
   bool get isMain => type == 'main';
@@ -59,6 +61,7 @@ class TreasuryModel {
       notes: str(map['notes']),
       createdAt: str(map['created_at']),
       balances: balanceList,
+      accountId: map['account_id']?.toString(),
     );
   }
 
@@ -70,6 +73,7 @@ class TreasuryModel {
       'name': name,
       if (notes != null && notes!.isNotEmpty) 'notes': notes,
       'created_at': createdAt,
+      if (accountId != null) 'account_id': accountId,
     };
   }
 
@@ -228,6 +232,12 @@ class TreasuryTransactionModel {
   final String? notes;
   final String status;
   final Map<String, dynamic>? payload;
+  final String? costCenterId;
+  final String? branchId;
+  final String? toBranchId;
+  final String? toCostCenterId;
+  final String? branchName;
+  final String? toBranchName;
 
   const TreasuryTransactionModel({
     this.id,
@@ -242,6 +252,12 @@ class TreasuryTransactionModel {
     this.notes,
     this.status = 'confirmed',
     this.payload,
+    this.costCenterId,
+    this.branchId,
+    this.toBranchId,
+    this.toCostCenterId,
+    this.branchName,
+    this.toBranchName,
     this.relatedTreasuryId,
     this.relatedTreasuryName,
     this.createdBy,
@@ -406,6 +422,17 @@ class TreasuryTransactionModel {
       journalEntryId: map['journal_entry_id']?.toString(),
       status: str(map['status']).isNotEmpty ? str(map['status']) : 'confirmed',
       payload: map['payload'] is Map ? Map<String, dynamic>.from(map['payload'] as Map) : null,
+      costCenterId: map['cost_center_id']?.toString() ??
+          (map['payload'] is Map ? (map['payload'] as Map)['cost_center_id']?.toString() : null),
+      branchId: map['branch_id']?.toString() ??
+          (map['payload'] is Map ? (map['payload'] as Map)['branch_id']?.toString() : null),
+      toBranchId: map['to_branch_id']?.toString() ??
+          (map['payload'] is Map ? (map['payload'] as Map)['to_branch_id']?.toString() : null),
+      toCostCenterId: map['to_cost_center_id']?.toString() ??
+          (map['payload'] is Map ? (map['payload'] as Map)['to_cost_center_id']?.toString() : null),
+      branchName: map['branch_name']?.toString() ??
+          (map['stations'] is Map ? map['stations']['name']?.toString() : null),
+      toBranchName: map['to_branch_name']?.toString(),
       entryNumber: str(map['entry_number']).isNotEmpty 
           ? str(map['entry_number']) 
           : (map['journal_entries'] is Map ? str(map['journal_entries']['entry_number']) : null),

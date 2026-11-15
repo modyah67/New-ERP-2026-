@@ -3,11 +3,17 @@ import '../../data/services/account_validation_service.dart';
 import 'tenant_service.dart';
 
 enum EntityType {
-  customer('customer', '1020', 'asset', 'Customer - ', 'عميل - '),
-  supplier('supplier', '2000', 'liability', 'Supplier - ', 'مورد - '),
-  shippingCompany('shipping_company', '2000', 'liability', 'Shipping - ', 'شركة شحن - '),
-  clearingAgent('clearing_agent', '2000', 'liability', 'Agent - ', 'مخلص جمركي - '),
-  shareholder('shareholder', '3000', 'equity', 'Shareholder - ', 'مساهم - ');
+  customer('customer', '1251', 'asset', 'Customer - ', 'عميل - '),
+  cropSupplier('crop_supplier', '2111', 'liability', 'Crop Supplier - ', 'مورد محاصيل - '),
+  supplier('supplier', '2111', 'liability', 'Supplier - ', 'مورد - '),
+  sharedSupplier('shared_supplier', '2111', 'liability', 'Shared Supplier - ', 'مورد مشترك - '),
+  transportSupplier('transport_supplier', '2111', 'liability', 'Transporter - ', 'مورد نقل - '),
+  notesPayable('notes_payable', '2112', 'liability', 'Notes Payable - ', 'أوراق دفع - '),
+  shippingCompany('shipping_company', '2111', 'liability', 'Shipping - ', 'شركة شحن - '),
+  clearingAgent('clearing_agent', '2111', 'liability', 'Clearing Agent - ', 'مخلص جمركي - '),
+  packagingSupplier('packaging_supplier', '2111', 'liability', 'Packaging Supplier - ', 'مورد تعبئة - '),
+  stationSupplier('station_supplier', '2111', 'liability', 'Packaging Station - ', 'محطة تعبئة - '),
+  shareholder('shareholder', '2321', 'equity', 'Shareholder - ', 'مساهم - ');
 
   final String rpcType;
   final String parentCode;
@@ -27,6 +33,29 @@ enum EntityType {
 class AutoAccountGenerationService {
   final _client = Supabase.instance.client;
 
+  /// Dynamically maps a business supplier category type to its standardized Level 4 EntityType.
+  static EntityType resolveSupplierEntityType(String? supplierType) {
+    if (supplierType == null) return EntityType.supplier;
+    switch (supplierType.trim().toLowerCase()) {
+      case 'packaging':
+        return EntityType.packagingSupplier;
+      case 'station':
+        return EntityType.stationSupplier;
+      case 'shipping':
+        return EntityType.shippingCompany;
+      case 'clearing':
+      case 'customs':
+        return EntityType.clearingAgent;
+      case 'transport':
+        return EntityType.transportSupplier;
+      case 'shared':
+        return EntityType.sharedSupplier;
+      case 'crop':
+      default:
+        return EntityType.cropSupplier;
+    }
+  }
+
   /// Generate the next account code for an entity type.
   Future<String> generateAccountCode(EntityType entityType) async {
     final companyId = _resolveCompanyId();
@@ -38,6 +67,7 @@ class AutoAccountGenerationService {
   }
 
   /// Create an account for an entity. Returns the new account ID.
+  /// Dynamically nests under the Level 4 parent, assigning level = 5, is_leaf = true, and allow_posting = true.
   Future<int> createAccount({
     required EntityType entityType,
     required String entityName,
@@ -68,6 +98,20 @@ class AutoAccountGenerationService {
         .single();
 
     return data['id'] as int;
+  }
+
+  /// Create a dynamic sub-account for a supplier/vendor based on their category type.
+  /// Automatically routes to Level 4 parent (e.g. 2111 for crop, 2115 for packaging),
+  /// setting level = 5, is_leaf = true, and allow_posting = true.
+  Future<int> createSupplierSubAccount({
+    required String supplierType,
+    required String supplierName,
+  }) async {
+    final entityType = resolveSupplierEntityType(supplierType);
+    return createAccount(
+      entityType: entityType,
+      entityName: supplierName,
+    );
   }
 
   /// Delete an account using the generic validation engine.
@@ -106,28 +150,50 @@ class AutoAccountGenerationService {
   }
 
   Future<int?> _resolveParentId(String parentCode, String companyId) async {
-    final data = await _client
-        .from('accounts')
-        .select('id')
-        .eq('account_code', parentCode)
-        .eq('company_id', companyId)
-        .limit(1)
-        .maybeSingle();
-    return data?['id'] as int?;
+    try {
+      var query = _client
+          .from('accounts')
+          .select('id')
+          .eq('account_code', parentCode);
+
+      if (companyId.isNotEmpty) {
+        query = query.or('company_id.eq.$companyId,company_id.is.null,company_id.eq.a0000000-0000-0000-0000-000000000001');
+      }
+
+      final data = await query.order('company_id', ascending: false).limit(1).maybeSingle();
+      if (data != null && data['id'] != null) {
+        return (data['id'] as num).toInt();
+      }
+
+      final fallback = await _client
+          .from('accounts')
+          .select('id')
+          .eq('account_code', parentCode)
+          .limit(1)
+          .maybeSingle();
+      return (fallback?['id'] as num?)?.toInt();
+    } catch (_) {
+      return null;
+    }
   }
 
   String _fallbackCode(EntityType entityType) {
     switch (entityType) {
       case EntityType.customer:
-        return '11001';
+        return '125101';
+      case EntityType.cropSupplier:
       case EntityType.supplier:
-        return '21001';
+      case EntityType.sharedSupplier:
+      case EntityType.transportSupplier:
       case EntityType.shippingCompany:
-        return '20001';
       case EntityType.clearingAgent:
-        return '20101';
+      case EntityType.packagingSupplier:
+      case EntityType.stationSupplier:
+        return '211101';
+      case EntityType.notesPayable:
+        return '211201';
       case EntityType.shareholder:
-        return '30001';
+        return '23211';
     }
   }
 }

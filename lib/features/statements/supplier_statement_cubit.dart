@@ -16,13 +16,20 @@ class SupplierStatementCubit extends Cubit<SupplierStatementState> {
     _init();
   }
 
-  void init() {}
+  Future<void> init({String? initialSupplierId}) async {
+    await _init(initialSupplierId: initialSupplierId);
+  }
 
-  Future<void> _init() async {
+  Future<void> _init({String? initialSupplierId}) async {
     final suppliers = await _supplierDao.getAll(limit: 2000, offset: 0);
     final now = DateTime.now();
+    SupplierModel? selected;
+    if (initialSupplierId != null) {
+      selected = suppliers.where((s) => s.id == initialSupplierId).firstOrNull;
+    }
     emit(SupplierStatementLoaded(
       suppliers: suppliers,
+      selectedSupplier: selected,
       statementRows: const [],
       totalDebit: 0,
       totalCredit: 0,
@@ -31,6 +38,9 @@ class SupplierStatementCubit extends Cubit<SupplierStatementState> {
       fromDate: DateTime(now.year, now.month, 1),
       toDate: now,
     ));
+    if (selected != null) {
+      await loadStatement();
+    }
   }
 
   Future<void> refreshSuppliers() async {
@@ -113,13 +123,15 @@ class SupplierStatementCubit extends Cubit<SupplierStatementState> {
         throw Exception('هذا المورد غير مرتبط بحساب في شجرة الحسابات (Account ID is missing)');
       }
 
-      // 2. Fetch the Unified General Ledger for this account
+      // 2. Fetch the Unified General Ledger for this account, scoped to this supplier entityId
       final ledgerResult = await _ledgerService.getAccountLedger(
         accountIds: [accountId],
         accountType: 'liability',
         fromDate: currentState.fromDate,
         toDate: currentState.toDate,
-        currency: currentState.selectedSupplier!.currency,
+        currency: null,
+        entityId: supplierId,
+        entityType: 'supplier',
       );
 
       // 3. Map to StatementRows for the legacy UI
@@ -140,7 +152,7 @@ class SupplierStatementCubit extends Cubit<SupplierStatementState> {
           credit: ledgerResult.openingBalance > 0 ? ledgerResult.openingBalance : 0,
           balance: ledgerResult.openingBalance,
           type: 'opening',
-          currency: currentState.selectedSupplier!.currency,
+          currency: 'EGP',
         ));
       }
 
@@ -163,7 +175,11 @@ class SupplierStatementCubit extends Cubit<SupplierStatementState> {
           type: _mapReferenceToType(entry.referenceType),
           referenceType: entry.referenceType,
           referenceId: entry.referenceId,
-          currency: entry.currency,
+          currency: 'EGP',
+          foreignDebit: entry.foreignDebit,
+          foreignCredit: entry.foreignCredit,
+          foreignCurrency: entry.foreignCurrency,
+          exchangeRate: entry.exchangeRate,
         ));
       }
 
@@ -172,6 +188,7 @@ class SupplierStatementCubit extends Cubit<SupplierStatementState> {
       // Debug Verification Logs as requested
       debugPrint('--- SupplierStatement Debug ---');
       debugPrint('accountId: $accountId');
+      debugPrint('supplierId: $supplierId');
       debugPrint('fromDate: ${currentState.fromDate}');
       debugPrint('toDate: ${currentState.toDate}');
       debugPrint('entryCount: ${rows.length}');
@@ -200,12 +217,20 @@ class SupplierStatementCubit extends Cubit<SupplierStatementState> {
     switch (refType?.toLowerCase()) {
       case 'purchase_invoice':
       case 'purchase':
+      case 'lot_receipt':
         return 'purchase';
+      case 'lot_return':
+        return 'return';
       case 'supplier_payment':
       case 'cash_payment':
       case 'treasury_transfer':
       case 'bank_transfer':
         return 'payment';
+      case 'packing_order_costs':
+      case 'packing_cost':
+      case 'packing_cost_settlement':
+      case 'cost_settlement':
+        return 'packing_cost';
       default:
         return 'other';
     }
@@ -226,15 +251,5 @@ class SupplierStatementCubit extends Cubit<SupplierStatementState> {
       ));
     }
     refreshSuppliers();
-  }
-
-  @override
-  void onChange(Change<SupplierStatementState> change) {
-    super.onChange(change);
-  }
-
-  @override
-  Future<void> close() {
-    return super.close();
   }
 }

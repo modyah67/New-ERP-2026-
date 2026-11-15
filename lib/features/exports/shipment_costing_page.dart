@@ -23,8 +23,11 @@ import '../../data/dao/shipping_company_dao.dart';
 import '../../data/models/clearing_agent_model.dart';
 import '../../data/dao/clearing_agent_dao.dart';
 import '../../data/services/currency_conversion_service.dart';
+import '../../data/services/chart_of_accounts_cache_service.dart';
+import '../treasury/widgets/coa_expense_dropdown.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'shipment_cost_pdf_service.dart';
+import 'widgets/shipment_journal_entries_dialog.dart';
 
 class ShipmentCostingPage extends StatefulWidget {
   final int shipmentId;
@@ -181,7 +184,18 @@ class _ShipmentCostingPageState extends State<ShipmentCostingPage> {
           final prodName = (item['product_name']?.toString() ?? item['invoice_product_name']?.toString() ?? 'صنف').trim();
           final poId = item['packing_order_id']?.toString();
           final qty = (item['quantity'] as num?)?.toDouble() ?? 0.0;
-          final unitCost = (item['price'] as num?)?.toDouble() ?? 0.0;
+          double unitCost = (item['price'] as num?)?.toDouble() ?? 0.0;
+
+          // Real-time cost mapping: prefer live packingCostPerCarton from linked packing order
+          if (poId != null && poId.isNotEmpty) {
+            final poMatch = packingOrders.where((p) => p.id?.toString() == poId).firstOrNull;
+            if (poMatch != null && poMatch.packingCostPerCarton > 0) {
+              unitCost = poMatch.packingCostPerCarton;
+            }
+          } else if (packingOrders.length == 1 && packingOrders.first.packingCostPerCarton > 0) {
+            unitCost = packingOrders.first.packingCostPerCarton;
+          }
+
           final itemTotal = qty * unitCost;
 
           totalCartonCost += itemTotal;
@@ -256,7 +270,7 @@ class _ShipmentCostingPageState extends State<ShipmentCostingPage> {
   double get _allocatedAdminExpenses => _num(_adminExpensesCtrl);
   double get _allocatedTaxes => _num(_taxesCtrl);
   int get _cartonCount => _shipment?.cartonsCount ?? 0;
-  double get _totalCost => _items.fold(0.0, (s, i) => s + i.totalPrice) + ((_shipment?.discountAmount ?? 0.0) * _num(_exchangeRateCtrl)) + _allocatedAdminExpenses + _allocatedTaxes;
+  double get _totalCost => _items.fold(0.0, (s, i) => s + i.totalPrice) + _allocatedAdminExpenses + _allocatedTaxes;
   double get _totalRevenueForeign => _liveTotalRevenueForeign;
   double get _totalRevenueEgp => _totalRevenueForeign * _num(_exchangeRateCtrl);
   double get _costEgp => _totalCost;
@@ -636,6 +650,8 @@ class _ShipmentCostingPageState extends State<ShipmentCostingPage> {
                 _buildProfitPreview(),
                 const SizedBox(height: 16),
                 _buildSaveButton(),
+                const SizedBox(height: 12),
+                _buildViewJournalEntriesButton(),
                 const SizedBox(height: 24),
               ],
             ),
@@ -786,6 +802,21 @@ class _ShipmentCostingPageState extends State<ShipmentCostingPage> {
                               color: AppTheme.success, size: 16),
                         ),
                       ),
+                      const SizedBox(width: 6),
+                      GestureDetector(
+                        onTap: _showJournalEntries,
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFF59E0B).withAlpha(20),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                                color: const Color(0xFFF59E0B).withAlpha(50)),
+                          ),
+                          child: const Icon(Icons.receipt_long,
+                              color: Color(0xFFF59E0B), size: 16),
+                        ),
+                      ),
                     ]),
                   ],
                 );
@@ -845,6 +876,33 @@ class _ShipmentCostingPageState extends State<ShipmentCostingPage> {
                           Text('حفظ PDF',
                               style: TextStyle(
                                   color: AppTheme.primary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cairo')),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _showJournalEntries,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withAlpha(20),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                            color: const Color(0xFFF59E0B).withAlpha(60)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(Icons.receipt_long,
+                              color: Color(0xFFF59E0B), size: 18),
+                          SizedBox(width: 6),
+                          Text('عرض القيود',
+                              style: TextStyle(
+                                  color: Color(0xFFF59E0B),
                                   fontSize: 13,
                                   fontWeight: FontWeight.bold,
                                   fontFamily: 'Cairo')),
@@ -1172,15 +1230,16 @@ class _ShipmentCostingPageState extends State<ShipmentCostingPage> {
           ),
           const SizedBox(height: 6),
           Wrap(
-            spacing: 6,
-            runSpacing: 4,
+            spacing: 10,
+            runSpacing: 6,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
-                    color: Colors.black12,
-                    borderRadius: BorderRadius.circular(6)),
+                    color: Colors.white.withAlpha(15),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.white.withAlpha(25))),
                 child: Text('الكمية: ${item.quantity.toStringAsFixed(2)}',
                     style: const TextStyle(
                         color: AppTheme.textSecondary,
@@ -1189,10 +1248,11 @@ class _ShipmentCostingPageState extends State<ShipmentCostingPage> {
               ),
               if (item.unitPrice > 0)
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                      color: Colors.black12,
-                      borderRadius: BorderRadius.circular(6)),
+                      color: Colors.white.withAlpha(15),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: Colors.white.withAlpha(25))),
                   child: Text('سعر الوحدة: ${item.unitPrice.toStringAsFixed(2)} ج.م',
                       style: const TextStyle(
                           color: AppTheme.textSecondary,
@@ -1201,10 +1261,11 @@ class _ShipmentCostingPageState extends State<ShipmentCostingPage> {
                 ),
               Container(
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 decoration: BoxDecoration(
-                    color: color.withAlpha(40),
-                    borderRadius: BorderRadius.circular(6)),
+                    color: color.withAlpha(45),
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: color.withAlpha(90))),
                 child: Text('${item.totalPrice.toStringAsFixed(2)} ج.م',
                     style: TextStyle(
                         color: color,
@@ -1600,6 +1661,39 @@ class _ShipmentCostingPageState extends State<ShipmentCostingPage> {
       ),
     );
   }
+
+  void _showJournalEntries() {
+    ShipmentJournalEntriesDialog.show(
+      context,
+      shipmentNo: _shipment?.shipmentNo ?? '',
+      entriesFuture: _shipmentDao.getJournalEntriesForShipment(widget.shipmentId),
+    );
+  }
+
+  Widget _buildViewJournalEntriesButton() {
+    return SizedBox(
+      width: double.infinity,
+      height: 48,
+      child: OutlinedButton.icon(
+        onPressed: _showJournalEntries,
+        icon: const Icon(Icons.receipt_long, color: Color(0xFFF59E0B), size: 20),
+        label: const Text(
+          'عرض القيود المحاسبية للشحنة والربحية',
+          style: TextStyle(
+            fontFamily: 'Cairo',
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFFF59E0B),
+          ),
+        ),
+        style: OutlinedButton.styleFrom(
+          side: BorderSide(color: const Color(0xFFF59E0B).withAlpha(120), width: 1.5),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          backgroundColor: const Color(0xFFF59E0B).withAlpha(15),
+        ),
+      ),
+    );
+  }
 }
 
 
@@ -1682,6 +1776,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
   String _paymentSourceType = 'none';
   int? _selectedPaymentSourceId;
   int? _selectedExpenseAccountId;
+  List<Map<String, dynamic>> _expenseAccounts = [];
 
   @override
   void initState() {
@@ -1701,6 +1796,34 @@ class _AddItemSheetState extends State<_AddItemSheet> {
     _loadCategories();
     _fetchVendorCurrency();
     _loadSuppliers();
+    _loadExpenseAccounts();
+  }
+
+  Future<void> _loadExpenseAccounts() async {
+    try {
+      final accs = await ChartOfAccountsCacheService().getExpenseAccounts();
+      final cogsAccounts = accs.where((a) {
+        final code = (a['account_code'] ?? a['code'] ?? '').toString().trim();
+        return code.startsWith('341') && a['is_leaf'] == true && a['is_active'] == true;
+      }).toList();
+
+      if (mounted) {
+        setState(() {
+          _expenseAccounts = cogsAccounts.isNotEmpty ? cogsAccounts : accs;
+
+          // Default to 34110 (مصروفات متنوعة أخرى - تكلفة بيع) if none selected for other costs
+          if (_selectedExpenseAccountId == null && !_isShippingSelected && !_isClearanceSelected) {
+            final defaultAcc = _expenseAccounts.firstWhere(
+              (a) => (a['account_code'] ?? a['code'] ?? '').toString().trim() == '34110',
+              orElse: () => _expenseAccounts.isNotEmpty ? _expenseAccounts.first : {},
+            );
+            if (defaultAcc.isNotEmpty) {
+              _selectedExpenseAccountId = (defaultAcc['id'] as num?)?.toInt();
+            }
+          }
+        });
+      }
+    } catch (_) {}
   }
 
   void _onFieldChanged() {
@@ -1719,7 +1842,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
 
   Future<void> _loadSuppliers() async {
     try {
-      _suppliers = await SupplierDao().getAll();
+      _suppliers = await SupplierDao().getAll(limit: 2000);
       if (widget.initialSupplierId != null) {
         final match = _suppliers.where((s) => s.id == widget.initialSupplierId);
         if (match.isNotEmpty && mounted) {
@@ -1950,6 +2073,17 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                             _selectedVendorType = null;
                             _vendorCurrency = 'EGP';
                             widget.exchangeCtrl.text = '1';
+
+                            // Set default 34110 when switching to 'other' category
+                            if (!_isShippingSelected && !_isClearanceSelected && _selectedExpenseAccountId == null) {
+                              final defaultAcc = _expenseAccounts.firstWhere(
+                                (a) => (a['account_code'] ?? a['code'] ?? '').toString().trim() == '34110',
+                                orElse: () => _expenseAccounts.isNotEmpty ? _expenseAccounts.first : {},
+                              );
+                              if (defaultAcc.isNotEmpty) {
+                                _selectedExpenseAccountId = (defaultAcc['id'] as num?)?.toInt();
+                              }
+                            }
                           });
                           if (_isShippingSelected || _isClearanceSelected) {
                             _fetchVendors();
@@ -2131,24 +2265,66 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                   ],
                   if (!_isShippingSelected && !_isClearanceSelected) ...[
                     const SizedBox(height: 12),
+                    COAExpenseDropdown(
+                      accounts: _expenseAccounts,
+                      selectedAccountId: _selectedExpenseAccountId?.toString(),
+                      selectedCostCenterId: widget.shipment?.shipmentNo ?? '',
+                      rootCodeFilter: '341',
+                      allowCreateSubAccount: false,
+                      isRequired: false,
+                      label: 'حساب المصروف (دليل الحسابات - تكاليف المبيعات)',
+                      onSelected: (account, suggestedCc) {
+                        setState(() {
+                          _selectedExpenseAccountId =
+                              account != null ? (account['id'] as num?)?.toInt() : null;
+                        });
+                      },
+                      onAccountCreated: () async {
+                        final accs = await ChartOfAccountsCacheService()
+                            .getExpenseAccounts(forceRefresh: true);
+                        final cogs = accs.where((a) {
+                          final code = (a['account_code'] ?? a['code'] ?? '').toString().trim();
+                          return code.startsWith('341') && a['is_leaf'] == true && a['is_active'] == true;
+                        }).toList();
+                        if (mounted) setState(() => _expenseAccounts = cogs.isNotEmpty ? cogs : accs);
+                      },
+                    ),
+                    const SizedBox(height: 12),
                     TypeAheadField<String>(
                       key: ValueKey(_selectedSupplierId),
                       controller: _supplierSearchCtrl,
                       autoFlipDirection: true,
                       hideOnEmpty: true,
                       hideOnError: true,
-                      suggestionsCallback: (query) {
-                        if (query.isEmpty) {
-                          return _suppliers.map((s) => s.id!).toList();
-                        }
-                        final q = query.toLowerCase();
-                        return _suppliers
-                            .where((s) =>
-                                s.name.toLowerCase().contains(q) ||
-                                s.displayName.toLowerCase().contains(q) ||
-                                s.supplierCode.toLowerCase().contains(q))
-                            .map((s) => s.id!)
+                      suggestionsCallback: (query) async {
+                        final q = query.trim().toLowerCase();
+                        final inMemoryMatches = _suppliers
+                            .where((s) {
+                              if (q.isEmpty) return true;
+                              return s.name.toLowerCase().contains(q) ||
+                                  s.displayName.toLowerCase().contains(q) ||
+                                  s.supplierCode.toLowerCase().contains(q) ||
+                                  s.phone.toLowerCase().contains(q) ||
+                                  s.supplierType.toLowerCase().contains(q) ||
+                                  s.supplierTypeLabel.toLowerCase().contains(q);
+                            })
                             .toList();
+
+                        if (q.isNotEmpty && inMemoryMatches.length < 5) {
+                          try {
+                            final dbSuppliers = await SupplierDao().search(q, limit: 30);
+                            for (final s in dbSuppliers) {
+                              if (!_suppliers.any((existing) => existing.id == s.id)) {
+                                _suppliers.add(s);
+                              }
+                              if (!inMemoryMatches.any((m) => m.id == s.id)) {
+                                inMemoryMatches.add(s);
+                              }
+                            }
+                          } catch (_) {}
+                        }
+
+                        return inMemoryMatches.map((s) => s.id!).toList();
                       },
                       itemBuilder: (context, supplierId) {
                         final s =
@@ -2157,11 +2333,40 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                           color: Colors.transparent,
                           child: ListTile(
                             dense: true,
-                            title: Text(s.displayName,
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontFamily: 'Cairo',
-                                    fontSize: 13)),
+                            title: Row(
+                              children: [
+                                Expanded(
+                                  child: Text(s.displayName,
+                                      style: const TextStyle(
+                                          color: Colors.white,
+                                          fontFamily: 'Cairo',
+                                          fontSize: 13)),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 2),
+                                  decoration: BoxDecoration(
+                                    color: s.isSharedSupplier
+                                        ? AppTheme.primary.withAlpha(35)
+                                        : AppTheme.accent.withAlpha(25),
+                                    borderRadius: BorderRadius.circular(4),
+                                  ),
+                                  child: Text(s.supplierTypeLabel,
+                                      style: TextStyle(
+                                          color: s.isSharedSupplier
+                                              ? AppTheme.primary
+                                              : Colors.white70,
+                                          fontSize: 10,
+                                          fontFamily: 'Cairo')),
+                                ),
+                                const SizedBox(width: 6),
+                                Text('(${s.currency})',
+                                    style: const TextStyle(
+                                        color: Colors.white70,
+                                        fontSize: 11,
+                                        fontFamily: 'Cairo')),
+                              ],
+                            ),
                           ),
                         );
                       },
@@ -2192,7 +2397,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                           controller: controller,
                           focusNode: focusNode,
                           decoration: InputDecoration(
-                            labelText: 'المورد - بحث بالاسم أو الكود',
+                            labelText: 'المورد / الجهة (اختياري) - بحث بالاسم أو الكود',
                             labelStyle: const TextStyle(
                                 fontFamily: 'Cairo', fontSize: 12),
                             border: OutlineInputBorder(
@@ -2514,7 +2719,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                       final hasRate = rateVal != null && rateVal > 0;
                       final hasVendor = (_isShippingSelected || _isClearanceSelected)
                           ? (_selectedVendorId != null)
-                          : (_selectedSupplierId != null);
+                          : true;
 
                       final canSubmit = hasDesc &&
                           hasPrice &&
@@ -2573,7 +2778,7 @@ class _AddItemSheetState extends State<_AddItemSheet> {
                                         _paymentSourceType == 'none'
                                             ? null
                                             : _selectedPaymentSourceId,
-                                        _isClearanceSelected ? _selectedExpenseAccountId : null,
+                                        _selectedExpenseAccountId,
                                       )
                                   : null,
                               style: ElevatedButton.styleFrom(

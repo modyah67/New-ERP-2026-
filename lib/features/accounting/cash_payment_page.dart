@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
+import '../../core/widgets/read_only_guard.dart';
 import 'cash_payment_cubit.dart';
 import 'cash_payment_state.dart';
 import '../../data/models/account_model.dart';
@@ -230,7 +231,7 @@ class _FormPanel extends StatelessWidget {
                   },
                   builder: (context, state) {
                     final currencySymbol = (state is CashPaymentLoaded && state.selectedSupplier != null)
-                        ? state.selectedSupplier!.currency
+                        ? (state.selectedSupplier!.isEgpOnlySupplier ? 'ج.م' : state.selectedSupplier!.currency)
                         : (state is CashPaymentLoaded && state.selectedCustomer != null)
                             ? state.selectedCustomer!.currency
                             : 'ج.م';
@@ -278,12 +279,16 @@ class _FormPanel extends StatelessWidget {
                       if (saveState is! CashPaymentLoaded) return const SizedBox();
                       return ElevatedButton.icon(
                         onPressed:
-                            (saveState.isSaving ||
+                            (ReadOnlyGuard.isReadOnly ||
+                                    saveState.isSaving ||
                                     (saveState.mode == CashPaymentMode.customer && saveState.selectedCustomer == null) ||
                                     (saveState.mode == CashPaymentMode.supplier && saveState.selectedSupplier == null) ||
                                     (saveState.mode == CashPaymentMode.other && saveState.selectedAccount == null))
                                 ? null
-                                : () => ctrl.save(),
+                                : () async {
+                                    if (!await ReadOnlyGuard.checkAsync(context)) return;
+                                    ctrl.save();
+                                  },
                         icon: saveState.isSaving
                             ? const SizedBox(width: 20, height: 20,
                                 child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))

@@ -39,15 +39,31 @@ class _UserFormDialogState extends State<UserFormDialog> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final dialogBg = AppTheme.getCardBg(context);
+    final fieldFill = isDark ? AppTheme.cardBg : const Color(0xFFF1F5F9);
+    final borderColor = AppTheme.getBorderColor(context);
+    final textPrimary = AppTheme.getTextPrimary(context);
+    final textSecondary = AppTheme.getTextSecondary(context);
+
+    final fieldStyle = TextStyle(color: textPrimary, fontFamily: 'Cairo');
+    final labelStyle = TextStyle(color: textSecondary, fontFamily: 'Cairo');
+    final borderSide = BorderSide(color: borderColor);
+    final fieldBorder = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(12),
+      borderSide: borderSide,
+    );
+
     return AlertDialog(
-      backgroundColor: AppTheme.surface,
+      backgroundColor: dialogBg,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(24),
-        side: const BorderSide(color: AppTheme.glassBorder),
+        side: BorderSide(color: borderColor),
       ),
       title: Text(
         _isEdit ? 'تعديل المستخدم' : 'إضافة موظف جديد',
-        style: const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+        style: TextStyle(color: textPrimary, fontFamily: 'Cairo'),
       ),
       content: Form(
         key: _formKey,
@@ -60,21 +76,13 @@ class _UserFormDialogState extends State<UserFormDialog> {
                 controller: _nameCtrl,
                 decoration: InputDecoration(
                   labelText: 'الاسم الكامل',
-                  labelStyle: const TextStyle(
-                      color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+                  labelStyle: labelStyle,
                   filled: true,
-                  fillColor: AppTheme.cardBg,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: AppTheme.glassBorder),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: AppTheme.glassBorder),
-                  ),
+                  fillColor: fieldFill,
+                  border: fieldBorder,
+                  enabledBorder: fieldBorder,
                 ),
-                style:
-                    const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                style: fieldStyle,
                 validator: (v) =>
                     (v == null || v.trim().isEmpty) ? 'الاسم مطلوب' : null,
               ),
@@ -84,21 +92,13 @@ class _UserFormDialogState extends State<UserFormDialog> {
                 enabled: !_isEdit,
                 decoration: InputDecoration(
                   labelText: 'البريد الإلكتروني (لتسجيل الدخول)',
-                  labelStyle: const TextStyle(
-                      color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+                  labelStyle: labelStyle,
                   filled: true,
-                  fillColor: AppTheme.cardBg,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: AppTheme.glassBorder),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: AppTheme.glassBorder),
-                  ),
+                  fillColor: fieldFill,
+                  border: fieldBorder,
+                  enabledBorder: fieldBorder,
                 ),
-                style:
-                    const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                style: fieldStyle,
                 keyboardType: TextInputType.emailAddress,
                 validator: (v) {
                   if (v == null || v.trim().isEmpty) {
@@ -117,26 +117,20 @@ class _UserFormDialogState extends State<UserFormDialog> {
                   obscureText: true,
                   decoration: InputDecoration(
                     labelText: 'كلمة المرور',
-                    labelStyle: const TextStyle(
-                        color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+                    labelStyle: labelStyle,
                     filled: true,
-                    fillColor: AppTheme.cardBg,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: AppTheme.glassBorder),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: AppTheme.glassBorder),
-                    ),
+                    fillColor: fieldFill,
+                    border: fieldBorder,
+                    enabledBorder: fieldBorder,
                   ),
-                  style:
-                      const TextStyle(color: Colors.white, fontFamily: 'Cairo'),
+                  style: fieldStyle,
                   validator: (v) {
-                    if (v == null || v.trim().isEmpty)
+                    if (v == null || v.trim().isEmpty) {
                       return 'كلمة المرور مطلوبة';
-                    if (v.length < 8)
+                    }
+                    if (v.length < 8) {
                       return 'كلمة المرور يجب أن تكون 8 أحرف على الأقل';
+                    }
                     return null;
                   },
                 ),
@@ -148,13 +142,13 @@ class _UserFormDialogState extends State<UserFormDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('إلغاء',
-              style: TextStyle(color: AppTheme.textSecondary)),
+          child: Text('إلغاء',
+              style: TextStyle(color: textSecondary)),
         ),
         ElevatedButton(
           onPressed: _submit,
           style: ElevatedButton.styleFrom(
-            backgroundColor: AppTheme.primary,
+            backgroundColor: primary,
             foregroundColor: Colors.white,
             shape:
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -204,4 +198,3 @@ class _UserFormDialogState extends State<UserFormDialog> {
     Navigator.pop(context);
   }
 }
-

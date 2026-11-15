@@ -125,7 +125,6 @@ class ShipmentCostItemModel {
       'description': description,
       'quantity': quantity,
       'unit_price': unitPrice,
-      'total_price': totalPrice,
       'sort_order': sortOrder,
       if (vendorType != null) 'vendor_type': vendorType,
       if (vendorId != null) 'vendor_id': vendorId,

@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
+import '../../core/widgets/read_only_guard.dart';
 import '../../data/models/account_model.dart';
 import '../../data/models/customer_model.dart';
 import '../../data/models/supplier_model.dart';
@@ -550,9 +551,10 @@ class _AccountingEntryDialogBody extends StatelessWidget {
                   style: const TextStyle(
                       fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
               style: ElevatedButton.styleFrom(backgroundColor: color),
-              onPressed: saving
+              onPressed: (saving || ReadOnlyGuard.isReadOnly)
                   ? null
                   : () async {
+                      if (!await ReadOnlyGuard.checkAsync(context)) return;
                       final isCustomer = entryType.contains('customer');
                       final ok = await c.saveEntry(entryType);
                       if (ok) {

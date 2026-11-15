@@ -55,16 +55,25 @@ class AppTextField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final primaryTextColor = isDark ? Colors.white : AppTheme.lightTextPrimary;
+    final secondaryTextColor = isDark ? AppTheme.textSecondary : AppTheme.lightTextSecondary;
+    final mutedTextColor = isDark ? Colors.white.withValues(alpha: 0.35) : AppTheme.lightTextMuted;
+    final fieldBg = isDark
+        ? (readOnly ? Colors.white.withValues(alpha: 0.03) : Colors.white.withValues(alpha: 0.06))
+        : (readOnly ? const Color(0xFFF1F5F9) : Colors.white);
+    final fieldBorder = isDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1);
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         RichText(
           text: TextSpan(
             text: label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.textSecondary,
+              fontWeight: isDark ? FontWeight.w600 : FontWeight.bold,
+              color: isDark ? secondaryTextColor : Colors.black,
               fontFamily: 'Cairo',
             ),
             children: isRequired
@@ -95,33 +104,44 @@ class AppTextField extends StatelessWidget {
           onFieldSubmitted: onSubmitted,
           textInputAction: textInputAction,
           autofocus: autoFocus,
-          style: const TextStyle(
-            color: Colors.white,
+          style: TextStyle(
+            color: readOnly
+                ? (isDark ? Colors.white70 : const Color(0xFF334155))
+                : primaryTextColor,
             fontSize: 15,
+            fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
             fontFamily: 'Cairo',
           ),
           decoration: InputDecoration(
             hintText: hint,
             errorText: errorText,
-            suffixIcon: suffixIcon,
+            suffixIcon: suffixIcon ??
+                (readOnly
+                    ? Icon(Icons.lock_outline,
+                        size: 18,
+                        color: isDark ? AppTheme.textMuted : const Color(0xFF64748B))
+                    : null),
             prefixIcon: prefixIcon,
             filled: true,
-            fillColor: Colors.white.withValues(alpha: 0.06),
+            fillColor: fieldBg,
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide:
-                  BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+              borderSide: BorderSide(color: fieldBorder),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide:
-                  BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+              borderSide: BorderSide(color: fieldBorder),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: const BorderSide(color: AppTheme.primary, width: 1.8),
+              borderSide: BorderSide(
+                color: readOnly
+                    ? fieldBorder
+                    : (isDark ? AppTheme.primary : AppTheme.lightPrimary),
+                width: readOnly ? 1.0 : 1.8,
+              ),
             ),
             errorBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
@@ -133,19 +153,22 @@ class AppTextField extends StatelessWidget {
             ),
             hintStyle: TextStyle(
               fontFamily: 'Cairo',
-              color: Colors.white.withValues(alpha: 0.35),
+              color: mutedTextColor,
+              fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
             ),
-            labelStyle: const TextStyle(
+            labelStyle: TextStyle(
               fontFamily: 'Cairo',
-              color: AppTheme.textSecondary,
+              color: isDark ? secondaryTextColor : Colors.black,
+              fontWeight: isDark ? FontWeight.w600 : FontWeight.bold,
             ),
           ),
         ),
         if (helperText != null) ...[
           const SizedBox(height: 4),
           Text(helperText!,
-              style: const TextStyle(
-                  color: AppTheme.textMuted,
+              style: TextStyle(
+                  color: isDark ? AppTheme.textMuted : Colors.black,
+                  fontWeight: isDark ? FontWeight.normal : FontWeight.bold,
                   fontSize: 11,
                   fontFamily: 'Cairo')),
         ],

@@ -26,6 +26,9 @@ class TenantService {
   bool? _localAdminReadOnly;
   bool? _localAdminSubscriptionActive;
 
+  // Polling timer for periodic sync with Admin Supabase
+  Timer? _pollingTimer;
+
   /// Called when tenant status changes (freeze, read-only, upgrade, etc.)
   VoidCallback? onStatusChanged;
 
@@ -38,10 +41,78 @@ class TenantService {
         '(blocked=$isBlocked, readOnly=$readOnlyMode, subscription=$subscriptionActive)');
   }
 
+  /// Start periodic sync with Admin Supabase
+  void startPeriodicSync([Duration interval = const Duration(seconds: 15)]) {
+    _pollingTimer?.cancel();
+    _pollingTimer = Timer.periodic(interval, (_) {
+      refreshStatus();
+    });
+    debugPrint('TenantService: periodic sync started (interval: ${interval.inSeconds}s)');
+  }
+
+  /// Stop periodic sync
+  void stopPeriodicSync() {
+    _pollingTimer?.cancel();
+    _pollingTimer = null;
+    debugPrint('TenantService: periodic sync stopped');
+  }
+
+  /// Refresh tenant status from Admin Supabase and notify listeners on change
+  Future<void> refreshStatus() async {
+    try {
+      final currentUserId = _client.auth.currentUser?.id;
+      if (currentUserId == null) return;
+
+      final prevActive = isActive;
+      final prevReadOnly = isReadOnly;
+      final prevExpired = isExpired;
+
+      String ownerUserId = currentUserId;
+      String ownerEmail = _client.auth.currentUser?.email ?? '';
+
+      try {
+        final userRow = await _client.from('users').select('is_admin, email').eq('id', currentUserId).maybeSingle();
+        final isCurrentUserAdmin = userRow?['is_admin'] == true;
+        if (!isCurrentUserAdmin) {
+          final adminRow = await _client.from('users').select('id, email').eq('is_admin', true).limit(1).maybeSingle();
+          if (adminRow != null) {
+            ownerUserId = adminRow['id']?.toString() ?? ownerUserId;
+            ownerEmail = adminRow['email']?.toString() ?? ownerEmail;
+          }
+        } else {
+          ownerEmail = userRow?['email']?.toString() ?? ownerEmail;
+        }
+      } catch (e) {
+        debugPrint('TenantService: refreshStatus owner resolve notice: $e');
+      }
+
+      final freshAdminData = await AdminService().validateSubscription(ownerUserId, email: ownerEmail);
+      if (freshAdminData != null) {
+        _adminData = freshAdminData;
+      }
+
+      final changed = prevActive != isActive ||
+          prevReadOnly != isReadOnly ||
+          prevExpired != isExpired;
+
+      if (changed) {
+        debugPrint('TenantService: Status updated! (active: $prevActive->$isActive, readOnly: $prevReadOnly->$isReadOnly, expired: $prevExpired->$isExpired)');
+        onStatusChanged?.call();
+      }
+    } catch (e) {
+      debugPrint('TenantService: refreshStatus error: $e');
+    }
+  }
+
+  bool get isFrozen => !isActive;
+
   bool get isActive {
-    if (_localAdminBlocked != null) return !_localAdminBlocked!;
-    if (_adminData != null && _adminData!.containsKey('is_active')) {
-      return _adminData!['is_active'] == true;
+    if (_localAdminBlocked == true) return false;
+    if (_adminData != null) {
+      if (_adminData!['is_frozen'] == true) return false;
+      if (_adminData!.containsKey('is_active')) {
+        return _adminData!['is_active'] == true;
+      }
     }
     if (_tenantData != null && _tenantData!.containsKey('is_active')) {
       return _tenantData!['is_active'] == true;
@@ -50,7 +121,7 @@ class TenantService {
   }
 
   bool get isReadOnly {
-    if (_localAdminReadOnly != null) return _localAdminReadOnly!;
+    if (_localAdminReadOnly == true) return true;
     if (_adminData != null && _adminData!.containsKey('is_read_only')) {
       return _adminData!['is_read_only'] == true;
     }
@@ -107,16 +178,21 @@ class TenantService {
         return;
       }
 
-      // 0. Resolve the organization's owner (admin) user ID
+      // 0. Resolve the organization's owner (admin) user ID and email
+      final currentUser = _client.auth.currentUser;
       String ownerUserId = currentUserId;
+      String ownerEmail = currentUser?.email ?? '';
       try {
-        final userRow = await _client.from('users').select('is_admin').eq('id', currentUserId).maybeSingle();
+        final userRow = await _client.from('users').select('is_admin, email').eq('id', currentUserId).maybeSingle();
         final isCurrentUserAdmin = userRow?['is_admin'] == true;
         if (!isCurrentUserAdmin) {
-          final adminRow = await _client.from('users').select('id').eq('is_admin', true).limit(1).maybeSingle();
-          if (adminRow != null && adminRow['id'] != null) {
-            ownerUserId = adminRow['id'].toString();
+          final adminRow = await _client.from('users').select('id, email').eq('is_admin', true).limit(1).maybeSingle();
+          if (adminRow != null) {
+            ownerUserId = adminRow['id']?.toString() ?? ownerUserId;
+            ownerEmail = adminRow['email']?.toString() ?? ownerEmail;
           }
+        } else {
+          ownerEmail = userRow?['email']?.toString() ?? ownerEmail;
         }
       } catch (e) {
         debugPrint('TenantService: resolve ownerUserId failed: $e');
@@ -135,18 +211,17 @@ class TenantService {
         _tenantData = null;
       }
 
-      // 2. Validate against Admin Supabase using the owner's user ID
-      _adminData = await AdminService().validateSubscription(ownerUserId);
+      // 2. Validate against Admin Supabase using the owner's user ID and email
+      _adminData = await AdminService().validateSubscription(ownerUserId, email: ownerEmail);
 
       // 3. If missing from Admin Supabase but has local tenant → auto-register
       if (_adminData == null && _tenantData != null) {
         debugPrint('TenantService: not on Admin Supabase, auto-registering...');
-        final user = _client.auth.currentUser;
-        if (user != null) {
-          final fullName = user.userMetadata?['full_name'] as String? ??
-              user.email?.split('@').first ?? 'User';
-          final email = user.email ?? '';
-          final phone = user.userMetadata?['phone'] as String? ?? '';
+        if (currentUser != null) {
+          final fullName = currentUser.userMetadata?['full_name'] as String? ??
+              currentUser.email?.split('@').first ?? 'User';
+          final email = currentUser.email ?? '';
+          final phone = currentUser.userMetadata?['phone'] as String? ?? '';
 
           final adminResult = await AdminService().registerTenant(
             userId: ownerUserId,
@@ -156,7 +231,7 @@ class TenantService {
           );
           if (adminResult != null) {
             debugPrint('TenantService: auto-registered on Admin: ${adminResult['tenant_id']}');
-            _adminData = await AdminService().validateSubscription(ownerUserId);
+            _adminData = await AdminService().validateSubscription(ownerUserId, email: email);
           }
         }
       }
@@ -209,6 +284,11 @@ class TenantService {
     // Don't re-subscribe if already listening
     if (_tenantChannel != null) return;
 
+    if (!AdminService().isConfigured) {
+      debugPrint('TenantService: Admin Supabase anon key not configured, skipping Realtime subscription.');
+      return;
+    }
+
     try {
       // Create a separate Supabase client for Admin
       _adminClient = SupabaseClient(
@@ -220,24 +300,21 @@ class TenantService {
 
       _tenantChannel!
           .onPostgresChanges(
-            event: PostgresChangeEvent.update,
+            event: PostgresChangeEvent.all,
             schema: 'public',
-            table: 'tenants',
-            filter: PostgresChangeFilter(
-              type: PostgresChangeFilterType.eq,
-              column: 'id',
-              value: currentTenantId,
-            ),
+            table: AdminConfig.accountsTable,
             callback: (payload) async {
-              debugPrint('TenantService: Realtime update received!');
-              // Reload from Admin Supabase
-              final userId = _client.auth.currentUser?.id;
-              if (userId != null) {
-                _adminData = await AdminService().validateSubscription(userId);
-                debugPrint('TenantService: refreshed via Realtime '
-                    '(active=$isActive, readOnly=$isReadOnly, expired=$isExpired)');
-                onStatusChanged?.call();
-              }
+              debugPrint('TenantService: Realtime update on accounts received: ${payload.eventType}');
+              await refreshStatus();
+            },
+          )
+          .onPostgresChanges(
+            event: PostgresChangeEvent.all,
+            schema: 'public',
+            table: AdminConfig.legacyAccountsTable,
+            callback: (payload) async {
+              debugPrint('TenantService: Realtime update on legacy tenants received: ${payload.eventType}');
+              await refreshStatus();
             },
           )
           .subscribe();
@@ -248,8 +325,9 @@ class TenantService {
     }
   }
 
-  /// Unsubscribe from Realtime
+  /// Unsubscribe from Realtime and stop background polling
   void unsubscribe() {
+    stopPeriodicSync();
     if (_tenantChannel != null) {
       _adminClient?.removeChannel(_tenantChannel!);
       _tenantChannel = null;

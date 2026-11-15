@@ -328,19 +328,26 @@ class _PackingWastePageState extends State<PackingWastePage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final scaffoldBg = isDark ? AppTheme.background : const Color(0xFFF1F5F9);
+    final appBarBg = isDark ? AppTheme.surface : Colors.white;
+    final textColor = isDark ? Colors.white : Colors.black;
+
     if (_loading) {
-      return const Scaffold(backgroundColor: AppTheme.background, body: Center(child: CircularProgressIndicator()));
+      return Scaffold(backgroundColor: scaffoldBg, body: const Center(child: CircularProgressIndicator()));
     }
 
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: scaffoldBg,
         appBar: AppBar(
-          backgroundColor: AppTheme.surface,
+          backgroundColor: appBarBg,
+          elevation: isDark ? 0 : 0.5,
+          iconTheme: IconThemeData(color: textColor),
           title: Text(
             'إذن هالك تعبئة - $_wasteNumber',
-            style: const TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 18),
+            style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 18, color: textColor),
           ),
           actions: [
             if (_status == 'completed' && _journalEntryId != null)
@@ -351,7 +358,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                     JournalEntryNavigationService.openById(context, journalEntryId: _journalEntryId!);
                   },
                   icon: const Icon(Icons.receipt_long, size: 16, color: Colors.white),
-                  label: const Text('عرض القيد', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13)),
+                  label: const Text('عرض القيد', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF8B5CF6),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
@@ -362,8 +369,14 @@ class _PackingWastePageState extends State<PackingWastePage> {
               ElevatedButton.icon(
                 onPressed: _canSave ? _saveDraft : null,
                 icon: const Icon(Icons.save_outlined, size: 16),
-                label: const Text('حفظ كمسودة', style: TextStyle(fontFamily: 'Cairo')),
-                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
+                label: const Text('حفظ كمسودة', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primary,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: isDark ? Colors.white12 : const Color(0xFFE2E8F0),
+                  disabledForegroundColor: isDark ? Colors.white38 : const Color(0xFF94A3B8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
               ),
               const SizedBox(width: 12),
             ],
@@ -391,9 +404,13 @@ class _PackingWastePageState extends State<PackingWastePage> {
   }
 
   Widget _buildHeaderCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
-      color: AppTheme.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      color: isDark ? AppTheme.surface : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: LayoutBuilder(
@@ -403,11 +420,12 @@ class _PackingWastePageState extends State<PackingWastePage> {
               return Column(
                 children: [
                   DropdownButtonFormField<int>(
+                    dropdownColor: isDark ? const Color(0xFF102640) : Colors.white,
                     initialValue: _selectedStationId,
-                    decoration: const InputDecoration(labelText: 'المحطة / المخزن', labelStyle: TextStyle(fontFamily: 'Cairo')),
+                    decoration: _inputDecoration('المحطة / المخزن'),
                     items: _stations.map((s) {
                       final sId = int.tryParse(s.id ?? '') ?? 0;
-                      return DropdownMenuItem(value: sId, child: Text(s.name, style: const TextStyle(fontFamily: 'Cairo')));
+                      return DropdownMenuItem(value: sId, child: Text(s.name, style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)));
                     }).toList(),
                     onChanged: !_isViewOnly
                         ? (val) {
@@ -422,7 +440,8 @@ class _PackingWastePageState extends State<PackingWastePage> {
                   TextFormField(
                     readOnly: true,
                     controller: TextEditingController(text: DateFormat('yyyy/MM/dd').format(_date)),
-                    decoration: const InputDecoration(labelText: 'التاريخ', suffixIcon: Icon(Icons.calendar_today)),
+                    decoration: _inputDecoration('التاريخ', suffixIcon: Icon(Icons.calendar_today, color: isDark ? Colors.white70 : Colors.black87)),
+                    style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                     onTap: !_isViewOnly
                         ? () async {
                             final picked = await showDatePicker(
@@ -443,11 +462,12 @@ class _PackingWastePageState extends State<PackingWastePage> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<int>(
+                    dropdownColor: isDark ? const Color(0xFF102640) : Colors.white,
                     initialValue: _selectedStationId,
-                    decoration: const InputDecoration(labelText: 'المحطة / المخزن', labelStyle: TextStyle(fontFamily: 'Cairo')),
+                    decoration: _inputDecoration('المحطة / المخزن'),
                     items: _stations.map((s) {
                       final sId = int.tryParse(s.id ?? '') ?? 0;
-                      return DropdownMenuItem(value: sId, child: Text(s.name, style: const TextStyle(fontFamily: 'Cairo')));
+                      return DropdownMenuItem(value: sId, child: Text(s.name, style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)));
                     }).toList(),
                     onChanged: !_isViewOnly
                         ? (val) {
@@ -464,7 +484,8 @@ class _PackingWastePageState extends State<PackingWastePage> {
                   child: TextFormField(
                     readOnly: true,
                     controller: TextEditingController(text: DateFormat('yyyy/MM/dd').format(_date)),
-                    decoration: const InputDecoration(labelText: 'التاريخ', suffixIcon: Icon(Icons.calendar_today)),
+                    decoration: _inputDecoration('التاريخ', suffixIcon: Icon(Icons.calendar_today, color: isDark ? Colors.white70 : Colors.black87)),
+                    style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                     onTap: !_isViewOnly
                         ? () async {
                             final picked = await showDatePicker(
@@ -489,9 +510,13 @@ class _PackingWastePageState extends State<PackingWastePage> {
 
   // ── 1. قسم المحاصيل (الإجمالي المسحوب = الهالك + الفرز) ──
   Widget _buildCropWasteSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
-      color: AppTheme.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      color: isDark ? AppTheme.surface : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -503,29 +528,33 @@ class _PackingWastePageState extends State<PackingWastePage> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                const Wrap(
+                Wrap(
                   crossAxisAlignment: WrapCrossAlignment.center,
                   spacing: 6,
                   runSpacing: 4,
                   children: [
-                    Text('🌾 هالك وفرز المحاصيل', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
-                    Text('(اختياري)', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                    Text('🌾 هالك وفرز المحاصيل', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                    Text('(اختياري)', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black54, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                   ],
                 ),
                 if (!_isViewOnly)
                   ElevatedButton.icon(
                     onPressed: _addCropWasteRow,
                     icon: const Icon(Icons.add, size: 14),
-                    label: const Text('إضافة محصول', style: TextStyle(fontFamily: 'Cairo', fontSize: 12)),
-                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.navyLight),
+                    label: const Text('إضافة محصول', style: TextStyle(fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDark ? AppTheme.navyLight : AppTheme.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
                   ),
               ],
             ),
             const Divider(height: 24),
             if (_cropWasteItems.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(12),
-                child: Text('لم يتم تحديد هالك محاصيل في هذا الإذن', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+              Padding(
+                padding: const EdgeInsets.all(12),
+                child: Text('لم يتم تحديد هالك محاصيل في هذا الإذن', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
               )
             else
               ListView.builder(
@@ -566,6 +595,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
   }
 
   Widget _buildCropRow(int idx) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final item = _cropWasteItems[idx];
     final totalDrawn = (item['total_drawn_weight'] as num?)?.toDouble() ?? 0.0;
     final wasteWeight = (item['waste_weight'] as num?)?.toDouble() ?? 0.0;
@@ -580,9 +610,9 @@ class _PackingWastePageState extends State<PackingWastePage> {
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: const Color(0x15FFFFFF),
+        color: isDark ? const Color(0x15FFFFFF) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.glassBorder),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -592,8 +622,9 @@ class _PackingWastePageState extends State<PackingWastePage> {
             children: [
               if (isNarrow) ...[
                 DropdownButtonFormField<int>(
+                  dropdownColor: isDark ? const Color(0xFF102640) : Colors.white,
                   initialValue: item['batch_id'] as int?,
-                  decoration: const InputDecoration(labelText: 'دفعة المحصول'),
+                  decoration: _inputDecoration('دفعة المحصول'),
                   isExpanded: true,
                   items: _availableCropBatches.map((b) {
                     final costEgp = b.unitCost * (b.exchangeRate > 0 ? b.exchangeRate : 1.0);
@@ -602,7 +633,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                         : '${costEgp.toStringAsFixed(2)} ج.م/كجم';
                     return DropdownMenuItem(
                       value: b.id,
-                      child: Text('${b.productName} (متاح: ${b.remainingQuantity} كجم) | $costLabel', style: const TextStyle(fontSize: 12, fontFamily: 'Cairo')),
+                      child: Text('${b.productName} (متاح: ${b.remainingQuantity} كجم) | $costLabel', style: TextStyle(fontSize: 12, fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
                     );
                   }).toList(),
                   onChanged: !_isViewOnly
@@ -627,13 +658,13 @@ class _PackingWastePageState extends State<PackingWastePage> {
                 Container(
                   padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                   decoration: BoxDecoration(
-                    color: AppTheme.navyLight.withAlpha(80),
+                    color: isDark ? AppTheme.navyLight.withAlpha(80) : const Color(0xFFFEF3C7),
                     borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: AppTheme.glassBorder),
+                    border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFFDE68A)),
                   ),
                   child: Text(
                     'سعر تكلفة الكيلو: ${unitCost.toStringAsFixed(2)} ج.م${currency != 'EGP' ? ' (${origCost.toStringAsFixed(2)} $currency @ صرف $exRate)' : ''}',
-                    style: const TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                    style: TextStyle(color: isDark ? Colors.amber : const Color(0xFFB45309), fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -642,10 +673,8 @@ class _PackingWastePageState extends State<PackingWastePage> {
                     Expanded(
                       child: TextFormField(
                         initialValue: totalDrawn > 0 ? totalDrawn.toString() : '',
-                        decoration: const InputDecoration(
-                          labelText: 'الكمية المسحوبة (كجم)',
-                          hintText: 'إجمالي السحب',
-                        ),
+                        decoration: _inputDecoration('الكمية المسحوبة (كجم)', hint: 'إجمالي السحب'),
+                        style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
                         readOnly: _isViewOnly,
@@ -678,8 +707,9 @@ class _PackingWastePageState extends State<PackingWastePage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           DropdownButtonFormField<int>(
+                            dropdownColor: isDark ? const Color(0xFF102640) : Colors.white,
                             initialValue: item['batch_id'] as int?,
-                            decoration: const InputDecoration(labelText: 'دفعة المحصول'),
+                            decoration: _inputDecoration('دفعة المحصول'),
                             isExpanded: true,
                             items: _availableCropBatches.map((b) {
                               final costEgp = b.unitCost * (b.exchangeRate > 0 ? b.exchangeRate : 1.0);
@@ -688,7 +718,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                                   : '${costEgp.toStringAsFixed(2)} ج.م/كجم';
                               return DropdownMenuItem(
                                 value: b.id,
-                                child: Text('${b.productName} (متاح: ${b.remainingQuantity} كجم) | $costLabel', style: const TextStyle(fontSize: 12, fontFamily: 'Cairo')),
+                                child: Text('${b.productName} (متاح: ${b.remainingQuantity} كجم) | $costLabel', style: TextStyle(fontSize: 12, fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)),
                               );
                             }).toList(),
                             onChanged: !_isViewOnly
@@ -712,7 +742,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                           const SizedBox(height: 4),
                           Text(
                             'سعر الكيلو: ${unitCost.toStringAsFixed(2)} ج.م${currency != 'EGP' ? ' (${origCost.toStringAsFixed(2)} $currency @ صرف $exRate)' : ''}',
-                            style: const TextStyle(color: Colors.amber, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                            style: TextStyle(color: isDark ? Colors.amber : const Color(0xFFB45309), fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
                           ),
                         ],
                       ),
@@ -722,10 +752,8 @@ class _PackingWastePageState extends State<PackingWastePage> {
                       flex: 3,
                       child: TextFormField(
                         initialValue: totalDrawn > 0 ? totalDrawn.toString() : '',
-                        decoration: const InputDecoration(
-                          labelText: 'الكمية المسحوبة (كجم)',
-                          hintText: 'إجمالي السحب',
-                        ),
+                        decoration: _inputDecoration('الكمية المسحوبة (كجم)', hint: 'إجمالي السحب'),
+                        style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
                         readOnly: _isViewOnly,
@@ -754,7 +782,8 @@ class _PackingWastePageState extends State<PackingWastePage> {
                     Expanded(
                       child: TextFormField(
                         initialValue: wasteWeight > 0 ? wasteWeight.toString() : '',
-                        decoration: const InputDecoration(labelText: 'كمية الهالك (كجم)', hintText: 'حساب 51102'),
+                        decoration: _inputDecoration('كمية الهالك (كجم)', hint: 'حساب 51102'),
+                        style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
                         readOnly: _isViewOnly,
@@ -776,7 +805,8 @@ class _PackingWastePageState extends State<PackingWastePage> {
                     Expanded(
                       child: TextFormField(
                         initialValue: sortingWeight > 0 ? sortingWeight.toString() : '',
-                        decoration: const InputDecoration(labelText: 'كمية الفرز (كجم)', hintText: 'مخزون 1032'),
+                        decoration: _inputDecoration('كمية الفرز (كجم)', hint: 'مخزون 1032'),
+                        style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
                         readOnly: _isViewOnly,
@@ -797,7 +827,8 @@ class _PackingWastePageState extends State<PackingWastePage> {
                     Expanded(
                       child: TextFormField(
                         initialValue: wasteWeight > 0 ? wasteWeight.toString() : '',
-                        decoration: const InputDecoration(labelText: 'كمية الهالك (كجم)', hintText: 'حساب 51102'),
+                        decoration: _inputDecoration('كمية الهالك (كجم)', hint: 'حساب 51102'),
+                        style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
                         readOnly: _isViewOnly,
@@ -819,7 +850,8 @@ class _PackingWastePageState extends State<PackingWastePage> {
                     Expanded(
                       child: TextFormField(
                         initialValue: sortingWeight > 0 ? sortingWeight.toString() : '',
-                        decoration: const InputDecoration(labelText: 'كمية الفرز (كجم)', hintText: 'مخزون 1032'),
+                        decoration: _inputDecoration('كمية الفرز (كجم)', hint: 'مخزون 1032'),
+                        style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                         keyboardType: const TextInputType.numberWithOptions(decimal: true),
                         inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
                         readOnly: _isViewOnly,
@@ -844,6 +876,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
 
   // ── 2. قسم مواد التعبئة والتغليف ──
   Widget _buildMaterialWasteSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final Map<String, List<Map<String, dynamic>>> grouped = {};
     for (final item in _materialWasteItems) {
       final code = item['product_code']?.toString() ?? item['product_name']?.toString() ?? '';
@@ -851,8 +884,11 @@ class _PackingWastePageState extends State<PackingWastePage> {
     }
 
     return Card(
-      color: AppTheme.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      color: isDark ? AppTheme.surface : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -864,32 +900,36 @@ class _PackingWastePageState extends State<PackingWastePage> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                const Wrap(
+                Wrap(
                   crossAxisAlignment: WrapCrossAlignment.center,
                   spacing: 6,
                   runSpacing: 4,
                   children: [
                     Text('📦 هالك مواد التعبئة والتغليف',
-                        style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                        style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                     Text('(اختياري)',
-                        style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                        style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black54, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                   ],
                 ),
                 if (!_isViewOnly)
                   ElevatedButton.icon(
                     onPressed: () => _showMaterialWasteForm(),
                     icon: const Icon(Icons.add, size: 14),
-                    label: const Text('إضافة مادة تالفة', style: TextStyle(fontFamily: 'Cairo', fontSize: 12)),
-                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.navyLight),
+                    label: const Text('إضافة مادة تالفة', style: TextStyle(fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.bold)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isDark ? AppTheme.navyLight : AppTheme.primary,
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
                   ),
               ],
             ),
             const Divider(height: 24),
             if (_materialWasteItems.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(12),
+              Padding(
+                padding: const EdgeInsets.all(12),
                 child: Text('لم يتم تحديد هالك مواد تعبئة في هذا الإذن',
-                    style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                    style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
               )
             else
               ...grouped.entries.map((group) {
@@ -904,9 +944,9 @@ class _PackingWastePageState extends State<PackingWastePage> {
                   margin: const EdgeInsets.only(bottom: 10),
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0x15FFFFFF),
+                    color: isDark ? const Color(0x15FFFFFF) : const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.glassBorder),
+                    border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -916,7 +956,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                           Expanded(
                             child: Text(
                               cleanName,
-                              style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                              style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
                             ),
                           ),
                           Text(
@@ -962,7 +1002,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                         productCode.isNotEmpty
                             ? 'كود: $productCode | إجمالي الهالك: ${groupQty.toStringAsFixed(1)} وحدة'
                             : 'إجمالي الهالك: ${groupQty.toStringAsFixed(1)} وحدة',
-                        style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo'),
+                        style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                       ),
                       const SizedBox(height: 6),
                       ...items.asMap().entries.map((entry) {
@@ -985,20 +1025,21 @@ class _PackingWastePageState extends State<PackingWastePage> {
                           margin: const EdgeInsets.only(bottom: 4),
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
                           decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.05),
+                            color: isDark ? Colors.white.withValues(alpha: 0.05) : Colors.white,
                             borderRadius: BorderRadius.circular(6),
+                            border: Border.all(color: isDark ? Colors.transparent : const Color(0xFFE2E8F0)),
                           ),
                           child: Row(
                             children: [
                               Text(
                                 badgeText,
-                                style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                                style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   '${qty.toStringAsFixed(1)} × ${unitCost.toStringAsFixed(2)} ج.م',
-                                  style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12, fontFamily: 'Cairo'),
+                                  style: TextStyle(color: isDark ? AppTheme.textPrimary : Colors.black, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -1180,6 +1221,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, setDialogState) {
+          final isDark = AppTheme.isDark(ctx);
           if (editProductCode != null && selectedIdx != null && batches.isEmpty && loadingBatches) {
             fetchBatches(selectedIdx!, setDialogState);
           }
@@ -1195,10 +1237,10 @@ class _PackingWastePageState extends State<PackingWastePage> {
           final canAdd = selectedIdx != null && totalAllocated > 0 && !hasMismatch && !hasOverflow;
 
           return AlertDialog(
-            backgroundColor: const Color(0xFF1A2940),
+            backgroundColor: isDark ? const Color(0xFF1A2940) : Colors.white,
             title: Text(
               editProductCode != null ? 'تعديل مادة التعبئة التالفة' : 'إضافة مادة تعبئة تالفة',
-              style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Cairo', fontSize: 18, fontWeight: FontWeight.bold),
+              style: TextStyle(color: isDark ? AppTheme.textPrimary : Colors.black, fontFamily: 'Cairo', fontSize: 18, fontWeight: FontWeight.bold),
             ),
             content: Directionality(
               textDirection: TextDirection.rtl,
@@ -1213,7 +1255,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                         _infoRow(
                           'المنتج',
                           _materialProducts[selectedIdx!].productName.replaceAll(' (مادة تعبئة)', ''),
-                          valueColor: AppTheme.textPrimary,
+                          valueColor: isDark ? AppTheme.textPrimary : Colors.black,
                         ),
                       ] else ...[
                         TypeAheadField<int>(
@@ -1241,10 +1283,10 @@ class _PackingWastePageState extends State<PackingWastePage> {
                             return ListTile(
                               dense: true,
                               title: Text(cleanName,
-                                  style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.w600)),
+                                  style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold)),
                               subtitle: Text(
                                 'المتوفر: ${rem.toStringAsFixed(1)} | كود: ${p.productCode}',
-                                style: TextStyle(color: rem > 0 ? AppTheme.textSecondary : AppTheme.danger, fontFamily: 'Cairo', fontSize: 11),
+                                style: TextStyle(color: rem > 0 ? (isDark ? AppTheme.textSecondary : Colors.black87) : AppTheme.danger, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 11),
                               ),
                             );
                           },
@@ -1265,7 +1307,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                               controller: controller,
                               focusNode: focusNode,
                               decoration: _inputDecoration('بحث بالاسم أو الكود'),
-                              style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 14),
+                              style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 14),
                             );
                           },
                         ),
@@ -1283,7 +1325,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                           decoration: _inputDecoration('الكمية التالفة المطلوبة'),
                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                           inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$'))],
-                          style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 15),
+                          style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 15),
                           onChanged: (v) {
                             final qty = double.tryParse(v) ?? 0;
                             if (qty <= 0 || batches.isEmpty) return;
@@ -1353,7 +1395,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                             decoration: _inputDecoration('الكمية التالفة'),
                             keyboardType: const TextInputType.numberWithOptions(decimal: true),
                             inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$'))],
-                            style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 15),
+                            style: TextStyle(color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold, fontFamily: 'Cairo', fontSize: 15),
                             onChanged: (_) => setDialogState(() {}),
                           ),
                         ],
@@ -1375,9 +1417,9 @@ class _PackingWastePageState extends State<PackingWastePage> {
                               margin: const EdgeInsets.only(bottom: 8),
                               padding: const EdgeInsets.all(8),
                               decoration: BoxDecoration(
-                                color: Colors.white.withValues(alpha: 0.04),
+                                color: isDark ? Colors.white.withValues(alpha: 0.04) : const Color(0xFFF8FAFC),
                                 borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: overLimit ? AppTheme.danger : AppTheme.glassBorder),
+                                border: Border.all(color: overLimit ? AppTheme.danger : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                               ),
                               child: Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1396,7 +1438,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                                           final invNum = b['invoice_number']?.toString() ?? '';
                                           if (invNum.isNotEmpty) title += ' | فاتورة: $invNum';
                                           return Text(title,
-                                              style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold));
+                                              style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold));
                                         }),
                                       ),
                                       const SizedBox(width: 6),
@@ -1405,7 +1447,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                                             ? '${bCost.toStringAsFixed(2)} ${AppUtils.currencySymbol(bCurrency)}'
                                             : '${bCost.toStringAsFixed(2)} ج.م';
                                         return Text('متاح: ${bRem.toStringAsFixed(1)} | $costStr',
-                                            style: const TextStyle(color: AppTheme.textSecondary, fontSize: 10, fontFamily: 'Cairo'));
+                                            style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 10, fontFamily: 'Cairo', fontWeight: FontWeight.bold));
                                       }),
                                     ],
                                   ),
@@ -1418,7 +1460,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                                           decoration: _inputDecoration('الكمية التالفة'),
                                           keyboardType: const TextInputType.numberWithOptions(decimal: true),
                                           inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*$'))],
-                                          style: TextStyle(color: overLimit ? AppTheme.danger : Colors.white, fontFamily: 'Cairo', fontSize: 13),
+                                          style: TextStyle(color: overLimit ? AppTheme.danger : (isDark ? Colors.white : Colors.black), fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold),
                                           onChanged: (_) => setDialogState(() {}),
                                         ),
                                       ),
@@ -1426,7 +1468,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                                         const SizedBox(width: 8),
                                         Text('${(entered * bCostEgp).toStringAsFixed(2)} ج.م',
                                             textAlign: TextAlign.start,
-                                            style: const TextStyle(color: AppTheme.accent, fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                                            style: TextStyle(color: isDark ? AppTheme.accent : const Color(0xFF0284C7), fontSize: 11, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                                       ],
                                     ],
                                   ),
@@ -1453,7 +1495,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                                   size: 16,
                                   color: hasMismatch || hasOverflow ? AppTheme.danger : AppTheme.success,
                                 ),
-                                const SizedBox(width: 8),
+                                SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     requestedQty > 0
@@ -1484,7 +1526,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),
-                child: const Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', color: AppTheme.textSecondary, fontSize: 14)),
+                child: Text('إلغاء', style: TextStyle(fontFamily: 'Cairo', color: isDark ? AppTheme.textSecondary : Colors.black87, fontWeight: FontWeight.bold, fontSize: 14)),
               ),
               ElevatedButton(
                 onPressed: canAdd
@@ -1545,39 +1587,42 @@ class _PackingWastePageState extends State<PackingWastePage> {
   }
 
   InputDecoration _inputDecoration(String label, {String? hint, Widget? prefixIcon, Widget? suffixIcon}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InputDecoration(
       labelText: label,
       hintText: hint,
       prefixIcon: prefixIcon,
       suffixIcon: suffixIcon,
-      labelStyle: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13),
-      hintStyle: const TextStyle(color: AppTheme.textMuted, fontFamily: 'Cairo', fontSize: 13),
+      labelStyle: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold),
+      hintStyle: TextStyle(color: isDark ? AppTheme.textMuted : Colors.black45, fontFamily: 'Cairo', fontSize: 13),
       filled: true,
-      fillColor: Colors.white.withValues(alpha: 0.05),
-      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.glassBorder)),
-      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.glassBorder)),
-      focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
+      fillColor: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF8FAFC),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+      enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+      focusedBorder: const OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(10)), borderSide: BorderSide(color: AppTheme.primary, width: 1.5)),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
     );
   }
 
   Widget _infoRow(String label, String value, {Color? valueColor}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(label, style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 13)),
-        Text(value, style: TextStyle(color: valueColor ?? AppTheme.textPrimary, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold)),
+        Text(label, style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold)),
+        Text(value, style: TextStyle(color: valueColor ?? (isDark ? AppTheme.textPrimary : Colors.black), fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold)),
       ],
     );
   }
 
   // ── 3. قسم بنود التكلفة الإضافية (نافذة منبثقة Dialog + تصنيفات ديناميكية) ──
   Widget _buildCostItemsSection() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
-      color: AppTheme.surface,
+      color: isDark ? AppTheme.surface : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(14),
-        side: BorderSide(color: _costItems.isEmpty ? AppTheme.danger : Colors.transparent, width: 1.2),
+        side: BorderSide(color: _costItems.isEmpty ? AppTheme.danger : (isDark ? Colors.transparent : const Color(0xFFCBD5E1)), width: 1.2),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -1595,7 +1640,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                   spacing: 6,
                   runSpacing: 4,
                   children: [
-                    const Text('💰 بنود التكلفة والخدمات الإضافية', style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                    Text('💰 بنود التكلفة والخدمات الإضافية', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 15, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(color: AppTheme.danger.withAlpha(35), borderRadius: BorderRadius.circular(6)),
@@ -1635,6 +1680,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
   }
 
   Widget _buildCostCard(int idx) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final item = _costItems[idx];
     final totalEgp = ((item['total_egp'] ?? item['amount'] ?? 0) as num).toDouble();
     const pText = 'آجل (حساب المورد)';
@@ -1645,9 +1691,9 @@ class _PackingWastePageState extends State<PackingWastePage> {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: const Color(0x15FFFFFF),
+        color: isDark ? const Color(0x15FFFFFF) : const Color(0xFFF8FAFC),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.glassBorder),
+        border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -1661,7 +1707,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                   runSpacing: 4,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Text(item['name'] as String? ?? '', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                    Text(item['name'] as String? ?? '', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                       decoration: BoxDecoration(color: pColor.withAlpha(25), borderRadius: BorderRadius.circular(12), border: Border.all(color: pColor.withAlpha(80))),
@@ -1672,7 +1718,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                 const SizedBox(height: 6),
                 Text(
                   'التصنيف: $catName | المورد: ${item['supplier_name'] ?? ''} | الكمية: ${((item['quantity'] ?? 1) as num).toDouble().toStringAsFixed(1)} | سعر الوحدة: ${((item['unit_price'] ?? totalEgp) as num).toDouble().toStringAsFixed(2)} ج.م',
-                  style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo'),
+                  style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
                 Row(
@@ -1706,7 +1752,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                   children: [
                     Row(
                       children: [
-                        Text(item['name'] as String? ?? '', style: const TextStyle(color: Colors.white, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                        Text(item['name'] as String? ?? '', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                         const SizedBox(width: 8),
                         Container(
                           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -1718,7 +1764,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
                     const SizedBox(height: 4),
                     Text(
                       'التصنيف: $catName | المورد: ${item['supplier_name'] ?? ''} | الكمية: ${((item['quantity'] ?? 1) as num).toDouble().toStringAsFixed(1)} | سعر الوحدة: ${((item['unit_price'] ?? totalEgp) as num).toDouble().toStringAsFixed(2)} ج.م',
-                      style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo'),
+                      style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
                     ),
                   ],
                 ),
@@ -1742,6 +1788,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
   }
 
   void _showCostItemDialog({int? editIndex}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isEdit = editIndex != null;
     final initialItem = isEdit ? _costItems[editIndex] : <String, dynamic>{};
 
@@ -1766,9 +1813,12 @@ class _PackingWastePageState extends State<PackingWastePage> {
           return Directionality(
             textDirection: TextDirection.rtl,
             child: AlertDialog(
-              backgroundColor: const Color(0xFF102640),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              title: Text(isEdit ? 'تعديل بند تكلفة' : 'إضافة بند تكلفة جديد', style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 18)),
+              backgroundColor: isDark ? const Color(0xFF102640) : Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              ),
+              title: Text(isEdit ? 'تعديل بند تكلفة' : 'إضافة بند تكلفة جديد', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 18)),
               content: SizedBox(
                 width: 500,
                 child: SingleChildScrollView(
@@ -1777,15 +1827,16 @@ class _PackingWastePageState extends State<PackingWastePage> {
                     children: [
                       TextFormField(
                         controller: nameCtrl,
-                        decoration: const InputDecoration(labelText: 'بيان الخدمة / التكلفة *', hintText: 'مثال: مصاريف فرز وتدريج، نقل عوادم'),
-                        style: const TextStyle(fontFamily: 'Cairo', color: Colors.white),
+                        decoration: _inputDecoration('بيان الخدمة / التكلفة *', hint: 'مثال: مصاريف فرز وتدريج، نقل عوادم'),
+                        style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                         onChanged: (_) => setDialogState(() {}),
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<int>(
+                        dropdownColor: isDark ? const Color(0xFF102640) : Colors.white,
                         initialValue: selectedCategoryId,
-                        decoration: const InputDecoration(labelText: 'تصنيف التكلفة *'),
-                        items: _costCategories.map((c) => DropdownMenuItem(value: c['id'] as int, child: Text(c['name'] as String, style: const TextStyle(fontFamily: 'Cairo')))).toList(),
+                        decoration: _inputDecoration('تصنيف التكلفة *'),
+                        items: _costCategories.map((c) => DropdownMenuItem(value: c['id'] as int, child: Text(c['name'] as String, style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)))).toList(),
                         onChanged: (val) {
                           if (val != null) {
                             final matched = _costCategories.firstWhere((c) => c['id'] == val);
@@ -1798,9 +1849,10 @@ class _PackingWastePageState extends State<PackingWastePage> {
                       ),
                       const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
+                        dropdownColor: isDark ? const Color(0xFF102640) : Colors.white,
                         initialValue: selectedSupplierId,
-                        decoration: const InputDecoration(labelText: 'المورد (بالجنيه المصري EGP فقط) *'),
-                        items: _egpSuppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name, style: const TextStyle(fontFamily: 'Cairo')))).toList(),
+                        decoration: _inputDecoration('المورد (بالجنيه المصري EGP فقط) *'),
+                        items: _egpSuppliers.map((s) => DropdownMenuItem(value: s.id, child: Text(s.name, style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold)))).toList(),
                         onChanged: (val) {
                           if (val != null) {
                             final s = _egpSuppliers.firstWhere((e) => e.id == val);
@@ -1817,7 +1869,8 @@ class _PackingWastePageState extends State<PackingWastePage> {
                           Expanded(
                             child: TextFormField(
                               controller: qtyCtrl,
-                              decoration: const InputDecoration(labelText: 'الكمية'),
+                              decoration: _inputDecoration('الكمية'),
+                              style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
                               inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
                               onChanged: (_) => setDialogState(() {}),
@@ -1827,7 +1880,8 @@ class _PackingWastePageState extends State<PackingWastePage> {
                           Expanded(
                             child: TextFormField(
                               controller: priceCtrl,
-                              decoration: const InputDecoration(labelText: 'سعر الوحدة (ج.م) *'),
+                              decoration: _inputDecoration('سعر الوحدة (ج.م) *'),
+                              style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
                               inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^\d*\.?\d*'))],
                               onChanged: (_) => setDialogState(() {}),
@@ -1838,30 +1892,34 @@ class _PackingWastePageState extends State<PackingWastePage> {
                       const SizedBox(height: 12),
                       Container(
                         padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(color: AppTheme.primary.withAlpha(20), borderRadius: BorderRadius.circular(10), border: Border.all(color: AppTheme.primary.withAlpha(50))),
+                        decoration: BoxDecoration(
+                          color: isDark ? AppTheme.primary.withAlpha(20) : const Color(0xFFF0FDF4),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: isDark ? AppTheme.primary.withAlpha(50) : const Color(0xFF86EFAC)),
+                        ),
                         child: Wrap(
                           alignment: WrapAlignment.spaceBetween,
                           crossAxisAlignment: WrapCrossAlignment.center,
                           spacing: 8,
                           runSpacing: 4,
                           children: [
-                            const Text('الإجمالي المستحق:', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
-                            Text('${totalAmount.toStringAsFixed(2)} ج.م', style: const TextStyle(color: AppTheme.primary, fontFamily: 'Cairo', fontSize: 16, fontWeight: FontWeight.bold)),
+                            Text('الإجمالي المستحق:', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                            Text('${totalAmount.toStringAsFixed(2)} ج.م', style: TextStyle(color: isDark ? AppTheme.primary : const Color(0xFF16A34A), fontFamily: 'Cairo', fontSize: 16, fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ),
                       const SizedBox(height: 12),
                       TextFormField(
                         controller: notesCtrl,
-                        decoration: const InputDecoration(labelText: 'ملاحظات إضافية'),
-                        style: const TextStyle(fontFamily: 'Cairo', color: Colors.white),
+                        decoration: _inputDecoration('ملاحظات إضافية'),
+                        style: TextStyle(fontFamily: 'Cairo', color: isDark ? Colors.white : Colors.black, fontWeight: FontWeight.bold),
                       ),
                     ],
                   ),
                 ),
               ),
               actions: [
-                TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'))),
+                TextButton(onPressed: () => Navigator.pop(ctx), child: Text('إلغاء', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold))),
                 ElevatedButton(
                   onPressed: nameCtrl.text.trim().isNotEmpty && totalAmount > 0 && selectedSupplierId != null
                       ? () {
@@ -1903,15 +1961,19 @@ class _PackingWastePageState extends State<PackingWastePage> {
   }
 
   Widget _buildSummaryCard() {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Card(
-      color: AppTheme.surface,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      color: isDark ? AppTheme.surface : Colors.white,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: isDark ? Colors.transparent : const Color(0xFFCBD5E1)),
+      ),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('ملخص التكلفة والقيد المحاسبي المتولد', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+            Text('ملخص التكلفة والقيد المحاسبي المتولد', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
             const SizedBox(height: 12),
             _buildSummaryRow('هالك المحاصيل (مدين 51102):', _totalCropWasteCost),
             _buildSummaryRow('مخزون الفرز المستخرج (مدين 1032):', _totalSortingCost),
@@ -1926,6 +1988,7 @@ class _PackingWastePageState extends State<PackingWastePage> {
   }
 
   Widget _buildSummaryRow(String title, double val, {bool isTotal = false}) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Wrap(
@@ -1937,16 +2000,16 @@ class _PackingWastePageState extends State<PackingWastePage> {
           Text(
             title,
             style: TextStyle(
-              color: isTotal ? AppTheme.primary : AppTheme.textSecondary,
+              color: isTotal ? AppTheme.primary : (isDark ? AppTheme.textSecondary : Colors.black87),
               fontFamily: 'Cairo',
-              fontWeight: isTotal ? FontWeight.bold : FontWeight.normal,
+              fontWeight: FontWeight.bold,
               fontSize: isTotal ? 15 : 13,
             ),
           ),
           Text(
             '${val.toStringAsFixed(2)} ج.م',
             style: TextStyle(
-              color: isTotal ? AppTheme.primary : Colors.white,
+              color: isTotal ? AppTheme.primary : (isDark ? Colors.white : Colors.black),
               fontFamily: 'Cairo',
               fontWeight: FontWeight.bold,
               fontSize: isTotal ? 16 : 13,

@@ -11,6 +11,8 @@ import '../../data/dao/shipment_cost_item_dao.dart';
 import '../../data/models/shipment_cost_allocation_model.dart';
 import '../../data/models/shipment_cost_item_model.dart';
 import '../../data/services/journal_entry_navigation_service.dart';
+import '../../data/dao/export_shipment_dao.dart';
+import 'widgets/shipment_journal_entries_dialog.dart';
 
 class ShipmentProfitabilityPage extends StatefulWidget {
   final int shipmentId;
@@ -206,6 +208,8 @@ class _ShipmentProfitabilityPageState
                       _headerIconBtn(Icons.picture_as_pdf, AppTheme.danger, () {}),
                       const SizedBox(width: 6),
                       _headerIconBtn(Icons.add_circle_outline, AppTheme.success, () => _showAddExpenseSheet()),
+                      const SizedBox(width: 6),
+                      _headerIconBtn(Icons.receipt_long, const Color(0xFFF59E0B), _showJournalEntriesDialog),
                     ]),
                   ],
                 )
@@ -250,6 +254,31 @@ class _ShipmentProfitabilityPageState
                   _headerIconBtn(Icons.picture_as_pdf, AppTheme.danger, () {}),
                   const SizedBox(width: 6),
                   _headerIconBtn(Icons.add_circle_outline, AppTheme.success, () => _showAddExpenseSheet()),
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: _showJournalEntriesDialog,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFF59E0B).withAlpha(25),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: const Color(0xFFF59E0B).withAlpha(60)),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.receipt_long, color: Color(0xFFF59E0B), size: 16),
+                          SizedBox(width: 6),
+                          Text('عرض القيود',
+                              style: TextStyle(
+                                  color: Color(0xFFF59E0B),
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cairo')),
+                        ],
+                      ),
+                    ),
+                  ),
                 ]),
         ),
       ),
@@ -356,6 +385,8 @@ class _ShipmentProfitabilityPageState
             SizedBox(height: isNarrow ? 8 : 12),
           ],
         ],
+        _buildViewJournalEntriesSection(isNarrow),
+        SizedBox(height: isNarrow ? 8 : 12),
         _buildDebugPanel(),
         const SizedBox(height: 32),
       ]),
@@ -2249,6 +2280,73 @@ class _ShipmentProfitabilityPageState
     if (v is int) return v;
     if (v is num) return v.toInt();
     return int.tryParse(v.toString());
+  }
+
+  Widget _buildViewJournalEntriesSection(bool isNarrow) {
+    return AppTheme.glassCardWidget(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(10),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF59E0B).withAlpha(25),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: const Icon(Icons.receipt_long, color: Color(0xFFF59E0B), size: 22),
+          ),
+          const SizedBox(width: 14),
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'القيود المحاسبية للشحنة والربحية',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo',
+                  ),
+                ),
+                SizedBox(height: 2),
+                Text(
+                  'استعراض القيود الفعلية لتكاليف الشحنة (المحاصيل، التعبئة، الشحن، السدادات)',
+                  style: TextStyle(
+                    color: AppTheme.textSecondary,
+                    fontSize: 11,
+                    fontFamily: 'Cairo',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 12),
+          ElevatedButton.icon(
+            onPressed: _showJournalEntriesDialog,
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: const Text(
+              'عرض القيود',
+              style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+            ),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFF59E0B),
+              foregroundColor: Colors.black,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showJournalEntriesDialog() {
+    ShipmentJournalEntriesDialog.show(
+      context,
+      shipmentNo: _result?.shipmentNo ?? '',
+      entriesFuture: ExportShipmentDao().getJournalEntriesForShipment(widget.shipmentId),
+    );
   }
 
   static double? _parseDouble(dynamic v) {

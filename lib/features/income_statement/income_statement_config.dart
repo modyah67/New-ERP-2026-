@@ -3,7 +3,6 @@ library;
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:accounting_system/core/utils/file_helper.dart';
-import 'package:flutter/services.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../accounting/reporting/models/report_models.dart';
@@ -76,6 +75,8 @@ class IncomeStatementConfig {
             ? '${((report.grossProfit / report.revenue.total) * 100).toStringAsFixed(1)}%'
             : '0%',
         icon: Icons.percent_outlined,
+        // textSecondary is the same in both modes as a semantic token;
+        // use lightTextSecondary in light mode via the secondary color
         color: AppTheme.textSecondary,
       ),
     ];
@@ -102,7 +103,7 @@ class IncomeStatementConfig {
 
               // ignore: use_build_context_synchronously
               ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
+                const SnackBar(
                   content: Text('تم حفظ ملف الإكسيل بنجاح في المستندات'),
                   backgroundColor: AppTheme.success,
                 ),

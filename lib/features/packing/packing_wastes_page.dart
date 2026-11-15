@@ -137,10 +137,11 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : AppTheme.lightBackground,
         floatingActionButton: FloatingActionButton.extended(
           onPressed: () => _navigateToForm(),
           backgroundColor: AppTheme.primary,
@@ -148,20 +149,22 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
           label: const Text('إذن هالك جديد', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
         ),
         body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
-            ),
-          ),
+          decoration: isDark
+              ? const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
+                  ),
+                )
+              : null,
           child: SafeArea(
             child: Column(
               children: [
-                _buildHeader(),
-                _buildKpiSummary(),
-                _buildSearchBar(),
-                Expanded(child: _buildBody()),
+                _buildHeader(isDark),
+                _buildKpiSummary(isDark),
+                _buildSearchBar(isDark),
+                Expanded(child: _buildBody(isDark)),
               ],
             ),
           ),
@@ -170,15 +173,15 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
-            border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+            color: isDark ? const Color(0x3805192D) : Colors.white,
+            border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(50) : const Color(0xFFCBD5E1))),
           ),
           child: Row(
             children: [
@@ -191,18 +194,28 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
                 child: const Icon(Icons.delete_sweep_outlined, color: AppTheme.primary, size: 24),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('أذون هالك التعبئة', style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
-                    Text('إدارة وتتبع هالك المحاصيل، مواد التعبئة، والفرز', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                    Text('أذون هالك التعبئة',
+                        style: TextStyle(
+                            color: isDark ? AppTheme.textPrimary : Colors.black,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo')),
+                    Text('إدارة وتتبع هالك المحاصيل، مواد التعبئة، والفرز',
+                        style: TextStyle(
+                            color: isDark ? AppTheme.textSecondary : Colors.black87,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo')),
                   ],
                 ),
               ),
               IconButton(
                 onPressed: _load,
-                icon: const Icon(Icons.refresh_rounded, color: AppTheme.textSecondary),
+                icon: Icon(Icons.refresh_rounded, color: isDark ? AppTheme.textSecondary : Colors.black87),
                 tooltip: 'تحديث',
               ),
             ],
@@ -212,7 +225,7 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
     );
   }
 
-  Widget _buildKpiSummary() {
+  Widget _buildKpiSummary(bool isDark) {
     final totalCount = _allWastes.length;
     final draftCount = _allWastes.where((w) => w.status == 'draft').length;
     final completedCount = _allWastes.where((w) => w.status == 'completed').length;
@@ -227,10 +240,10 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
             spacing: 10,
             runSpacing: 10,
             children: [
-              _buildKpiCard('إجمالي الأذون', '$totalCount', Icons.receipt_long, AppTheme.primary, isNarrow),
-              _buildKpiCard('مسودات', '$draftCount', Icons.edit_note, AppTheme.warning, isNarrow),
-              _buildKpiCard('أذون معتمدة', '$completedCount', Icons.check_circle_outline, AppTheme.success, isNarrow),
-              _buildKpiCard('إجمالي قيمة الهالك', '${totalAmount.toStringAsFixed(2)} ج.م', Icons.monetization_on_outlined, const Color(0xFFEC4899), isNarrow),
+              _buildKpiCard('إجمالي الأذون', '$totalCount', Icons.receipt_long, AppTheme.primary, isNarrow, isDark),
+              _buildKpiCard('مسودات', '$draftCount', Icons.edit_note, AppTheme.warning, isNarrow, isDark),
+              _buildKpiCard('أذون معتمدة', '$completedCount', Icons.check_circle_outline, AppTheme.success, isNarrow, isDark),
+              _buildKpiCard('إجمالي قيمة الهالك', '${totalAmount.toStringAsFixed(2)} ج.م', Icons.monetization_on_outlined, const Color(0xFFEC4899), isNarrow, isDark),
             ],
           );
         },
@@ -238,14 +251,23 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
     );
   }
 
-  Widget _buildKpiCard(String label, String value, IconData icon, Color color, bool isNarrow) {
+  Widget _buildKpiCard(String label, String value, IconData icon, Color color, bool isNarrow, bool isDark) {
     return Container(
       width: isNarrow ? double.infinity : 200,
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: const Color(0x1A05192D),
+        color: isDark ? const Color(0x1A05192D) : Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withAlpha(50)),
+        border: Border.all(color: isDark ? color.withAlpha(50) : const Color(0xFFCBD5E1)),
+        boxShadow: isDark
+            ? null
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1),
+                )
+              ],
       ),
       child: Row(
         children: [
@@ -259,8 +281,13 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontFamily: 'Cairo')),
-                Text(value, style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                Text(label,
+                    style: TextStyle(
+                        color: isDark ? AppTheme.textSecondary : Colors.black87,
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        fontFamily: 'Cairo')),
+                Text(value, style: TextStyle(color: color, fontSize: 14, fontWeight: FontWeight.w900, fontFamily: 'Cairo')),
               ],
             ),
           ),
@@ -269,7 +296,7 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(bool isDark) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
       child: Column(
@@ -279,14 +306,14 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
               Expanded(
                 child: TextField(
                   controller: _searchCtrl,
-                  style: const TextStyle(color: Colors.white, fontFamily: 'Cairo', fontSize: 14),
+                  style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontSize: 14, fontWeight: FontWeight.bold),
                   decoration: InputDecoration(
                     hintText: 'بحث برقم الإذن أو المحطة...',
-                    hintStyle: const TextStyle(color: AppTheme.textMuted, fontFamily: 'Cairo', fontSize: 13),
-                    prefixIcon: const Icon(Icons.search, color: AppTheme.textSecondary, size: 20),
+                    hintStyle: TextStyle(color: isDark ? AppTheme.textMuted : Colors.black54, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold),
+                    prefixIcon: Icon(Icons.search, color: isDark ? AppTheme.textSecondary : Colors.black54, size: 20),
                     suffixIcon: _searchCtrl.text.isNotEmpty
                         ? IconButton(
-                            icon: const Icon(Icons.clear, color: AppTheme.textSecondary, size: 18),
+                            icon: Icon(Icons.clear, color: isDark ? AppTheme.textSecondary : Colors.black54, size: 18),
                             onPressed: () {
                               _searchCtrl.clear();
                               setState(() => _applyFilters());
@@ -294,10 +321,10 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
                           )
                         : null,
                     filled: true,
-                    fillColor: const Color(0x2005192D),
+                    fillColor: isDark ? const Color(0x2005192D) : Colors.white,
                     contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.glassBorder)),
-                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.glassBorder)),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+                    enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                     focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: const BorderSide(color: AppTheme.primary, width: 1.5)),
                   ),
                   onChanged: (_) => setState(() => _applyFilters()),
@@ -311,15 +338,16 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              _buildStatusFilterChip('الكل', 'all'),
-              _buildStatusFilterChip('مسودة', 'draft'),
-              _buildStatusFilterChip('مؤكد', 'completed'),
+              _buildStatusFilterChip('الكل', 'all', isDark),
+              _buildStatusFilterChip('مسودة', 'draft', isDark),
+              _buildStatusFilterChip('مؤكد', 'completed', isDark),
               const SizedBox(width: 8),
               _dateFilterChip(
                 icon: Icons.date_range,
                 label: _dateFrom != null ? DateFormat('yyyy/MM/dd').format(_dateFrom!) : 'من تاريخ',
                 onTap: () => _pickDate(isFrom: true),
                 active: _dateFrom != null,
+                isDark: isDark,
                 onClear: () {
                   setState(() {
                     _dateFrom = null;
@@ -332,6 +360,7 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
                 label: _dateTo != null ? DateFormat('yyyy/MM/dd').format(_dateTo!) : 'إلى تاريخ',
                 onTap: () => _pickDate(isFrom: false),
                 active: _dateTo != null,
+                isDark: isDark,
                 onClear: () {
                   setState(() {
                     _dateTo = null;
@@ -362,7 +391,7 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
     );
   }
 
-  Widget _buildStatusFilterChip(String label, String status) {
+  Widget _buildStatusFilterChip(String label, String status, bool isDark) {
     final active = _selectedStatus == status;
     return GestureDetector(
       onTap: () {
@@ -374,13 +403,17 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: active ? AppTheme.primary : AppTheme.surface,
+          color: active ? AppTheme.primary : (isDark ? AppTheme.surface : Colors.white),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: active ? AppTheme.primary : AppTheme.glassBorder),
+          border: Border.all(color: active ? AppTheme.primary : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
         ),
         child: Text(
           label,
-          style: TextStyle(color: active ? Colors.white : AppTheme.textSecondary, fontFamily: 'Cairo', fontSize: 12, fontWeight: active ? FontWeight.bold : FontWeight.normal),
+          style: TextStyle(
+              color: active ? Colors.white : (isDark ? AppTheme.textSecondary : Colors.black87),
+              fontFamily: 'Cairo',
+              fontSize: 12,
+              fontWeight: FontWeight.bold),
         ),
       ),
     );
@@ -391,6 +424,7 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
     required String label,
     required VoidCallback onTap,
     required bool active,
+    required bool isDark,
     VoidCallback? onClear,
   }) {
     return GestureDetector(
@@ -398,16 +432,32 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
-          color: active ? AppTheme.primary.withAlpha(30) : AppTheme.surface,
+          color: active
+              ? (isDark ? AppTheme.primary.withAlpha(30) : const Color(0xFFE0F2FE))
+              : (isDark ? AppTheme.surface : Colors.white),
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: active ? AppTheme.primary.withAlpha(80) : AppTheme.glassBorder),
+          border: Border.all(
+              color: active
+                  ? (isDark ? AppTheme.primary.withAlpha(80) : const Color(0xFF0284C7))
+                  : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 13, color: active ? AppTheme.primary : AppTheme.textSecondary),
+            Icon(icon,
+                size: 13,
+                color: active
+                    ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                    : (isDark ? AppTheme.textSecondary : Colors.black87)),
             const SizedBox(width: 4),
-            Text(label, style: TextStyle(color: active ? AppTheme.primary : AppTheme.textSecondary, fontSize: 11, fontFamily: 'Cairo')),
+            Text(label,
+                style: TextStyle(
+                    color: active
+                        ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                        : (isDark ? AppTheme.textSecondary : Colors.black87),
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    fontFamily: 'Cairo')),
             if (active && onClear != null) ...[
               const SizedBox(width: 4),
               GestureDetector(onTap: onClear, child: const Icon(Icons.close, size: 12, color: AppTheme.danger)),
@@ -418,7 +468,7 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(bool isDark) {
     if (_loading) {
       return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
     }
@@ -427,9 +477,10 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.delete_sweep_outlined, size: 64, color: AppTheme.textSecondary.withAlpha(80)),
+            Icon(Icons.delete_sweep_outlined, size: 64, color: isDark ? AppTheme.textSecondary.withAlpha(80) : Colors.black26),
             const SizedBox(height: 16),
-            const Text('لا توجد أذون هالك مطابقة', style: TextStyle(color: AppTheme.textSecondary, fontSize: 16, fontFamily: 'Cairo')),
+            Text('لا توجد أذون هالك مطابقة',
+                style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
           ],
         ),
       );
@@ -437,11 +488,11 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
     return ListView.builder(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       itemCount: _filtered.length,
-      itemBuilder: (ctx, idx) => _buildWasteCard(_filtered[idx]),
+      itemBuilder: (ctx, idx) => _buildWasteCard(_filtered[idx], isDark),
     );
   }
 
-  Widget _buildWasteCard(PackingWasteModel waste) {
+  Widget _buildWasteCard(PackingWasteModel waste, bool isDark) {
     final statusColor = _statusColor(waste.status);
     final stationName = _stationNames[waste.stationId] ?? 'محطة غير محددة';
     final dateStr = DateFormat('yyyy/MM/dd').format(waste.date);
@@ -456,9 +507,18 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
           child: Container(
             padding: const EdgeInsets.all(16),
             decoration: BoxDecoration(
-              color: const Color(0x1F05192D),
+              color: isDark ? const Color(0x1F05192D) : Colors.white,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      )
+                    ],
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -479,17 +539,20 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(waste.wasteNumber, style: const TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                          Text(waste.wasteNumber,
+                              style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 16, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                           const SizedBox(height: 2),
                           Row(
                             children: [
-                              const Icon(Icons.warehouse_outlined, size: 14, color: AppTheme.textSecondary),
+                              Icon(Icons.warehouse_outlined, size: 14, color: isDark ? AppTheme.textSecondary : Colors.black54),
                               const SizedBox(width: 4),
-                              Text(stationName, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                              Text(stationName,
+                                  style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                               const SizedBox(width: 12),
-                              const Icon(Icons.calendar_today, size: 14, color: AppTheme.textSecondary),
+                              Icon(Icons.calendar_today, size: 14, color: isDark ? AppTheme.textSecondary : Colors.black54),
                               const SizedBox(width: 4),
-                              Text(dateStr, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo')),
+                              Text(dateStr,
+                                  style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                             ],
                           ),
                         ],
@@ -499,16 +562,16 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
                   ],
                 ),
                 const SizedBox(height: 12),
-                const Divider(color: AppTheme.glassBorder, height: 1),
+                Divider(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0), height: 1),
                 const SizedBox(height: 10),
                 Wrap(
                   spacing: 16,
                   runSpacing: 6,
                   children: [
-                    _buildAmountSnippet('هالك المحاصيل:', waste.totalCropWasteCost),
-                    _buildAmountSnippet('مخزون الفرز:', waste.totalSortingCost),
-                    _buildAmountSnippet('هالك المواد:', waste.totalMaterialWasteCost),
-                    _buildAmountSnippet('بنود التكلفة:', waste.totalCostItems),
+                    _buildAmountSnippet('هالك المحاصيل:', waste.totalCropWasteCost, isDark),
+                    _buildAmountSnippet('مخزون الفرز:', waste.totalSortingCost, isDark),
+                    _buildAmountSnippet('هالك المواد:', waste.totalMaterialWasteCost, isDark),
+                    _buildAmountSnippet('بنود التكلفة:', waste.totalCostItems, isDark),
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -522,10 +585,11 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
                       crossAxisAlignment: WrapCrossAlignment.center,
                       spacing: 4,
                       children: [
-                        const Text('الإجمالي العام: ', style: TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo')),
+                        Text('الإجمالي العام: ',
+                            style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
                         Text(
                           '${waste.totalWasteAmount.toStringAsFixed(2)} ج.م',
-                          style: const TextStyle(color: AppTheme.primary, fontSize: 15, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
+                          style: TextStyle(color: isDark ? AppTheme.primary : const Color(0xFF0284C7), fontSize: 15, fontWeight: FontWeight.w900, fontFamily: 'Cairo'),
                         ),
                       ],
                     ),
@@ -581,13 +645,15 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
     );
   }
 
-  Widget _buildAmountSnippet(String title, double amount) {
+  Widget _buildAmountSnippet(String title, double amount, bool isDark) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(title, style: const TextStyle(color: AppTheme.textSecondary, fontSize: 11, fontFamily: 'Cairo')),
+        Text(title,
+            style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
         const SizedBox(width: 4),
-        Text('${amount.toStringAsFixed(2)} ج.م', style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+        Text('${amount.toStringAsFixed(2)} ج.م',
+            style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 11, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
       ],
     );
   }
@@ -644,21 +710,26 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
 
   Future<void> _confirmWaste(PackingWasteModel waste) async {
     if (waste.id == null) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        title: const Text('تأكيد إذن هالك التعبئة', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+        backgroundColor: isDark ? AppTheme.surface : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+        ),
+        title: Text('تأكيد إذن هالك التعبئة', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
         content: Text(
           'هل أنت متأكد من تأكيد إذن الهالك ${waste.wasteNumber}؟\nسيتم خصم الكميات من المخزن وإثبات الفرز والقيد المحاسبي بشكل نهائي.',
-          style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
+          style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold),
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontFamily: 'Cairo', fontWeight: FontWeight.bold))),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
-            child: const Text('تأكيد واعتماد', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+            child: const Text('تأكيد واعتماد', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -682,18 +753,23 @@ class _PackingWastesPageState extends State<PackingWastesPage> {
 
   Future<void> _deleteDraft(PackingWasteModel waste) async {
     if (waste.id == null) return;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.surface,
-        title: const Text('حذف مسودة إذن الهالك', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
-        content: Text('هل أنت متأكد من حذف المسودة ${waste.wasteNumber}؟', style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+        backgroundColor: isDark ? AppTheme.surface : Colors.white,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+        ),
+        title: Text('حذف مسودة إذن الهالك', style: TextStyle(color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+        content: Text('هل أنت متأكد من حذف المسودة ${waste.wasteNumber}؟', style: TextStyle(color: isDark ? AppTheme.textSecondary : Colors.black87, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'))),
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: Text('إلغاء', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontFamily: 'Cairo', fontWeight: FontWeight.bold))),
           ElevatedButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
-            child: const Text('حذف', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+            child: const Text('حذف', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
           ),
         ],
       ),

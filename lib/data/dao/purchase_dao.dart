@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/utils.dart';
 import '../models/purchase_model.dart';
 import '../services/inventory_service.dart';
+import '../services/crop_purchase_calculation_service.dart';
 
 class PurchaseDao {
   final _client = Supabase.instance.client;
@@ -29,6 +30,7 @@ class PurchaseDao {
       'payment_treasury_id': row['payment_treasury_id'],
       'payment_source_type': row['payment_source_type'],
       'payment_bank_account_id': row['payment_bank_account_id'],
+      'journal_entry_id': row['journal_entry_id']?.toString(),
       'suppliers': supplier,
     });
   }
@@ -422,12 +424,109 @@ class PurchaseDao {
     }
   }
 
+  /// Generates granular, item-level journal entry lines for purchase invoice posting.
+  /// Iterates through [validLines], creating detailed debit lines for each item
+  /// with explicit item name, quantity, unit price, and subtotal.
+  /// Generates a corresponding credit line for the supplier to ensure strict double-entry balance.
+  static List<Map<String, dynamic>> generateItemLevelJournalLines({
+    required List<PurchaseLineData> validLines,
+    required int supplierAccountId,
+    required String supplierName,
+    required String invoiceNumber,
+    required String currency,
+    double exchangeRate = 1.0,
+    int? packagingInventoryAccountId,
+    int? cropInventoryAccountId,
+    String? supplierAccountCode,
+  }) {
+    final lines = <Map<String, dynamic>>[];
+    final rate = exchangeRate > 0 ? exchangeRate : 1.0;
+
+    double totalDebitForeign = 0.0;
+    double totalDebitEgp = 0.0;
+
+    for (final item in validLines) {
+      if (item.quantity <= 0) continue;
+
+      final itemName = item.name.trim().isNotEmpty ? item.name.trim() : item.code.trim();
+      final itemForeign = AppUtils.roundDouble(item.totalPrice);
+      final itemEgp = AppUtils.roundDouble(itemForeign * rate);
+      final unitStr = item.unit.trim().isNotEmpty ? ' ${item.unit.trim()}' : '';
+
+      totalDebitForeign = AppUtils.roundDouble(totalDebitForeign + itemForeign);
+      totalDebitEgp = AppUtils.roundDouble(totalDebitEgp + itemEgp);
+
+      // Inventory Account: 12411 for packaging/supplies ("مخزن التعبئة والتغليف"), 12412 for produce crops/raw materials ("مخزن مشتريات خام")
+      final isPackaging = item.existingItemId != null ||
+          item.code.startsWith('RM-') ||
+          item.code.startsWith('PAC-');
+      final targetAccountId = isPackaging
+          ? (packagingInventoryAccountId ?? 12411)
+          : (cropInventoryAccountId ?? 12412);
+      final targetCode = isPackaging ? '12411' : '12412';
+      final targetName = isPackaging ? 'مخزن التعبئة والتغليف' : 'مخزن مشتريات خام';
+
+      final String desc;
+      if (!isPackaging) {
+        desc = CropPurchaseCalculationService.buildInventoryLineDescription(
+          cropName: itemName,
+          purchaseMethod: item.purchaseMethod,
+          cartonCount: item.cartonCount ?? (item.isCarton ? item.quantity.toInt() : null),
+          pricePerCarton: item.pricePerCarton ?? (item.isCarton ? item.purchasePrice : null),
+          grossWeightKg: item.grossWeightKg,
+          netWeightKg: item.netWeightKg ?? (!item.isCarton ? item.quantity : null),
+          pricePerKg: !item.isCarton ? item.purchasePrice : null,
+          totalAmount: itemForeign,
+          currency: currency,
+          lotNumber: 'فاتورة $invoiceNumber',
+        );
+      } else {
+        desc = 'مخزون - $itemName - كمية: ${item.quantity}$unitStr - بسعر: ${item.purchasePrice} $currency - فاتورة $invoiceNumber';
+      }
+
+      lines.add({
+        'account_id': targetAccountId,
+        'account_code': targetCode,
+        'account_name': targetName,
+        'item_name': itemName,
+        'quantity': item.quantity,
+        'unit': item.unit,
+        'unit_price': item.purchasePrice,
+        'debit': itemForeign,
+        'base_debit': itemEgp,
+        'credit': 0.0,
+        'base_credit': 0.0,
+        'currency': currency,
+        'amount_in_base_currency': itemEgp,
+        'description': desc,
+      });
+    }
+
+    // Supplier Credit Line (دائن) - matches total debits exactly
+    final supplierDesc = 'مستحقات مورد: $supplierName - فاتورة $invoiceNumber';
+    lines.add({
+      'account_id': supplierAccountId,
+      'account_code': supplierAccountCode ?? '2112',
+      'account_name': 'مستحقات مورد: $supplierName',
+      'debit': 0.0,
+      'base_debit': 0.0,
+      'credit': totalDebitForeign,
+      'base_credit': totalDebitEgp,
+      'currency': currency,
+      'amount_in_base_currency': totalDebitEgp,
+      'description': supplierDesc,
+    });
+
+    return lines;
+  }
+
   Future<void> confirmPurchase(String purchaseId) async {
     try {
-      final id = int.tryParse(purchaseId);
-      if (id == null) throw Exception('معرف المشتريات غير صالح');
+      final cleanId = purchaseId.trim();
+      if (cleanId.isEmpty) throw Exception('معرف المشتريات غير صالح');
       final result = await _client.rpc('rpc_confirm_purchase', params: {
-        'p_purchase_id': id,
+        'p_purchase_id': cleanId,
+        'p_user_id': _client.auth.currentUser?.id,
       });
       final map = Map<String, dynamic>.from(result as Map);
       if (map.containsKey('success') && map['success'] != true) {
@@ -573,6 +672,7 @@ class PurchaseDao {
           'payment_treasury_id': row['payment_treasury_id'],
           'payment_source_type': row['payment_source_type'],
           'payment_bank_account_id': row['payment_bank_account_id'],
+          'journal_entry_id': row['journal_entry_id']?.toString(),
         });
       }).toList();
 

@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show PostgrestException, Supabase;
@@ -6,16 +5,10 @@ import '../../data/dao/cheque_dao.dart';
 import '../../data/models/cheque_model.dart';
 import '../../data/dao/customer_dao.dart';
 import '../../data/dao/supplier_dao.dart';
+import '../../data/models/supplier_model.dart';
 import '../../data/dao/clearing_agent_dao.dart';
 import '../../data/dao/shipping_company_dao.dart';
-import '../../data/dao/treasury_dao.dart';
-import '../../data/models/customer_model.dart';
-import '../../data/models/supplier_model.dart';
-import '../../data/models/clearing_agent_model.dart';
-import '../../data/models/shipping_company_model.dart';
 import '../../data/dao/shareholder_dao.dart';
-import '../../data/models/shareholder_model.dart';
-import '../../core/utils.dart';
 import 'cheque_state.dart';
 
 class ChequeCubit extends Cubit<ChequeState> {
@@ -224,7 +217,7 @@ class ChequeCubit extends Cubit<ChequeState> {
     final version = ++_customerSearchVersion;
     emit(current.copyWith(isLoadingCustomers: true));
     try {
-      final results = await _customerDao.search(q.trim(), limit: 20);
+      final results = await _customerDao.search(q.trim(), limit: 20, customerType: 'export');
       if (version != _customerSearchVersion) return;
       emit(current.copyWith(customerResults: results, isLoadingCustomers: false));
     } catch (_) {
@@ -233,17 +226,33 @@ class ChequeCubit extends Cubit<ChequeState> {
     }
   }
 
-  Future<void> searchSuppliers(String q) async {
+  Future<void> searchSuppliers(String q, {String? supplierType}) async {
     final current = state;
     if (current is! ChequeLoaded) return;
-    if (q.trim().isEmpty) {
-      emit(current.copyWith(supplierResults: [], isLoadingSuppliers: false));
-      return;
-    }
     final version = ++_supplierSearchVersion;
     emit(current.copyWith(isLoadingSuppliers: true));
     try {
-      final results = await _supplierDao.search(q.trim(), limit: 20);
+      List<SupplierModel> results = [];
+      final trimmed = q.trim();
+      final types = (supplierType != null && supplierType != 'all') ? [supplierType] : null;
+
+      if (trimmed.isEmpty) {
+        if (supplierType == 'transport') {
+          results = await _supplierDao.getAllSuppliers(supplierTypes: ['transport']);
+        } else if (types != null) {
+          results = await _supplierDao.getAllSuppliers(supplierTypes: types);
+        } else {
+          results = await _supplierDao.getAll(limit: 25);
+        }
+      } else {
+        results = await _supplierDao.search(
+          trimmed,
+          limit: 25,
+          supplierTypes: types,
+          includeTransportSuppliers: supplierType == 'all' || supplierType == 'transport',
+        );
+      }
+
       if (version != _supplierSearchVersion) return;
       emit(current.copyWith(supplierResults: results, isLoadingSuppliers: false));
     } catch (_) {
@@ -323,6 +332,7 @@ class ChequeCubit extends Cubit<ChequeState> {
     int? categoryId,
     int? expenseAccountId,
     int? treasuryId,
+    double? exchangeRate,
   }) async {
     final current = state;
     if (current is! ChequeLoaded) return null;
@@ -359,10 +369,17 @@ class ChequeCubit extends Cubit<ChequeState> {
         shareholderId: shareholderId,
         clearingAgentId: clearingAgentId,
         shippingCompanyId: shippingCompanyId,
-        notes: notesCtrl.text.trim().isEmpty ? null : notesCtrl.text.trim(),
+        notes: notesCtrl.text.trim().isNotEmpty
+            ? (counterpartyType == 'customer' && customerSearchCtrl.text.trim().isNotEmpty && !notesCtrl.text.trim().contains(customerSearchCtrl.text.trim())
+                ? '${notesCtrl.text.trim()} - العميل: ${customerSearchCtrl.text.trim()} (سداد حساب العميل)'
+                : notesCtrl.text.trim())
+            : (counterpartyType == 'customer' && customerSearchCtrl.text.trim().isNotEmpty
+                ? 'استلام شيك برسم التحصيل رقم ${chequeNumberCtrl.text.trim()} من العميل ${customerSearchCtrl.text.trim()} (سداد حساب العميل)'
+                : null),
         categoryId: categoryId,
         expenseAccountId: expenseAccountId,
         treasuryId: treasuryId,
+        exchangeRate: exchangeRate,
       );
       emit(current.copyWith(isSaving: false));
       clearForm();

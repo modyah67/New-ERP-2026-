@@ -56,7 +56,7 @@ class GeneralLedgerCubit extends Cubit<GeneralLedgerState> {
       final fromDate = _currentFilter.fromDate ?? DateTime(DateTime.now().year, 1, 1);
       final toDate = _currentFilter.toDate ?? DateTime.now();
 
-      final page = await _dao.getLedgerPage(
+      var page = await _dao.getLedgerPage(
         accountId: _currentFilter.accountId,
         fromDate: fromDate,
         toDate: toDate,
@@ -78,6 +78,8 @@ class GeneralLedgerCubit extends Cubit<GeneralLedgerState> {
           entryNumber: raw['entry_number']?.toString(),
           accountCode: (raw['account_code'] as String?) ?? '',
           accountName: (raw['account_name'] as String?) ?? '',
+          costCenterId: raw['cost_center_id']?.toString(),
+          costCenterName: raw['cost_center_name']?.toString(),
           description: raw['description']?.toString(),
           debit: debit,
           credit: credit,
@@ -105,6 +107,8 @@ class GeneralLedgerCubit extends Cubit<GeneralLedgerState> {
           entryNumber: row.entryNumber,
           accountCode: row.accountCode,
           accountName: row.accountName,
+          costCenterId: row.costCenterId,
+          costCenterName: row.costCenterName,
           description: row.description,
           debit: row.debit,
           credit: row.credit,
@@ -184,6 +188,8 @@ class GeneralLedgerCubit extends Cubit<GeneralLedgerState> {
           entryNumber: raw['entry_number']?.toString(),
           accountCode: (raw['account_code'] as String?) ?? '',
           accountName: (raw['account_name'] as String?) ?? '',
+          costCenterId: raw['cost_center_id']?.toString(),
+          costCenterName: raw['cost_center_name']?.toString(),
           description: raw['description']?.toString(),
           debit: debit,
           credit: credit,
@@ -209,6 +215,8 @@ class GeneralLedgerCubit extends Cubit<GeneralLedgerState> {
           entryNumber: row.entryNumber,
           accountCode: row.accountCode,
           accountName: row.accountName,
+          costCenterId: row.costCenterId,
+          costCenterName: row.costCenterName,
           description: row.description,
           debit: row.debit,
           credit: row.credit,

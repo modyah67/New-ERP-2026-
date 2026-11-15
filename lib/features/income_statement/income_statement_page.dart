@@ -88,6 +88,8 @@ class IncomeStatementPage extends StatelessWidget {
 
   Widget _buildFilterContent(
       BuildContext context, IncomeStatementLoaded state, IncomeStatementCubit cubit) {
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     return Row(
       children: [
         ReportingPresetButton(
@@ -140,7 +142,7 @@ class IncomeStatementPage extends StatelessWidget {
         const SizedBox(width: 12),
         _buildCurrencyFilter(context, state, cubit),
         const SizedBox(width: 12),
-        Text('من:', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Text('من:', style: TextStyle(fontSize: 12, color: textSecondary)),
         const SizedBox(width: 6),
         ReportingDateChip(
           label: state.filter.fromDate != null
@@ -161,7 +163,7 @@ class IncomeStatementPage extends StatelessWidget {
           },
         ),
         const SizedBox(width: 12),
-        Text('إلى:', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Text('إلى:', style: TextStyle(fontSize: 12, color: textSecondary)),
         const SizedBox(width: 6),
         ReportingDateChip(
           label: state.filter.toDate != null
@@ -188,12 +190,15 @@ class IncomeStatementPage extends StatelessWidget {
   Widget _buildCurrencyFilter(
       BuildContext context, IncomeStatementLoaded state, IncomeStatementCubit cubit) {
     final currencies = ['الكل', 'EGP', 'USD', 'EUR', 'GBP'];
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     return Row(
       children: [
-        Text('العملة:', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary)),
+        Text('العملة:', style: TextStyle(fontSize: 12, color: textSecondary)),
         const SizedBox(width: 6),
         for (final c in currencies) ...[
           _buildCurrencyChip(
+            context: context,
             label: c == 'الكل' ? 'الكل / مجمع' : c,
             isActive: state.currencyFilter == (c == 'الكل' ? null : c),
             onPressed: () => cubit.setCurrencyFilter(c == 'الكل' ? null : c),
@@ -205,19 +210,25 @@ class IncomeStatementPage extends StatelessWidget {
   }
 
   Widget _buildCurrencyChip({
+    required BuildContext context,
     required String label,
     required bool isActive,
     required VoidCallback onPressed,
   }) {
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final borderColor = AppTheme.getBorderColor(context);
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     return GestureDetector(
       onTap: onPressed,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: isActive ? AppTheme.primary.withAlpha(30) : Colors.transparent,
+          color: isActive ? primary.withAlpha(30) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isActive ? AppTheme.primary : AppTheme.border,
+            color: isActive ? primary : borderColor,
             width: 1,
           ),
         ),
@@ -225,7 +236,7 @@ class IncomeStatementPage extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 12,
-            color: isActive ? AppTheme.primary : AppTheme.textSecondary,
+            color: isActive ? primary : textSecondary,
             fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
           ),
         ),
@@ -235,18 +246,22 @@ class IncomeStatementPage extends StatelessWidget {
 
   Widget _buildLoadingOrError(
       BuildContext context, IncomeStatementState state) {
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final textColor = AppTheme.getTextSecondary(context);
+
     if (state is IncomeStatementLoading) {
-      return const Scaffold(
+      return Scaffold(
         backgroundColor: Colors.transparent,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(color: Color(0xFF16D5FF)),
-              SizedBox(height: 16),
+              CircularProgressIndicator(color: primary),
+              const SizedBox(height: 16),
               Text(
                 'جاري تحميل قائمة الدخل...',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
+                style: TextStyle(color: textColor, fontSize: 14),
               ),
             ],
           ),

@@ -123,6 +123,8 @@ class PurchaseError extends PurchaseState {
 
 class PurchaseFormState extends Equatable {
   final SupplierModel? selectedSupplier;
+  final String invoiceCurrency;
+  final double exchangeRate;
   final DateTime purchaseDate;
   final List<PurchaseLineData> purchaseLines;
   final String nextPurchaseNumber;
@@ -136,6 +138,8 @@ class PurchaseFormState extends Equatable {
 
   const PurchaseFormState({
     this.selectedSupplier,
+    this.invoiceCurrency = 'EGP',
+    this.exchangeRate = 1.0,
     required this.purchaseDate,
     this.purchaseLines = const [],
     this.nextPurchaseNumber = '1',
@@ -152,6 +156,8 @@ class PurchaseFormState extends Equatable {
 
   PurchaseFormState copyWith({
     SupplierModel? selectedSupplier,
+    String? invoiceCurrency,
+    double? exchangeRate,
     DateTime? purchaseDate,
     List<PurchaseLineData>? purchaseLines,
     String? nextPurchaseNumber,
@@ -170,6 +176,8 @@ class PurchaseFormState extends Equatable {
       selectedSupplier: clearSelectedSupplier
           ? null
           : (selectedSupplier ?? this.selectedSupplier),
+      invoiceCurrency: invoiceCurrency ?? this.invoiceCurrency,
+      exchangeRate: exchangeRate ?? this.exchangeRate,
       purchaseDate: purchaseDate ?? this.purchaseDate,
       purchaseLines: purchaseLines ?? this.purchaseLines,
       nextPurchaseNumber: nextPurchaseNumber ?? this.nextPurchaseNumber,
@@ -190,6 +198,8 @@ class PurchaseFormState extends Equatable {
   @override
   List<Object?> get props => [
         selectedSupplier,
+        invoiceCurrency,
+        exchangeRate,
         purchaseDate,
         purchaseLines,
         nextPurchaseNumber,

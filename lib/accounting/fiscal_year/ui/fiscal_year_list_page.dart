@@ -1,15 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:go_router/go_router.dart';
 import '../../../core/theme.dart';
 import '../cubit/fiscal_year_cubit.dart';
+import '../dao/fiscal_year_dao.dart';
 import '../models/fiscal_year.dart';
 import '../models/fiscal_year_status.dart';
 import 'create_fiscal_year_dialog.dart';
 import 'edit_fiscal_year_dialog.dart';
 import 'set_current_fiscal_year_dialog.dart';
-import 'reopen_fiscal_year_dialog.dart';
 
 class FiscalYearListPage extends StatefulWidget {
   const FiscalYearListPage({super.key});
@@ -28,27 +27,11 @@ class _FiscalYearListPageState extends State<FiscalYearListPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: AppTheme.background,
+      backgroundColor: AppTheme.getBackgroundColor(context),
       appBar: AppBar(
         title: const Text('السنة المالية'),
-        backgroundColor: AppTheme.surface,
-        actions: [
-          // IconButton(
-          //   icon: const Icon(Icons.dashboard),
-          //   tooltip: 'لوحة التحكم',
-          //   onPressed: () => context.push('/fiscal-year-dashboard'),
-          // ),
-          // IconButton(
-          //   icon: const Icon(Icons.history),
-          //   tooltip: 'مركز الاسترداد',
-          //   onPressed: () => context.push('/fiscal-year-recovery'),
-          // ),
-          // IconButton(
-          //   icon: const Icon(Icons.medical_services),
-          //   tooltip: 'التشخيص والمراجعة',
-          //   onPressed: () => context.push('/fiscal-year-diagnostics'),
-          // ),
-        ],
+        backgroundColor: AppTheme.getCardBg(context),
+        actions: const [],
       ),
       floatingActionButton: FloatingActionButton.extended(
         icon: const Icon(Icons.add),
@@ -75,7 +58,10 @@ class _FiscalYearListPageState extends State<FiscalYearListPage> {
                 children: [
                   const CircularProgressIndicator(),
                   const SizedBox(height: 16),
-                  Text(state.progress.currentStep ?? 'جاري الإغلاق...'),
+                  Text(
+                    state.progress.currentStep ?? 'جاري الإغلاق...',
+                    style: TextStyle(color: AppTheme.getTextPrimary(context)),
+                  ),
                 ],
               ),
             );
@@ -89,12 +75,18 @@ class _FiscalYearListPageState extends State<FiscalYearListPage> {
                   children: [
                     const Icon(Icons.error_outline, color: Colors.red, size: 48),
                     const SizedBox(height: 16),
-                    const Text('فشل الإغلاق:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('فشل الإغلاق:',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.getTextPrimary(context))),
                     const SizedBox(height: 8),
-                    Text(state.message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+                    Text(state.message,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red)),
                     const SizedBox(height: 16),
                     ElevatedButton(
-                      onPressed: () => context.read<FiscalYearCubit>().loadFiscalYears(),
+                      onPressed: () =>
+                          context.read<FiscalYearCubit>().loadFiscalYears(),
                       child: const Text('رجوع للسنوات المالية'),
                     ),
                   ],
@@ -103,7 +95,12 @@ class _FiscalYearListPageState extends State<FiscalYearListPage> {
             );
           }
           if (state is FiscalYearError) {
-            return Center(child: Text(state.message));
+            return Center(
+              child: Text(
+                state.message,
+                style: TextStyle(color: AppTheme.getTextPrimary(context)),
+              ),
+            );
           }
           if (state is FiscalYearReopeningInProgress) {
             return const Center(
@@ -126,12 +123,18 @@ class _FiscalYearListPageState extends State<FiscalYearListPage> {
                   children: [
                     const Icon(Icons.error_outline, color: Colors.red, size: 48),
                     const SizedBox(height: 16),
-                    const Text('فشل إعادة الفتح:', style: TextStyle(fontWeight: FontWeight.bold)),
+                    Text('فشل إعادة الفتح:',
+                        style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.getTextPrimary(context))),
                     const SizedBox(height: 8),
-                    Text(state.message, textAlign: TextAlign.center, style: const TextStyle(color: Colors.red)),
+                    Text(state.message,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.red)),
                     const SizedBox(height: 16),
                     ElevatedButton(
-                      onPressed: () => context.read<FiscalYearCubit>().loadFiscalYears(),
+                      onPressed: () =>
+                          context.read<FiscalYearCubit>().loadFiscalYears(),
                       child: const Text('رجوع للسنوات المالية'),
                     ),
                   ],
@@ -147,9 +150,17 @@ class _FiscalYearListPageState extends State<FiscalYearListPage> {
               itemBuilder: (context, index) {
                 final fy = state.fiscalYears[index];
                 final isCurrent = fy.isCurrent;
+                final textPrimary = AppTheme.getTextPrimary(context);
+                final textSecondary = AppTheme.getTextSecondary(context);
                 return ListTile(
-                  title: Text('${fy.year} – ${fy.name}'),
-                  subtitle: Text('من ${_formatDate(fy.startDate)} إلى ${_formatDate(fy.endDate)}'),
+                  title: Text(
+                    '${fy.year} – ${fy.name}',
+                    style: TextStyle(color: textPrimary),
+                  ),
+                  subtitle: Text(
+                    'من ${_formatDate(fy.startDate)} إلى ${_formatDate(fy.endDate)}',
+                    style: TextStyle(color: textSecondary),
+                  ),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -186,13 +197,13 @@ class _FiscalYearListPageState extends State<FiscalYearListPage> {
                         ),
                       if (fy.status.canTransitionToClosing)
                         IconButton(
-                          icon: const Icon(Icons.lock_clock),
-                          tooltip: 'إغلاق السنة',
+                          icon: Icon(fy.status == FiscalYearStatus.closing ? Icons.lock_reset : Icons.lock_clock),
+                          tooltip: fy.status == FiscalYearStatus.closing ? 'استكمال الإغلاق' : 'إغلاق السنة',
                           onPressed: () async {
                             final confirm = await showDialog<bool>(
                               context: context,
                               builder: (_) => AlertDialog(
-                                title: const Text('تأكيد الإغلاق'),
+                                title: Text(fy.status == FiscalYearStatus.closing ? 'استكمال إغلاق السنة' : 'تأكيد الإغلاق'),
                                 content: Text('هل تريد إغلاق السنة المالية ${fy.year}؟'),
                                 actions: [
                                   TextButton(onPressed: () => Navigator.of(_).pop(false), child: const Text('إلغاء')),
@@ -200,13 +211,44 @@ class _FiscalYearListPageState extends State<FiscalYearListPage> {
                                 ],
                               ),
                             );
-                              if (confirm == true && mounted) {
-                                final userId = Supabase.instance.client.auth.currentUser?.id ?? '00000000-0000-0000-0000-000000000000';
-                                context.read<FiscalYearCubit>().closeFiscalYear(
-                                  fiscalYearId: fy.id,
-                                  userId: userId,
-                                );
+                            if (confirm == true && mounted) {
+                              final userId = Supabase.instance.client.auth.currentUser?.id ?? '00000000-0000-0000-0000-000000000000';
+                              context.read<FiscalYearCubit>().closeFiscalYear(
+                                fiscalYearId: fy.id,
+                                userId: userId,
+                              );
+                            }
+                          },
+                        ),
+                      if (fy.status == FiscalYearStatus.closing)
+                        IconButton(
+                          icon: const Icon(Icons.undo, color: Colors.orange),
+                          tooltip: 'إلغاء الإغلاق والرجوع إلى نشطة',
+                          onPressed: () async {
+                            final confirm = await showDialog<bool>(
+                              context: context,
+                              builder: (_) => AlertDialog(
+                                title: const Text('إلغاء حالة جاري الإغلاق'),
+                                content: Text('هل تريد إعادة السنة المالية ${fy.year} إلى حالة نشطة؟'),
+                                actions: [
+                                  TextButton(onPressed: () => Navigator.of(_).pop(false), child: const Text('إلغاء')),
+                                  TextButton(onPressed: () => Navigator.of(_).pop(true), child: const Text('تأكيد')),
+                                ],
+                              ),
+                            );
+                            if (confirm == true && mounted) {
+                              final userId = Supabase.instance.client.auth.currentUser?.id ?? '00000000-0000-0000-0000-000000000000';
+                              await FiscalYearDao().updateStatus(
+                                fy.id,
+                                status: FiscalYearStatus.active,
+                                performedBy: userId,
+                                reason: 'إلغاء الإغلاق من واجهة المستخدم',
+                              );
+                              await FiscalYearDao().releaseClosingLock();
+                              if (mounted) {
+                                context.read<FiscalYearCubit>().loadFiscalYears();
                               }
+                            }
                           },
                         ),
                      // if (fy.status == FiscalYearStatus.closed)

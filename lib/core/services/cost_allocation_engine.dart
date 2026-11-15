@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../data/dao/export_shipment_dao.dart';
 import '../../data/dao/export_shipment_item_dao.dart';
 import '../../data/dao/packing_order_dao.dart';
@@ -6,6 +7,7 @@ import '../../data/dao/shipment_profitability_snapshot_dao.dart';
 import '../../data/dao/lot_dao.dart';
 import '../../data/dao/shipment_cost_item_dao.dart';
 import '../../data/models/export_shipment_model.dart';
+import '../../data/models/packing_order_model.dart';
 import '../../data/models/shipment_profitability_snapshot_model.dart';
 import '../../data/services/currency_conversion_service.dart';
 
@@ -59,32 +61,153 @@ class CostAllocationEngine {
 
     final exchangeRate = shipment.exchangeRate > 0 ? shipment.exchangeRate : 1.0;
     
-    // 1. Read production costs (fruit + packaging) from linked packing orders
+    // 1. Real-time cost mapping from linked packing orders & lines
     double fruitCost = 0.0;
     double autoProductionCost = 0.0;
+    double liveProductionCost = 0.0;
+    bool hasLiveProductionCost = false;
     final cs = CurrencyConversionService.instance;
     try {
       final packingOrders = await _packingOrderDao.getByShipmentIdViaItems(shipmentId);
+      final poMap = <int, PackingOrderModel>{};
       for (final po in packingOrders) {
-        // Total packing order cost per carton * cartons
-        if (po.packingCostPerCarton > 0) {
-          final cartons = po.cartonCount > 0 ? po.cartonCount : shipment.cartonsCount;
-          autoProductionCost += po.packingCostPerCarton * cartons;
-        } else if (po.totalPackingCost > 0) {
-          autoProductionCost += po.totalPackingCost;
+        final pid = int.tryParse(po.id ?? '');
+        if (pid != null) poMap[pid] = po;
+      }
+
+      // Collect line IDs if any
+      final lineIds = items
+          .map((i) => _parseInt(i['packing_order_line_id']))
+          .where((id) => id != null)
+          .cast<int>()
+          .toList();
+
+      final Map<int, Map<String, dynamic>> linesMap = {};
+      if (lineIds.isNotEmpty) {
+        try {
+          final linesData = await Supabase.instance.client
+              .from('packing_order_lines')
+              .select('id, final_unit_cost, final_cost, carton_count')
+              .inFilter('id', lineIds);
+          for (final l in linesData) {
+            linesMap[l['id'] as int] = Map<String, dynamic>.from(l as Map);
+          }
+        } catch (e) {
+          debugPrint('CostAllocationEngine: Error reading packing_order_lines: $e');
+        }
+      }
+
+      // Item-level real-time cost mapping
+      for (final item in items) {
+        final itemQty = (_parseInt(item['quantity']) ?? 0).toDouble();
+        final poId = _parseInt(item['packing_order_id']);
+        final lineId = _parseInt(item['packing_order_line_id']);
+
+        double liveUnitCost = 0.0;
+        PackingOrderModel? po = poId != null ? poMap[poId] : null;
+
+        // Check line final unit cost first
+        if (lineId != null && linesMap.containsKey(lineId)) {
+          final l = linesMap[lineId]!;
+          final uCost = (l['final_unit_cost'] as num?)?.toDouble() ?? 0.0;
+          if (uCost > 0) {
+            liveUnitCost = uCost;
+          } else {
+            final fCost = (l['final_cost'] as num?)?.toDouble() ?? 0.0;
+            final fCtns = (l['carton_count'] as num?)?.toInt() ?? 0;
+            if (fCost > 0 && fCtns > 0) {
+              liveUnitCost = fCost / fCtns;
+            }
+          }
         }
 
-        // Fruit component of the packing order
-        if (po.fruitCostAllocated > 0) {
-          fruitCost += po.fruitCostAllocated;
-        } else if (po.fruitCostBase > 0) {
-          fruitCost += po.fruitCostBase;
-        } else if (po.lotId != null) {
-          final lot = await _lotDao.getById(po.lotId);
-          if (lot != null && lot.totalProductCost > 0 && lot.netWeightKg > 0) {
-            final costPerKg = lot.totalProductCost / lot.netWeightKg;
-            final lotCurrencyCost = po.totalNetWeight * costPerKg;
-            fruitCost += cs.toBase(lotCurrencyCost, lot.currency, lot.exchangeRate);
+        // Fallback to packing order's authoritative packing_cost_per_carton
+        if (liveUnitCost <= 0 && po != null && po.packingCostPerCarton > 0) {
+          liveUnitCost = po.packingCostPerCarton;
+        }
+
+        // If not mapped by ID but exactly one PO is linked to the shipment
+        if (liveUnitCost <= 0 && packingOrders.length == 1 && packingOrders.first.packingCostPerCarton > 0) {
+          po = packingOrders.first;
+          liveUnitCost = po.packingCostPerCarton;
+        }
+
+        if (liveUnitCost > 0 && itemQty > 0) {
+          hasLiveProductionCost = true;
+          // In-memory update: ensure downstream UI components and tables get the live cost
+          item['price'] = liveUnitCost;
+          item['amount'] = liveUnitCost * itemQty;
+          liveProductionCost += liveUnitCost * itemQty;
+
+          // Proportional fruit cost
+          if (po != null) {
+            final totalPoCartons = po.cartonCount > 0 ? po.cartonCount : itemQty.toInt();
+            final poFruitCost = po.fruitCostAllocated > 0 ? po.fruitCostAllocated : po.fruitCostBase;
+            if (poFruitCost > 0 && totalPoCartons > 0) {
+              fruitCost += (poFruitCost / totalPoCartons) * itemQty;
+            } else if (po.lotId.isNotEmpty) {
+              try {
+                final lot = await _lotDao.getById(po.lotId);
+                if (lot != null && lot.totalProductCost > 0 && lot.netWeightKg > 0) {
+                  final costPerKg = lot.totalProductCost / lot.netWeightKg;
+                  final itemNetWeight = (_parseDouble(item['net_weight']) ?? 0.0);
+                  final lotCurrencyCost = itemNetWeight * costPerKg;
+                  fruitCost += cs.toBase(lotCurrencyCost, lot.currency, lot.exchangeRate);
+                }
+              } catch (_) {}
+            }
+          }
+        }
+      }
+
+      // If items didn't have poId links directly, but POs exist for the shipment
+      if (!hasLiveProductionCost && packingOrders.isNotEmpty) {
+        double totalPoCost = 0.0;
+        int totalPoCartons = 0;
+        for (final po in packingOrders) {
+          if (po.packingCostPerCarton > 0) {
+            final cartons = po.cartonCount > 0 ? po.cartonCount : shipment.cartonsCount;
+            totalPoCost += po.packingCostPerCarton * cartons;
+            totalPoCartons += cartons;
+          } else if (po.totalPackingCost > 0) {
+            totalPoCost += po.totalPackingCost;
+            totalPoCartons += po.cartonCount > 0 ? po.cartonCount : shipment.cartonsCount;
+          }
+        }
+        final avgCost = totalPoCartons > 0 ? totalPoCost / totalPoCartons : packingOrders.first.packingCostPerCarton;
+        if (avgCost > 0) {
+          hasLiveProductionCost = true;
+          final totalCartons = _getTotalCartons(shipment, items);
+          liveProductionCost = avgCost * totalCartons;
+          for (final item in items) {
+            item['price'] = avgCost;
+            final q = (_parseInt(item['quantity']) ?? 0).toDouble();
+            item['amount'] = avgCost * q;
+          }
+        }
+      }
+
+      // Fallback calculation from packing orders if not already computed
+      if (!hasLiveProductionCost) {
+        for (final po in packingOrders) {
+          if (po.packingCostPerCarton > 0) {
+            final cartons = po.cartonCount > 0 ? po.cartonCount : shipment.cartonsCount;
+            autoProductionCost += po.packingCostPerCarton * cartons;
+          } else if (po.totalPackingCost > 0) {
+            autoProductionCost += po.totalPackingCost;
+          }
+
+          if (po.fruitCostAllocated > 0) {
+            fruitCost += po.fruitCostAllocated;
+          } else if (po.fruitCostBase > 0) {
+            fruitCost += po.fruitCostBase;
+          } else if (po.lotId.isNotEmpty) {
+            final lot = await _lotDao.getById(po.lotId);
+            if (lot != null && lot.totalProductCost > 0 && lot.netWeightKg > 0) {
+              final costPerKg = lot.totalProductCost / lot.netWeightKg;
+              final lotCurrencyCost = po.totalNetWeight * costPerKg;
+              fruitCost += cs.toBase(lotCurrencyCost, lot.currency, lot.exchangeRate);
+            }
           }
         }
       }
@@ -92,8 +215,11 @@ class CostAllocationEngine {
       debugPrint('CostAllocationEngine: Error reading fruit and packing costs from lots/orders: $e');
     }
 
-    // Production / Cartons cost: either from explicit saved items (category 'packing') or auto from packing orders
-    final totalProductionCost = packingCostEgp > 0 ? packingCostEgp : autoProductionCost;
+    // Authoritative production cost:
+    // If real-time live cost from packing orders is available, it ALWAYS takes precedence over old static packing costs!
+    final totalProductionCost = hasLiveProductionCost
+        ? liveProductionCost
+        : (packingCostEgp > 0 ? packingCostEgp : autoProductionCost);
     final packingMaterialsCost = totalProductionCost >= fruitCost ? (totalProductionCost - fruitCost) : totalProductionCost;
 
     final logisticsCost = logisticsCostEgp;
@@ -124,6 +250,19 @@ class CostAllocationEngine {
     final costPerCarton = cartons > 0 ? totalShipmentCost / cartons : 0.0;
     final costPerKg = netWeight > 0 ? totalShipmentCost / netWeight : 0.0;
     final costPerPallet = pallets > 0 ? totalShipmentCost / pallets : 0.0;
+    if (hasLiveProductionCost) {
+      _asyncSyncLiveCosts(
+        shipmentId: shipmentId,
+        items: items,
+        liveProductionCost: liveProductionCost,
+        totalShipmentCost: totalShipmentCost,
+        costPerCarton: costPerCarton,
+        totalFruitCost: fruitCost,
+        totalPackingMaterialCost: packingMaterialsCost,
+        grossProfit: grossProfit,
+        netProfit: netProfit,
+      );
+    }
 
     return ShipmentCostBreakdown(
       shipmentId: shipmentId,
@@ -159,6 +298,66 @@ class CostAllocationEngine {
       exchangeRate: shipment.exchangeRate,
       currencyCode: shipment.currencyCode,
     );
+  }
+
+  void _asyncSyncLiveCosts({
+    required int shipmentId,
+    required List<Map<String, dynamic>> items,
+    required double liveProductionCost,
+    required double totalShipmentCost,
+    required double costPerCarton,
+    required double totalFruitCost,
+    required double totalPackingMaterialCost,
+    required double grossProfit,
+    required double netProfit,
+  }) {
+    Future.microtask(() async {
+      try {
+        final client = Supabase.instance.client;
+        // 1. Sync export_shipment_items
+        for (final item in items) {
+          final itemId = item['id'];
+          final price = item['price'];
+          final amount = item['amount'];
+          if (itemId != null && price != null) {
+            await client.from('export_shipment_items').update({
+              'price': price,
+              'amount': amount,
+            }).eq('id', itemId);
+          }
+        }
+
+        // 2. Sync read-only packing items in shipment_cost_items
+        final costItems = await ShipmentCostItemDao().getForShipment(shipmentId);
+        final readOnlyPackingItems = costItems
+            .where((c) => c.category == 'packing' && (c.isReadOnly || c.reportCategoryName == 'تكلفة الكراتين'))
+            .toList();
+        if (readOnlyPackingItems.isNotEmpty) {
+          for (final cItem in readOnlyPackingItems) {
+            if (cItem.id != null) {
+              final uPrice = cItem.quantity > 0 ? liveProductionCost / cItem.quantity : liveProductionCost;
+              await client.from('shipment_cost_items').update({
+                'unit_price': uPrice,
+              }).eq('id', cItem.id!);
+            }
+          }
+        }
+
+        // 3. Sync export_shipments record
+        await client.from('export_shipments').update({
+          'cost_per_carton': costPerCarton,
+          'total_landed_cost': totalShipmentCost,
+          'total_fruit_cost': totalFruitCost,
+          'total_packing_material_cost': totalPackingMaterialCost,
+          'gross_profit': grossProfit,
+          'net_profit': netProfit,
+          'net_profit_egp': netProfit,
+          'updated_at': DateTime.now().toIso8601String(),
+        }).eq('id', shipmentId);
+      } catch (e) {
+        debugPrint('CostAllocationEngine: Background cost sync error (non-fatal): $e');
+      }
+    });
   }
 
 

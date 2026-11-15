@@ -1,30 +1,21 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart' show DateFormat;
-import 'package:excel/excel.dart' hide Border;
-import 'package:file_picker/file_picker.dart';
-import 'package:path_provider/path_provider.dart';
-import 'package:pdf/pdf.dart';
-import 'package:pdf/widgets.dart' as pw;
-import 'package:printing/printing.dart';
 import '../../core/theme.dart';
-import '../../core/utils.dart';
 import '../../core/data_change_event_bus.dart';
 import '../../data/models/packing_order_model.dart';
 import '../../data/dao/packing_order_dao.dart';
-import 'packing_order_details_dialog.dart';
 import 'packing_order_cost_adjustment_dialog.dart';
 import '../auth/auth_cubit.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:accounting_system/core/utils/file_helper.dart';
 import '../../data/services/journal_entry_navigation_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../../data/services/packing_calculation_service.dart';
 import 'utils/packing_excel_exporter.dart';
+import 'packing_order_pdf_service.dart';
+import 'packing_order_details_dialog.dart';
+import 'widgets/packing_cost_variance_settlement_modal.dart';
 
 class PackingOrdersPage extends StatefulWidget {
   const PackingOrdersPage({super.key});
@@ -61,15 +52,23 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
   Color _statusColor(String status) {
     switch (status) {
       case 'draft':
-        return AppTheme.warning;
       case 'pending':
         return AppTheme.warning;
-      case 'in_progress':
-        return const Color(0xFF3B82F6);
+      case 'crops_confirmed':
+        return AppTheme.primary;
+      case 'packaging_confirmed':
+        return const Color(0xFF0284C7);
+      case 'costs_confirmed':
+        return const Color(0xFFD97706);
+      case 'final_approved':
       case 'completed':
         return AppTheme.success;
+      case 'in_progress':
+        return const Color(0xFF3B82F6);
       case 'cancelled':
         return AppTheme.danger;
+      case 'returned':
+        return const Color(0xFFEA580C);
       default:
         return AppTheme.primary;
     }
@@ -78,15 +77,23 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
   String _statusLabel(String status) {
     switch (status) {
       case 'draft':
-        return 'مسودة';
       case 'pending':
         return 'مسودة';
-      case 'in_progress':
-        return 'قيد التنفيذ';
+      case 'crops_confirmed':
+        return 'مؤكد المحاصيل';
+      case 'packaging_confirmed':
+        return 'مؤكد مواد التعبئة';
+      case 'costs_confirmed':
+        return 'مؤكد التكاليف';
+      case 'final_approved':
       case 'completed':
-        return 'مؤكد';
+        return 'معتمد نهائياً';
+      case 'in_progress':
+        return 'قيد التشغيل';
       case 'cancelled':
         return 'ملغي';
+      case 'returned':
+        return 'مرتجع';
       default:
         return status;
     }
@@ -95,14 +102,30 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      _allOrders = await _dao.getAll();
+      try {
+        _allOrders = await _dao.getAll();
+      } catch (e) {
+        await Future.delayed(const Duration(milliseconds: 600));
+        _allOrders = await _dao.getAll();
+      }
       _ordersInShipment.clear();
       _ordersInShipment.addAll(await _dao.getOrdersUsedInShipments());
       _ordersWithSoldSorting.clear();
       _ordersWithSoldSorting.addAll(await _dao.getOrdersWithSoldSorting());
       _ordersWithDistributedShipment.clear();
       _ordersWithDistributedShipment.addAll(await _dao.getOrdersWithDistributedShipments());
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('⚠️ Error loading packing orders: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('تعذر تحميل أوامر التعبئة: $e', textDirection: TextDirection.rtl),
+            backgroundColor: AppTheme.danger,
+            action: SnackBarAction(label: 'إعادة المحاولة', textColor: Colors.white, onPressed: _load),
+          ),
+        );
+      }
+    }
     _applyFilters();
     if (mounted) setState(() => _loading = false);
   }
@@ -114,7 +137,9 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
         final matchOrder = o.orderNumber.toLowerCase().contains(q);
         final matchProduct = (o.productName ?? '').toLowerCase().contains(q);
         final matchLot = (o.lotNumber ?? '').toLowerCase().contains(q);
-        if (!matchOrder && !matchProduct && !matchLot) return false;
+        final matchShipment = (o.exportShipmentNo ?? '').toLowerCase().contains(q);
+        final matchCustomer = (o.customerName ?? '').toLowerCase().contains(q);
+        if (!matchOrder && !matchProduct && !matchLot && !matchShipment && !matchCustomer) return false;
       }
       if (_dateFrom != null && o.createdAt != null) {
         if (o.createdAt!.isBefore(_dateFrom!)) return false;
@@ -151,43 +176,32 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
     }
   }
 
-  String _mapCostCategory(String cat) {
-    switch (cat) {
-      case 'fruit':
-        return 'تكلفة الفاكهة';
-      case 'material':
-        return 'مواد تعبئة';
-      case 'logistics':
-        return 'لوجستيك ونقل';
-      case 'other':
-        return 'أخرى';
-      default:
-        return cat;
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
+    final isDark = AppTheme.isDark(context);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : AppTheme.lightBackground,
         body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [
-                AppTheme.background,
-                Color(0xFF0D2137),
-                AppTheme.background
-              ],
-            ),
-          ),
+          decoration: isDark
+              ? const BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: [
+                      AppTheme.background,
+                      Color(0xFF0D2137),
+                      AppTheme.background
+                    ],
+                  ),
+                )
+              : null,
           child: Column(children: [
-            _buildHeader(),
-            _buildSearchBar(),
-            Expanded(child: _buildBody()),
+            _buildHeader(isDark),
+            _buildSearchBar(isDark),
+            Expanded(child: _buildBody(isDark)),
           ]),
         ),
         floatingActionButton: FloatingActionButton.extended(
@@ -195,13 +209,13 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
           backgroundColor: AppTheme.primary,
           icon: const Icon(Icons.add, color: Colors.white),
           label: const Text('أمر تعبئة جديد',
-              style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+              style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
@@ -212,9 +226,9 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
               left: 20,
               right: 20),
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
+            color: isDark ? const Color(0x3805192D) : Colors.white,
             border: Border(
-                bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+                bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(50) : const Color(0xFFCBD5E1))),
           ),
           child: Row(children: [
             Container(
@@ -226,25 +240,60 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                   color: AppTheme.primary, size: 24),
             ),
             const SizedBox(width: 12),
-            const Expanded(
+            Expanded(
               child: Text('أوامر التعبئة',
                   style: TextStyle(
-                      color: AppTheme.textPrimary,
+                      color: isDark ? AppTheme.textPrimary : Colors.black,
                       fontSize: 20,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo')),
             ),
             const SizedBox(width: 8),
-            GestureDetector(
-              onTap: _load,
-              child: Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.glassBorder),
+            Tooltip(
+              message: 'طباعة وسجل أوامر التعبئة والتغليف (PDF)',
+              child: GestureDetector(
+                onTap: _exportPdfAll,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppTheme.primary.withAlpha(25) : const Color(0xFFE0F2FE),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: isDark ? AppTheme.primary.withAlpha(60) : const Color(0xFF0284C7)),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.picture_as_pdf,
+                          color: isDark ? AppTheme.primary : const Color(0xFF0284C7), size: 18),
+                      const SizedBox(width: 6),
+                      Text(
+                        'طباعة السجل (PDF)',
+                        style: TextStyle(
+                          color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          fontFamily: 'Cairo',
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                child: const Icon(Icons.refresh_rounded,
-                    color: AppTheme.textSecondary, size: 20),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Tooltip(
+              message: 'تحديث قائمة أوامر التعبئة',
+              child: GestureDetector(
+                onTap: _load,
+                child: Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                  ),
+                  child: Icon(Icons.refresh_rounded,
+                      color: isDark ? AppTheme.textSecondary : Colors.black87, size: 20),
+                ),
               ),
             ),
           ]),
@@ -253,24 +302,24 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(bool isDark) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: Column(children: [
         TextField(
           controller: _searchCtrl,
-          style: const TextStyle(
-              color: Colors.white, fontFamily: 'Cairo', fontSize: 14),
+          style: TextStyle(
+              color: isDark ? Colors.white : Colors.black, fontFamily: 'Cairo', fontSize: 14, fontWeight: FontWeight.bold),
           decoration: InputDecoration(
-            hintText: 'بحث بكود الطلب أو اسم المنتج...',
+            hintText: 'بحث بكود الطلب، المنتج، رقم الشحنة، أو اسم العميل...',
             hintStyle: TextStyle(
-                color: AppTheme.textMuted, fontFamily: 'Cairo', fontSize: 13),
-            prefixIcon: const Icon(Icons.search,
-                color: AppTheme.textSecondary, size: 20),
+                color: isDark ? AppTheme.textMuted : Colors.black54, fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold),
+            prefixIcon: Icon(Icons.search,
+                color: isDark ? AppTheme.textSecondary : Colors.black54, size: 20),
             suffixIcon: _searchCtrl.text.isNotEmpty
                 ? IconButton(
-                    icon: const Icon(Icons.clear,
-                        color: AppTheme.textSecondary, size: 18),
+                    icon: Icon(Icons.clear,
+                        color: isDark ? AppTheme.textSecondary : Colors.black54, size: 18),
                     onPressed: () {
                       _searchCtrl.clear();
                       setState(() {
@@ -280,16 +329,16 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                   )
                 : null,
             filled: true,
-            fillColor: const Color(0x2005192D),
+            fillColor: isDark ? const Color(0x2005192D) : Colors.white,
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: AppTheme.glassBorder),
+              borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
             ),
             enabledBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
-              borderSide: BorderSide(color: AppTheme.glassBorder),
+              borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
             ),
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(14),
@@ -313,6 +362,7 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                     : 'من تاريخ',
                 onTap: () => _pickDate(isFrom: true),
                 active: _dateFrom != null,
+                isDark: isDark,
                 onClear: () {
                   setState(() {
                     _dateFrom = null;
@@ -327,6 +377,7 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                     : 'إلى تاريخ',
                 onTap: () => _pickDate(isFrom: false),
                 active: _dateTo != null,
+                isDark: isDark,
                 onClear: () {
                   setState(() {
                     _dateTo = null;
@@ -334,23 +385,6 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                   });
                 },
               ),
-              // _dateFilterChip(
-              //   icon: Icons.refresh,
-              //   label: 'اوامر التعبئة التي تحتاج الي تحديث الاسعار',
-              //   onTap: () {
-              //     setState(() {
-              //       _filterNeedsRefresh = !_filterNeedsRefresh;
-              //       _applyFilters();
-              //     });
-              //   },
-              //   active: _filterNeedsRefresh,
-              //   onClear: () {
-              //     setState(() {
-              //       _filterNeedsRefresh = false;
-              //       _applyFilters();
-              //     });
-              //   },
-              // ),
               if (_dateFrom != null ||
                   _dateTo != null ||
                   _searchCtrl.text.isNotEmpty ||
@@ -365,8 +399,8 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                       _applyFilters();
                     });
                   },
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 4.0),
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4.0),
                     child: Text('مسح الكل',
                         style: TextStyle(
                             color: AppTheme.danger,
@@ -385,6 +419,7 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
     required String label,
     required VoidCallback onTap,
     required bool active,
+    required bool isDark,
     VoidCallback? onClear,
   }) {
     return GestureDetector(
@@ -393,25 +428,30 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         decoration: BoxDecoration(
           color: active
-              ? AppTheme.primary.withAlpha(30)
-              : AppTheme.primary.withAlpha(10),
+              ? (isDark ? AppTheme.primary.withAlpha(30) : const Color(0xFFE0F2FE))
+              : (isDark ? AppTheme.primary.withAlpha(10) : Colors.white),
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
               color: active
-                  ? AppTheme.primary.withAlpha(60)
-                  : AppTheme.glassBorder),
+                  ? (isDark ? AppTheme.primary.withAlpha(60) : const Color(0xFF0284C7))
+                  : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
         ),
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(icon,
                 size: 13,
-                color: active ? AppTheme.primary : AppTheme.textSecondary),
+                color: active
+                    ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                    : (isDark ? AppTheme.textSecondary : Colors.black87)),
             const SizedBox(width: 4),
             Text(label,
                 style: TextStyle(
-                  color: active ? AppTheme.primary : AppTheme.textSecondary,
+                  color: active
+                      ? (isDark ? AppTheme.primary : const Color(0xFF0284C7))
+                      : (isDark ? AppTheme.textSecondary : Colors.black87),
                   fontSize: 11,
+                  fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo',
                 )),
             if (active && onClear != null) ...[
@@ -427,21 +467,21 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
     );
   }
 
-  Widget _buildBody() {
+  Widget _buildBody(bool isDark) {
     if (_loading) {
       return const Center(
           child: CircularProgressIndicator(color: AppTheme.primary));
     }
-    if (_filtered.isEmpty) return _buildEmptyState();
+    if (_filtered.isEmpty) return _buildEmptyState(isDark);
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
-        children: _filtered.map((o) => _buildOrderCard(o)).toList(),
+        children: _filtered.map((o) => _buildOrderCard(o, isDark)).toList(),
       ),
     );
   }
 
-  Widget _buildOrderCard(PackingOrderModel order) {
+  Widget _buildOrderCard(PackingOrderModel order, bool isDark) {
     final statusColor = _statusColor(order.status);
 
     return Padding(
@@ -452,13 +492,22 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0x3805192D),
+              color: isDark ? const Color(0x3805192D) : Colors.white,
               borderRadius: BorderRadius.circular(20),
               border: Border.all(
                   color: order.needsPriceRefresh
                       ? Colors.yellow.withAlpha(200)
-                      : AppTheme.glassBorder,
+                      : (isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
                   width: order.needsPriceRefresh ? 2.0 : 1.0),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.05),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      )
+                    ],
             ),
             child: Material(
               color: Colors.transparent,
@@ -471,20 +520,44 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                       _buildStatusBadge(order.status, statusColor),
                       const SizedBox(width: 8),
                       Expanded(
-                        child: Text(order.orderNumber,
-                            style: const TextStyle(
-                                color: AppTheme.primary,
-                                fontSize: 16,
-                                fontWeight: FontWeight.bold,
-                                fontFamily: 'Cairo')),
+                        child: Row(
+                          children: [
+                            Text(order.orderNumber,
+                                style: TextStyle(
+                                    color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                                    fontSize: 16,
+                                    fontWeight: FontWeight.w900,
+                                    fontFamily: 'Cairo')),
+                            if (order.lines.length > 1) ...[
+                              const SizedBox(width: 8),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isDark ? AppTheme.neonCyan.withAlpha(30) : const Color(0xFFE0F2FE),
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                      color: isDark ? AppTheme.neonCyan.withAlpha(80) : const Color(0xFF0284C7)),
+                                ),
+                                child: Text(
+                                  '${order.lines.length} محاصيل',
+                                  style: TextStyle(
+                                    color: isDark ? AppTheme.neonCyan : const Color(0xFF0284C7),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'Cairo',
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ],
+                        ),
                       ),
-                      if (order.status == 'pending' ||
-                          order.status == 'draft') ...[
-                        _buildConfirmButton(order),
+                      if (!order.isFinalApproved && order.status != 'completed') ...[
+                        _buildFinalApprovalButton(order),
                         const SizedBox(width: 6),
                       ],
-                      if (order.status == 'draft' ||
-                          order.status == 'pending') ...[
+                      if (!order.isFinalApproved && order.status != 'completed') ...[
                         const SizedBox(width: 6),
                         _buildEditButton(order),
                       ],
@@ -496,10 +569,22 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                           order.status != 'pending') ...[
                         const SizedBox(width: 6),
                         _buildJournalButton(order),
+                      ],
+                      const SizedBox(width: 6),
+                      _buildPdfButton(order),
+                      if (order.status != 'draft' &&
+                          order.status != 'pending') ...[
                         const SizedBox(width: 6),
                         _buildExportButton(order),
+                      ],
+                      if (order.isFinalApproved || order.status == 'completed') ...[
                         const SizedBox(width: 6),
                         _buildViewButton(order),
+                      ],
+                      if (order.status != 'draft' &&
+                          order.status != 'pending') ...[
+                        const SizedBox(width: 6),
+                        _buildVarianceSettlementButton(order),
                       ],
                       if (order.status != 'draft' &&
                           order.status != 'pending' &&
@@ -511,10 +596,7 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                       ],
                     ]),
                     GestureDetector(
-                      // onTap: () => showDialog(
-                      //   context: context,
-                      //   builder: (_) => PackingOrderDetailsDialog(order: order),
-                      // ),
+                      onTap: () => _openOrderDetails(order),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -523,61 +605,153 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                               order.lines.length > 1
                                   ? '${order.lines.length} أصناف: ${order.lines.map((l) => l.productName).join(' ، ')}'
                                   : (order.productName ?? '—'),
-                              style: const TextStyle(
-                                  color: AppTheme.textPrimary,
-                                  fontSize: 13,
+                              style: TextStyle(
+                                  color: isDark ? AppTheme.textPrimary : Colors.black,
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.bold,
                                   fontFamily: 'Cairo'),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis),
+                          if (order.lines.length > 1) ...[
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 6,
+                              children: order.lines.map((l) {
+                                final remaining = l.cartonCount - l.soldCartons;
+                                return Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 5),
+                                  decoration: BoxDecoration(
+                                    color: isDark ? Colors.white.withValues(alpha: 0.04) : const Color(0xFFF8FAFC),
+                                    borderRadius: BorderRadius.circular(8),
+                                    border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFE2E8F0)),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        l.productName.isNotEmpty
+                                            ? l.productName
+                                            : 'صنف',
+                                        style: TextStyle(
+                                          color: isDark ? AppTheme.textPrimary : Colors.black,
+                                          fontWeight: FontWeight.bold,
+                                          fontSize: 12,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                      const SizedBox(height: 2),
+                                      Text(
+                                        '${l.cartonCount} كرتونة (${l.netWeightPerCarton.toStringAsFixed(0)} كجم) | متبقي: $remaining',
+                                        style: TextStyle(
+                                          color: isDark ? AppTheme.textSecondary : Colors.black87,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                );
+                              }).toList(),
+                            ),
+                          ],
+                          // === Export Shipment & Customer Tags ===
+                          if ((order.exportShipmentNo != null && order.exportShipmentNo!.isNotEmpty) ||
+                              (order.customerName != null && order.customerName!.isNotEmpty)) ...[
+                            const SizedBox(height: 8),
+                            Wrap(
+                              spacing: 8,
+                              runSpacing: 4,
+                              children: [
+                                if (order.exportShipmentNo != null && order.exportShipmentNo!.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? Colors.blue.withAlpha(25) : const Color(0xFFEFF6FF),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: isDark ? Colors.blue.withAlpha(80) : const Color(0xFF93C5FD)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.local_shipping_outlined, size: 12, color: isDark ? Colors.blue.shade300 : Colors.blue.shade700),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'شحنة: ${order.exportShipmentNo}',
+                                          style: TextStyle(
+                                            color: isDark ? Colors.blue.shade300 : Colors.blue.shade700,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                if (order.customerName != null && order.customerName!.isNotEmpty)
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: isDark ? Colors.teal.withAlpha(25) : const Color(0xFFF0FDFA),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: isDark ? Colors.teal.withAlpha(80) : const Color(0xFF5EEAD4)),
+                                    ),
+                                    child: Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.person_outline, size: 12, color: isDark ? Colors.teal.shade300 : Colors.teal.shade700),
+                                        const SizedBox(width: 4),
+                                        Text(
+                                          'عميل: ${order.customerName}',
+                                          style: TextStyle(
+                                            color: isDark ? Colors.teal.shade300 : Colors.teal.shade700,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                              ],
+                            ),
+                          ],
                           const SizedBox(height: 8),
                           Row(children: [
                             Text(
                                 '${order.cartonCount} كرتونة ',
-                                style: const TextStyle(
-                                    color: AppTheme.textSecondary,
+                                style: TextStyle(
+                                    color: isDark ? AppTheme.textSecondary : Colors.black87,
                                     fontSize: 13,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo')),
                           ]),
                           if (order.soldCartons > 0) ...[
                             const SizedBox(height: 4),
                             Row(children: [
-                              Icon(Icons.shopping_cart_outlined,
+                              const Icon(Icons.shopping_cart_outlined,
                                   size: 14, color: AppTheme.success),
                               const SizedBox(width: 4),
                               Text(
                                   'تباع ${order.soldCartons} / ${order.cartonCount} | متبقي ${order.remainingCartons}',
-                                  style: TextStyle(
+                                  style: const TextStyle(
                                       color: AppTheme.success,
                                       fontSize: 12,
-                                      fontWeight: FontWeight.w600,
+                                      fontWeight: FontWeight.bold,
                                       fontFamily: 'Cairo')),
                             ]),
                           ],
-                          const SizedBox(height: 4),
-                          //Row(children: [
-                          //   Text(
-                          //       'صافي: ${order.totalNetWeight.toStringAsFixed(1)} كجم',
-                          //       style: const TextStyle(
-                          //           color: AppTheme.success,
-                          //           fontSize: 13,
-                          //           fontWeight: FontWeight.w600,
-                          //           fontFamily: 'Cairo')),
-                          //   const SizedBox(width: 16),
-                          //   Text(
-                          //       'إجمالي: ${order.totalGrossWeight.toStringAsFixed(1)} كجم',
-                          //       style: const TextStyle(
-                          //           color: AppTheme.textSecondary,
-                          //           fontSize: 13,
-                          //           fontFamily: 'Cairo')),
-                          // ]),
                           if (order.createdAt != null) ...[
                             const SizedBox(height: 4),
                             Text(
                                 DateFormat('yyyy/MM/dd')
                                     .format(order.createdAt!),
                                 style: TextStyle(
-                                    color: AppTheme.textMuted,
+                                    color: isDark ? AppTheme.textMuted : Colors.black54,
                                     fontSize: 11,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo')),
                           ],
                           if (order.notes != null &&
@@ -598,34 +772,69 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
     );
   }
 
-  Widget _buildExportButton(PackingOrderModel order) {
-    return GestureDetector(
-      onTap: () => _exportExcelSingle(order),
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: AppTheme.success.withAlpha(20),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.success.withAlpha(40)),
+  Widget _buildPdfButton(PackingOrderModel order) {
+    return Tooltip(
+      message: 'طباعة إذن التعبئة والتغليف (PDF)',
+      child: GestureDetector(
+        onTap: () => _printOrderPdf(order),
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withAlpha(20),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppTheme.primary.withAlpha(40)),
+          ),
+          child: const Icon(Icons.picture_as_pdf, size: 16, color: AppTheme.primary),
         ),
-        child: const Icon(Icons.table_view, size: 16, color: AppTheme.success),
+      ),
+    );
+  }
+
+  Future<void> _printOrderPdf(PackingOrderModel order) async {
+    final warehouseName = order.stationId != null
+        ? 'محطة ${order.stationId}'
+        : 'محطة التعبئة والتغليف المركزية';
+    await PackingOrderPdfService.printOrderVoucher(
+      context,
+      order: order,
+      warehouseName: warehouseName,
+    );
+  }
+
+  Widget _buildExportButton(PackingOrderModel order) {
+    return Tooltip(
+      message: 'تصدير تفاصيل أمر التعبئة (Excel)',
+      child: GestureDetector(
+        onTap: () => _exportExcelSingle(order),
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: AppTheme.success.withAlpha(20),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppTheme.success.withAlpha(40)),
+          ),
+          child: const Icon(Icons.table_view, size: 16, color: AppTheme.success),
+        ),
       ),
     );
   }
 
   Widget _buildEditButton(PackingOrderModel order) {
-    return GestureDetector(
-      onTap: () => context.push('/packing/new', extra: order).then((_) {
-        if (mounted) _load();
-      }),
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: AppTheme.primary.withAlpha(20),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.primary.withAlpha(40)),
+    return Tooltip(
+      message: 'تعديل أمر التعبئة',
+      child: GestureDetector(
+        onTap: () => context.push('/packing/new', extra: order).then((_) {
+          if (mounted) _load();
+        }),
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withAlpha(20),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppTheme.primary.withAlpha(40)),
+          ),
+          child: const Icon(Icons.edit, size: 16, color: AppTheme.primary),
         ),
-        child: const Icon(Icons.edit, size: 16, color: AppTheme.primary),
       ),
     );
   }
@@ -648,7 +857,7 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
           totalRawWeightKg: data.totalRawWeightKg,
         );
       }
-    } catch (e, st) {
+    } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context)
             .showSnackBar(SnackBar(content: Text('خطأ أثناء التصدير: $e')));
@@ -657,283 +866,305 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
   }
 
   Widget _buildRefreshButton(PackingOrderModel order) {
-    return GestureDetector(
-      onTap: () async {
-        try {
-          setState(() => _loading = true);
-          await _dao.refreshPrices(int.parse(order.id!));
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('تم تحديث السعر بنجاح',
-                    style: TextStyle(fontFamily: 'Cairo')),
-                backgroundColor: AppTheme.success,
-              ),
-            );
-            await _load();
+    return Tooltip(
+      message: 'تحديث أسعار البنود والمحاصيل لأمر التعبئة',
+      child: GestureDetector(
+        onTap: () async {
+          try {
+            setState(() => _loading = true);
+            await _dao.refreshPrices(int.parse(order.id!));
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('تم تحديث السعر بنجاح',
+                      style: TextStyle(fontFamily: 'Cairo')),
+                  backgroundColor: AppTheme.success,
+                ),
+              );
+              await _load();
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('حدث خطأ أثناء تحديث السعر: $e',
+                      style: const TextStyle(fontFamily: 'Cairo')),
+                  backgroundColor: AppTheme.danger,
+                ),
+              );
+              setState(() => _loading = false);
+            }
           }
-        } catch (e) {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('حدث خطأ أثناء تحديث السعر: $e',
-                    style: const TextStyle(fontFamily: 'Cairo')),
-                backgroundColor: AppTheme.danger,
-              ),
-            );
-            setState(() => _loading = false);
-          }
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: Colors.yellow.withAlpha(20),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: Colors.yellow.withAlpha(40)),
+        },
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: Colors.yellow.withAlpha(20),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: Colors.yellow.withAlpha(40)),
+          ),
+          child: const Icon(Icons.refresh, size: 16, color: Colors.yellow),
         ),
-        child: const Icon(Icons.refresh, size: 16, color: Colors.yellow),
       ),
     );
   }
 
   Widget _buildViewButton(PackingOrderModel order) {
-    return GestureDetector(
-      onTap: () => context.push('/packing/view', extra: order).then((_) {
-        if (mounted) _load();
-      }),
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: AppTheme.accent.withAlpha(20),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.accent.withAlpha(40)),
+    return Tooltip(
+      message: 'عرض تفاصيل وبيانات أمر التعبئة',
+      child: GestureDetector(
+        onTap: () => context.push('/packing/view', extra: order).then((_) {
+          if (mounted) _load();
+        }),
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: AppTheme.accent.withAlpha(20),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppTheme.accent.withAlpha(40)),
+          ),
+          child: const Icon(Icons.visibility, size: 16, color: AppTheme.accent),
         ),
-        child: const Icon(Icons.visibility, size: 16, color: AppTheme.accent),
+      ),
+    );
+  }
+
+  void _openOrderDetails(PackingOrderModel order) {
+    showDialog(
+      context: context,
+      builder: (_) => PackingOrderDetailsDialog(order: order),
+    ).then((_) {
+      if (mounted) _load();
+    });
+  }
+
+  Widget _buildVarianceSettlementButton(PackingOrderModel order) {
+    final ordId = int.tryParse(order.id ?? '');
+    if (ordId == null) return const SizedBox.shrink();
+
+    return Tooltip(
+      message: 'تسوية الفروق الفعلية وإعادة احتساب الربحية (Estimated vs. Actual)',
+      child: GestureDetector(
+        onTap: () {
+          PackingCostVarianceSettlementModal.show(
+            context,
+            packingOrderId: ordId,
+            orderNumber: order.orderNumber,
+            order: order,
+            onSettled: _load,
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF06B6D4).withAlpha(25),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFF06B6D4).withAlpha(60)),
+          ),
+          child: const Icon(Icons.compare_arrows,
+              size: 16, color: Color(0xFF06B6D4)),
+        ),
       ),
     );
   }
 
   Widget _buildCostAdjustmentButton(PackingOrderModel order) {
-    return GestureDetector(
-      onTap: () {
-        showDialog(
-          context: context,
-          builder: (_) => PackingOrderCostAdjustmentDialog(
-            order: order,
-            onUpdated: _load,
+    return Tooltip(
+      message: 'تعديل وتسوية تكاليف أمر التعبئة',
+      child: GestureDetector(
+        onTap: () {
+          showDialog(
+            context: context,
+            builder: (_) => PackingOrderCostAdjustmentDialog(
+              order: order,
+              onUpdated: _load,
+            ),
+          );
+        },
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: AppTheme.primary.withAlpha(25),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppTheme.primary.withAlpha(60)),
           ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: AppTheme.primary.withAlpha(25),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.primary.withAlpha(60)),
+          child: const Icon(Icons.price_change_outlined,
+              size: 16, color: AppTheme.primary),
         ),
-        child: const Icon(Icons.price_change_outlined,
-            size: 16, color: AppTheme.primary),
       ),
     );
   }
 
   Widget _buildJournalButton(PackingOrderModel order) {
-    return GestureDetector(
-      onTap: () async {
-        final journalEntryId = order.journalEntryId;
-        final packingOrderId = order.id;
-        String searchKey = journalEntryId ?? '';
+    return Tooltip(
+      message: 'عرض القيد المحاسبي لأمر التعبئة',
+      child: GestureDetector(
+        onTap: () async {
+          final journalEntryId = order.journalEntryId;
+          final packingOrderId = order.id;
+          String searchKey = journalEntryId ?? '';
 
-        if (journalEntryId != null && journalEntryId.isNotEmpty) {
-          try {
-            final parsedId = int.tryParse(journalEntryId) ?? 0;
-            final jeRes = await Supabase.instance.client
-                .from('journal_entries')
-                .select('id')
-                .eq('id', parsedId)
-                .maybeSingle();
-
-            if (jeRes == null && packingOrderId != null) {
-              final fallback = await Supabase.instance.client
+          if (journalEntryId != null && journalEntryId.isNotEmpty) {
+            try {
+              final parsedId = int.tryParse(journalEntryId) ?? 0;
+              final jeRes = await Supabase.instance.client
                   .from('journal_entries')
                   .select('id')
-                  .eq('source_type', 'packing_order')
-                  .eq('source_id', packingOrderId)
-                  .order('id', ascending: false)
+                  .eq('id', parsedId)
                   .maybeSingle();
-              if (fallback != null) {
-                searchKey = fallback['id'].toString();
-              }
-            }
-          } catch (_) {}
-        }
 
-        if (searchKey.isNotEmpty) {
-          if (mounted) {
-            JournalEntryNavigationService.openById(
-              context,
-              journalEntryId: searchKey,
-            );
+              if (jeRes == null && packingOrderId != null) {
+                final fallback = await Supabase.instance.client
+                    .from('journal_entries')
+                    .select('id')
+                    .eq('source_type', 'packing_order')
+                    .eq('source_id', packingOrderId)
+                    .order('id', ascending: false)
+                    .maybeSingle();
+                if (fallback != null) {
+                  searchKey = fallback['id'].toString();
+                }
+              }
+            } catch (_) {}
           }
-        } else {
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text('لا يوجد قيد محاسبي لهذا الأمر',
-                    style: TextStyle(fontFamily: 'Cairo')),
-                backgroundColor: AppTheme.warning,
-              ),
-            );
+
+          if (searchKey.isNotEmpty) {
+            if (mounted) {
+              JournalEntryNavigationService.openById(
+                context,
+                journalEntryId: searchKey,
+              );
+            }
+          } else {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('لا يوجد قيد محاسبي لهذا الأمر',
+                      style: TextStyle(fontFamily: 'Cairo')),
+                  backgroundColor: AppTheme.warning,
+                ),
+              );
+            }
           }
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: AppTheme.success.withAlpha(20),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.success.withAlpha(40)),
+        },
+        child: Container(
+          padding: const EdgeInsets.all(6),
+          decoration: BoxDecoration(
+            color: AppTheme.success.withAlpha(20),
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: AppTheme.success.withAlpha(40)),
+          ),
+          child:
+              const Icon(Icons.book_outlined, size: 16, color: AppTheme.success),
         ),
-        child:
-            const Icon(Icons.book_outlined, size: 16, color: AppTheme.success),
       ),
     );
   }
 
-  Widget _buildConfirmButton(PackingOrderModel order) {
-    return GestureDetector(
-      onTap: () async {
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: AppTheme.surface,
-            title: const Text('تأكيد أمر التعبئة',
-                style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
-            content: Text(
-                'هل أنت متأكد من تأكيد أمر التعبئة ${order.orderNumber}؟\nسيتم خصم المحاصيل ومواد التعبئة من المخزن.',
+  Widget _buildFinalApprovalButton(PackingOrderModel order) {
+    return Tooltip(
+      message: 'إقفال واعتماد أمر التعبئة نهائياً',
+      child: GestureDetector(
+        onTap: () async {
+          final confirmed = await showDialog<bool>(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              backgroundColor: AppTheme.surface,
+              title: const Row(
+                children: [
+                  Icon(Icons.verified, color: AppTheme.success, size: 22),
+                  SizedBox(width: 8),
+                  Text('إقفال واعتماد أمر التعبئة نهائياً',
+                      style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold, fontSize: 16)),
+                ],
+              ),
+              content: Text(
+                'هل أنت متأكد من الإقفال والاعتماد النهائي لأمر التعبئة رقم (${order.orderNumber})؟\n\n'
+                '• سيتم اعتماد وتثبيت جميع المراحل والقيود المحاسبية.\n'
+                '• لن يمكن تعديل أو زيادة المحاصيل أو مواد التعبئة أو التكاليف بعد هذا الإجراء.\n'
+                '• سيصبح أمر التعبئة مكتملاً ومقفلاً بالكامل.',
                 style: const TextStyle(
-                    color: AppTheme.textSecondary, fontFamily: 'Cairo')),
-            actions: [
-              TextButton(
+                  color: AppTheme.textSecondary,
+                  fontFamily: 'Cairo',
+                  fontSize: 13,
+                  height: 1.6,
+                ),
+              ),
+              actions: [
+                TextButton(
                   onPressed: () => Navigator.of(ctx).pop(false),
                   child: const Text('إلغاء',
-                      style: TextStyle(
-                          color: AppTheme.textSecondary, fontFamily: 'Cairo'))),
-              ElevatedButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                style:
-                    ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
-                child: const Text('تأكيد',
-                    style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
-              ),
+                      style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                ),
+                ElevatedButton.icon(
+                  onPressed: () => Navigator.of(ctx).pop(true),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: AppTheme.success,
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  ),
+                  icon: const Icon(Icons.check, size: 16, color: Colors.white),
+                  label: const Text('تأكيد الإقفال النهائي',
+                      style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
+                ),
+              ],
+            ),
+          );
+          if (confirmed != true) return;
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('جاري الإقفال والاعتماد النهائي...'), duration: Duration(seconds: 2)));
+          String? error = await _dao.confirmFinalStage(int.parse(order.id!));
+          if (error != null && (error.contains('not found') || error.contains('PGRST202') || error.contains('Could not find'))) {
+            error = await _dao.confirmOrder(int.parse(order.id!));
+          }
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).clearSnackBars();
+          if (error == null) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                content: Text('تم إقفال واعتماد أمر التعبئة بنجاح'),
+                backgroundColor: AppTheme.success));
+            DataChangeEventBus.instance.notifyStationsChanged();
+            DataChangeEventBus.instance.notifyCropPurchasesChanged();
+            DataChangeEventBus.instance.notifyItemsChanged();
+            DataChangeEventBus.instance.notifySuppliersChanged();
+            DataChangeEventBus.instance.notifyJournalEntriesChanged();
+            _load();
+          } else {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text('خطأ: $error'), backgroundColor: AppTheme.danger));
+          }
+        },
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: const Color(0xFF059669),
+            borderRadius: BorderRadius.circular(8),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFF059669).withValues(alpha: 0.3),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              )
             ],
           ),
-        );
-        if (confirmed != true) return;
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('جاري التأكيد...'), duration: Duration(seconds: 2)));
-        final error = await _dao.confirmOrder(int.parse(order.id!));
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).clearSnackBars();
-        if (error == null) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('تم تأكيد أمر التعبئة بنجاح'),
-              backgroundColor: AppTheme.success));
-          DataChangeEventBus.instance.notifyStationsChanged();
-          DataChangeEventBus.instance.notifyCropPurchasesChanged();
-          DataChangeEventBus.instance.notifyItemsChanged();
-          DataChangeEventBus.instance.notifySuppliersChanged();
-          _load();
-        } else {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('خطأ: $error'), backgroundColor: AppTheme.danger));
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.green,
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: const Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text('تأكيد',
-                style: TextStyle(
-                    color: Colors.white,
-                    fontFamily: 'Cairo',
-                    fontSize: 13,
-                    fontWeight: FontWeight.bold)),
-            SizedBox(width: 6),
-            Icon(Icons.check_circle_outline, size: 16, color: Colors.white),
-          ],
+          child: const Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.verified, size: 15, color: Colors.white),
+              SizedBox(width: 5),
+              Text('إقفال نهائي',
+                  style: TextStyle(
+                      color: Colors.white,
+                      fontFamily: 'Cairo',
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold)),
+            ],
+          ),
         ),
       ),
     );
   }
 
-  Widget _buildDeleteButton(PackingOrderModel order) {
-    return GestureDetector(
-      onTap: () async {
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (ctx) => AlertDialog(
-            backgroundColor: AppTheme.surface,
-            title: const Text('????? ????? ???????',
-                style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
-            content: Text(
-                '?? ??? ????? ?? ??? ????? ??????? ?\n?? ???? ??????? ?? ??? ???????.',
-                style: const TextStyle(
-                    color: AppTheme.textSecondary, fontFamily: 'Cairo')),
-            actions: [
-              TextButton(
-                  onPressed: () => Navigator.of(ctx).pop(false),
-                  child: const Text('????',
-                      style: TextStyle(
-                          color: AppTheme.textSecondary, fontFamily: 'Cairo'))),
-              ElevatedButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                style:
-                    ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
-                child: const Text('???',
-                    style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
-              ),
-            ],
-          ),
-        );
-        if (confirmed != true) return;
-        if (!mounted) return;
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('???? ?????...'), duration: Duration(seconds: 2)));
-        try {
-          await _dao.delete(int.parse(order.id!));
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-              content: Text('?? ??? ??????? ?????'),
-              backgroundColor: AppTheme.success));
-          _load();
-        } catch (e) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).clearSnackBars();
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text('???: $e'), backgroundColor: AppTheme.danger));
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          color: AppTheme.danger.withAlpha(20),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppTheme.danger.withAlpha(40)),
-        ),
-        child:
-            const Icon(Icons.delete_outline, size: 16, color: AppTheme.danger),
-      ),
-    );
-  }
 
   Widget _buildStatusBadge(String status, Color color) {
     return Container(
@@ -996,7 +1227,7 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
       return Wrap(spacing: 6, runSpacing: 4, children: chips);
     } catch (_) {
       return Text(notesStr,
-          style: TextStyle(
+          style: const TextStyle(
               color: AppTheme.textMuted, fontSize: 11, fontFamily: 'Cairo'));
     }
   }
@@ -1014,7 +1245,7 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool isDark) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
@@ -1027,17 +1258,18 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
                 size: 48, color: AppTheme.primary),
           ),
           const SizedBox(height: 20),
-          const Text('لا توجد أوامر تعبئة',
+          Text('لا توجد أوامر تعبئة',
               style: TextStyle(
-                  color: AppTheme.textPrimary,
+                  color: isDark ? AppTheme.textPrimary : Colors.black,
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo')),
           const SizedBox(height: 8),
           Text('اضغط على "أمر تعبئة جديد" لإنشاء أول أمر',
               style: TextStyle(
-                  color: AppTheme.textSecondary.withAlpha(180),
+                  color: isDark ? AppTheme.textSecondary.withAlpha(180) : Colors.black87,
                   fontSize: 14,
+                  fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo')),
         ],
       ),
@@ -1045,103 +1277,24 @@ class _PackingOrdersPageState extends State<PackingOrdersPage> {
   }
 
   Future<void> _exportPdfAll() async {
-    if (_filtered.isEmpty) return;
-    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('جاري إنشاء PDF...'), duration: Duration(seconds: 2)));
-
-    final fontData = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
-    final boldData = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
-    final font = pw.Font.ttf(fontData);
-    final boldFont = pw.Font.ttf(boldData);
-    final theme = pw.ThemeData.withFont(base: font, bold: boldFont);
-
-    final bgData = await rootBundle.load('assets/images/statment.png');
-    final bgImage = pw.MemoryImage(bgData.buffer.asUint8List());
-
-    final doc = pw.Document();
-    final totalPages = (_filtered.length / 50).ceil();
-    for (var pageIdx = 0; pageIdx < totalPages; pageIdx++) {
-      final start = pageIdx * 50;
-      final end = (start + 50).clamp(0, _filtered.length);
-      final pageOrders = _filtered.sublist(start, end);
-
-      doc.addPage(pw.MultiPage(
-        pageTheme: pw.PageTheme(
-          theme: theme,
-          pageFormat: PdfPageFormat.a4.landscape,
-          textDirection: pw.TextDirection.rtl,
-          margin: const pw.EdgeInsets.symmetric(horizontal: 20, vertical: 16),
-          buildBackground: (context) => pw.FullPage(
-            ignoreMargins: true,
-            child: pw.Image(bgImage, fit: pw.BoxFit.cover),
-          ),
+    if (_filtered.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('لا توجد أوامر تعبئة مطابقة للطباعة',
+              style: TextStyle(fontFamily: 'Cairo')),
+          backgroundColor: AppTheme.warning,
         ),
-        build: (ctx) => [
-          if (pageIdx == 0) ...[
-            pw.Text('أوامر التعبئة',
-                style: pw.TextStyle(
-                    font: boldFont, fontSize: 16, color: PdfColors.blueGrey)),
-            pw.Text(
-                'إجمالي الأوامر: ${_filtered.length} | تاريخ التقرير: ${DateFormat('yyyy-MM-dd HH:mm').format(DateTime.now())}',
-                style: pw.TextStyle(
-                    font: font, fontSize: 9, color: PdfColors.grey700)),
-            pw.SizedBox(height: 8),
-          ],
-          pw.TableHelper.fromTextArray(
-            headerAlignment: pw.Alignment.center,
-            cellAlignment: pw.Alignment.centerRight,
-            headerStyle: pw.TextStyle(
-                font: boldFont, fontSize: 8, color: PdfColors.white),
-            cellStyle:
-                pw.TextStyle(font: font, fontSize: 7, color: PdfColors.black),
-            headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey),
-            cellHeight: 18,
-            headers: [
-              '#',
-              'رقم الأمر',
-              'المحصول',
-              'المورد',
-              'التاريخ',
-              'الحالة',
-              'الكراتين',
-              'الوزن الصافي',
-              'التكلفة الإجمالية'
-            ],
-            data: [
-              for (int i = 0; i < pageOrders.length; i++)
-                _pdfRow(start + i + 1, pageOrders[i]),
-            ],
-          ),
-        ],
-      ));
+      );
+      return;
     }
 
-    final bytes = await doc.save();
-    final dir = await FileHelper.getExportDirectory();
-    final filePath =
-        '${dir.path}/packing_orders_${DateTime.now().millisecondsSinceEpoch}.pdf';
-    await File(filePath).writeAsBytes(bytes);
-    await Printing.sharePdf(bytes: bytes, filename: filePath);
-  }
-
-  List<String> _pdfRow(int index, PackingOrderModel o) {
-    double packingCost = o.totalPackingCost;
-    if (packingCost >= (o.fruitCostAllocated + o.actualMaterialCost) &&
-        packingCost > 0) {
-      packingCost = packingCost - o.fruitCostAllocated - o.actualMaterialCost;
-    }
-    final totalCost = o.fruitCostAllocated + packingCost + o.actualMaterialCost;
-    return [
-      index.toString(),
-      o.orderNumber,
-      o.productName ?? '—',
-      o.supplierName ?? '—',
-      o.createdAt != null ? DateFormat('yyyy-MM-dd').format(o.createdAt!) : '—',
-      _statusLabel(o.status),
-      o.cartonCount.toString(),
-      '${o.totalNetWeight.toStringAsFixed(1)} كجم',
-      '${totalCost.toStringAsFixed(2)} ${o.displayCurrency}',
-    ];
+    await PackingOrderPdfService.printOrdersRegister(
+      context,
+      orders: _filtered,
+      dateFrom: _dateFrom,
+      dateTo: _dateTo,
+      filterQuery: _searchCtrl.text.trim(),
+    );
   }
 
   void _openForm(PackingOrderModel? order) {

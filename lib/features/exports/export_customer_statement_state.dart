@@ -29,6 +29,7 @@ class ExportCustomerStatementLoaded extends ExportCustomerStatementState {
   final DateTime? toDate;
   final Map<String, String> rowNotes;
   final double openingBalance;
+  final String customerTypeFilter; // 'all', 'local', 'export'
 
   const ExportCustomerStatementLoaded({
     required this.customers,
@@ -42,7 +43,17 @@ class ExportCustomerStatementLoaded extends ExportCustomerStatementState {
     this.toDate,
     this.rowNotes = const {},
     this.openingBalance = 0,
+    this.customerTypeFilter = 'all',
   });
+
+  List<CustomerModel> get filteredCustomers {
+    if (customerTypeFilter == 'local') {
+      return customers.where((c) => c.customerType == 'local').toList();
+    } else if (customerTypeFilter == 'export') {
+      return customers.where((c) => c.customerType != 'local').toList();
+    }
+    return customers;
+  }
 
   ExportCustomerStatementLoaded copyWith({
     List<CustomerModel>? customers,
@@ -56,6 +67,7 @@ class ExportCustomerStatementLoaded extends ExportCustomerStatementState {
     DateTime? toDate,
     Map<String, String>? rowNotes,
     double? openingBalance,
+    String? customerTypeFilter,
     bool clearSelectedCustomer = false,
     bool clearFromDate = false,
     bool clearToDate = false,
@@ -74,6 +86,7 @@ class ExportCustomerStatementLoaded extends ExportCustomerStatementState {
       toDate: clearToDate ? null : (toDate ?? this.toDate),
       rowNotes: rowNotes ?? this.rowNotes,
       openingBalance: openingBalance ?? this.openingBalance,
+      customerTypeFilter: customerTypeFilter ?? this.customerTypeFilter,
     );
   }
 
@@ -90,6 +103,7 @@ class ExportCustomerStatementLoaded extends ExportCustomerStatementState {
         toDate,
         rowNotes,
         openingBalance,
+        customerTypeFilter,
       ];
 }
 

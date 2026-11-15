@@ -10,7 +10,6 @@
 //   5. runApp
 // ─────────────────────────────────────────────
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -20,14 +19,16 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'core/injection.dart';
 import 'core/service_module.dart';
 import 'core/router.dart';
+import 'core/services/account_status_service.dart';
 import 'core/theme.dart';
+import 'core/theme_cubit.dart';
 import 'core/constants.dart';
 import 'data/dao/settings_dao.dart';
 import 'features/auth/auth_cubit.dart';
 import 'features/dashboard/dashboard_cubit.dart';
 import 'data/dao/dashboard_dao.dart';
-import 'core/injection.dart';
-import 'debug/seed_dkl_shipment.dart';
+
+import 'supabase_options.dart';
 
 class _NoPersistenceLocalStorage extends LocalStorage {
   const _NoPersistenceLocalStorage();
@@ -53,8 +54,8 @@ Future<void> main() async {
 
   // ── 1. Supabase (without disk session persistence - requires login each launch) ──
   await Supabase.initialize(
-    url: 'https://pjkhdnoeyyvraclomepx.supabase.co',
-    publishableKey: 'sb_publishable_y6C2YEO2LvomYFBDm80fZw_HHQMqK12',
+    url: SupabaseOptions.url,
+    publishableKey: SupabaseOptions.anonKey,
     authOptions: const FlutterAuthClientOptions(
       localStorage: _NoPersistenceLocalStorage(),
     ),
@@ -87,6 +88,13 @@ Future<void> main() async {
   // ── 3. Dependency Injection ──
   registerDependencies();
 
+  // ── 3b. Initialize Account Status Service (Frozen / ReadOnly check from Admin Supabase) ──
+  try {
+    await AccountStatusService().init();
+  } catch (e) {
+    debugPrint('AccountStatusService init error: $e');
+  }
+
   // ── 4. Router ──
   final router = createRouter();
 
@@ -109,6 +117,7 @@ class _AccountingAppState extends State<AccountingApp>
     with WidgetsBindingObserver {
   late final AuthCubit _authCubit;
   late final DashboardCubit _dashboardCubit;
+  late final ThemeCubit _themeCubit;
 
   @override
   void initState() {
@@ -117,6 +126,7 @@ class _AccountingAppState extends State<AccountingApp>
 
     _authCubit = sl<AuthCubit>()..checkInitialAuth();
     _dashboardCubit = DashboardCubit(DashboardDao());
+    _themeCubit = ThemeCubit()..loadTheme();
   }
 
   @override
@@ -124,6 +134,7 @@ class _AccountingAppState extends State<AccountingApp>
     WidgetsBinding.instance.removeObserver(this);
     _authCubit.close();
     _dashboardCubit.close();
+    _themeCubit.close();
     super.dispose();
   }
 
@@ -133,29 +144,39 @@ class _AccountingAppState extends State<AccountingApp>
       value: _authCubit,
       child: BlocProvider<DashboardCubit>.value(
         value: _dashboardCubit,
-        child: MaterialApp.router(
-          title: 'نظام المحاسبة',
-          debugShowCheckedModeBanner: false,
-          theme: AppTheme.lightTheme,
-          locale: const Locale('ar', 'EG'),
-          supportedLocales: const [
-            Locale('ar', 'EG'),
-            Locale('en', 'US'),
-          ],
-          localizationsDelegates: const [
-            GlobalMaterialLocalizations.delegate,
-            GlobalWidgetsLocalizations.delegate,
-            GlobalCupertinoLocalizations.delegate,
-          ],
-          routerConfig: widget.router,
-          builder: (context, child) {
-            return ColoredBox(
-              color: Color(0xFF0F1A2E),
-              child: SafeArea(
-                child: child!,
-              ),
-            );
-          },
+        child: BlocProvider<ThemeCubit>.value(
+          value: _themeCubit,
+          child: BlocBuilder<ThemeCubit, ThemeMode>(
+            builder: (context, themeMode) {
+              final isDark = themeMode == ThemeMode.dark;
+              return MaterialApp.router(
+                title: 'نظام المحاسبة',
+                debugShowCheckedModeBanner: false,
+                theme: AppTheme.lightTheme,
+                darkTheme: AppTheme.darkTheme,
+                themeMode: themeMode,
+                locale: const Locale('ar', 'EG'),
+                supportedLocales: const [
+                  Locale('ar', 'EG'),
+                  Locale('en', 'US'),
+                ],
+                localizationsDelegates: const [
+                  GlobalMaterialLocalizations.delegate,
+                  GlobalWidgetsLocalizations.delegate,
+                  GlobalCupertinoLocalizations.delegate,
+                ],
+                routerConfig: widget.router,
+                builder: (context, child) {
+                  return ColoredBox(
+                    color: isDark ? const Color(0xFF0F1A2E) : const Color(0xFFF8FAFC),
+                    child: SafeArea(
+                      child: child!,
+                    ),
+                  );
+                },
+              );
+            },
+          ),
         ),
       ),
     );

@@ -8,6 +8,10 @@ class StockTransferModel {
   final String? notes;
   final String transferredBy;
   final String createdAt;
+  final int? journalEntryId;
+  final double? unitCost;
+  final double? totalCost;
+  final String? currency;
 
   const StockTransferModel({
     this.id,
@@ -19,6 +23,10 @@ class StockTransferModel {
     this.notes,
     required this.transferredBy,
     required this.createdAt,
+    this.journalEntryId,
+    this.unitCost,
+    this.totalCost,
+    this.currency,
   });
 
   factory StockTransferModel.fromMap(Map<String, dynamic> map) {
@@ -36,6 +44,10 @@ class StockTransferModel {
       notes: str(map['notes']),
       transferredBy: str(map['transferred_by']) ?? '',
       createdAt: str(map['created_at']) ?? '',
+      journalEntryId: intVal(map['journal_entry_id']),
+      unitCost: numVal(map['unit_cost'])?.toDouble(),
+      totalCost: numVal(map['total_cost'])?.toDouble(),
+      currency: str(map['currency']) ?? 'EGP',
     );
   }
 
@@ -49,6 +61,10 @@ class StockTransferModel {
       'notes': notes,
       'transferred_by': transferredBy,
       'created_at': createdAt,
+      if (journalEntryId != null) 'journal_entry_id': journalEntryId,
+      if (unitCost != null) 'unit_cost': unitCost,
+      if (totalCost != null) 'total_cost': totalCost,
+      if (currency != null && currency!.isNotEmpty) 'currency': currency,
     };
   }
 
@@ -62,6 +78,10 @@ class StockTransferModel {
     String? notes,
     String? transferredBy,
     String? createdAt,
+    int? journalEntryId,
+    double? unitCost,
+    double? totalCost,
+    String? currency,
   }) {
     return StockTransferModel(
       id: id ?? this.id,
@@ -73,6 +93,10 @@ class StockTransferModel {
       notes: notes ?? this.notes,
       transferredBy: transferredBy ?? this.transferredBy,
       createdAt: createdAt ?? this.createdAt,
+      journalEntryId: journalEntryId ?? this.journalEntryId,
+      unitCost: unitCost ?? this.unitCost,
+      totalCost: totalCost ?? this.totalCost,
+      currency: currency ?? this.currency,
     );
   }
 

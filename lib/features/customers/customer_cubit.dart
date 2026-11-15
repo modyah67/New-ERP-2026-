@@ -36,10 +36,15 @@ class CustomerCubit extends Cubit<CustomerState> {
   final contactEmailController = TextEditingController();
 
   // ── Initial balance ──
-  final initialBalanceController = TextEditingController();
+  final initialBalanceController = TextEditingController(text: '0.00');
 
   // ── Currency ──
   String? selectedCurrency;
+
+  // ── Customer Type ('export' / 'local') ──
+  String selectedCustomerType = 'export';
+  String _currentTypeFilter = 'all';
+  String get currentTypeFilter => _currentTypeFilter;
 
   // ── Initial Balance Direction ──
   String initialBalanceDirection = 'DEBIT';
@@ -78,7 +83,10 @@ class CustomerCubit extends Cubit<CustomerState> {
   Future<void> prepareAddForm() async {
     _formState = const CustomerFormState(isEditing: false);
     _clearForm();
+    selectedCustomerType = 'export';
+    initialBalanceController.text = '0.00';
     initialBalanceDirection = 'DEBIT';
+    codeController.text = CustomerModel.minCode.toString();
     await _generateCode();
   }
 
@@ -87,6 +95,7 @@ class CustomerCubit extends Cubit<CustomerState> {
       isEditing: true,
       editingCustomer: customer,
     );
+    selectedCustomerType = customer.customerType;
     codeController.text = customer.code;
     nameController.text = customer.name;
     phoneController.text = customer.phone;
@@ -98,9 +107,11 @@ class CustomerCubit extends Cubit<CustomerState> {
     contactNameController.text = customer.contactPersonName;
     contactPhoneController.text = customer.contactPersonPhone;
     contactEmailController.text = customer.contactPersonEmail;
-    initialBalanceController.text = customer.initialBalance == 0.0 ? '' : customer.initialBalance.toString();
+    initialBalanceController.text = customer.initialBalance == 0.0 ? '0.00' : customer.initialBalance.toString();
     initialBalanceDirection = customer.initialBalanceDirection;
-    selectedCurrency = customer.currency;
+    selectedCurrency = (customer.customerType == 'local' && (customer.currency.isEmpty || customer.currency == 'EGP'))
+        ? 'EGP'
+        : customer.currency;
     _addresses = customer.addresses.map((a) => Map<String, dynamic>.from(a)).toList();
   }
 
@@ -111,7 +122,7 @@ class CustomerCubit extends Cubit<CustomerState> {
       codeController.text = code.replaceAll(RegExp(r'^[A-Z]+-'), '');
     } catch (e) {
       debugPrint('CustomerCubit._generateCode error: $e');
-      if (!isClosed) codeController.text = '0001';
+      if (!isClosed) codeController.text = CustomerModel.minCode.toString();
     }
   }
 
@@ -137,7 +148,11 @@ class CustomerCubit extends Cubit<CustomerState> {
       _offset += _limit;
 
       if (reset) {
-        emit(CustomerLoaded(customers: newItems, hasMore: hasMore));
+        emit(CustomerLoaded(
+          customers: newItems,
+          hasMore: hasMore,
+          typeFilter: _currentTypeFilter,
+        ));
       } else if (currentState is CustomerLoaded) {
         emit(currentState.copyWith(
           customers: [...currentState.customers, ...newItems],
@@ -183,6 +198,7 @@ class CustomerCubit extends Cubit<CustomerState> {
         emit(CustomerLoaded(
           customers: newItems,
           searchQuery: _currentQuery,
+          typeFilter: _currentTypeFilter,
           hasMore: hasMore,
         ));
       } else if (currentState is CustomerLoaded) {
@@ -211,6 +227,16 @@ class CustomerCubit extends Cubit<CustomerState> {
       await loadAll();
     } else {
       await _runSearch();
+    }
+  }
+
+  // ── Customer Type Filter ──
+
+  void setTypeFilter(String filter) {
+    _currentTypeFilter = filter;
+    final currentState = state;
+    if (currentState is CustomerLoaded) {
+      emit(currentState.copyWith(typeFilter: filter));
     }
   }
 
@@ -272,6 +298,9 @@ class CustomerCubit extends Cubit<CustomerState> {
   // ── Save ──
 
   Future<bool> save() async {
+    if (selectedCustomerType == 'local') {
+      selectedCurrency = 'EGP';
+    }
     if (!formKey.currentState!.validate()) return false;
     if (selectedCurrency == null || selectedCurrency!.isEmpty) {
       return false;
@@ -283,28 +312,33 @@ class CustomerCubit extends Cubit<CustomerState> {
     final now = DateTime.now().toIso8601String();
 
     try {
+      final isLocal = selectedCustomerType == 'local';
+      final safeCity = cityController.text.trim().isEmpty ? (isLocal ? 'محلي' : '') : cityController.text.trim();
+      final safeCountry = countryController.text.trim().isEmpty ? (isLocal ? 'مصر' : '') : countryController.text.trim();
+
       if (_formState.editingCustomer == null) {
         final newCustomer = CustomerModel(
           code: codeController.text.trim(),
           name: nameController.text.trim(),
+          customerType: selectedCustomerType,
           phone: phoneController.text.trim(),
-          city: cityController.text.trim(),
-          country: countryController.text.trim(),
+          city: safeCity,
+          country: safeCountry,
           gmail: gmailController.text.trim(),
           vatNumber: vatController.text.trim(),
           eoriNo: eoriController.text.trim(),
           contactPersonName: contactNameController.text.trim(),
           contactPersonPhone: contactPhoneController.text.trim(),
           contactPersonEmail: contactEmailController.text.trim(),
-          addresses: List.from(_addresses),
+          addresses: isLocal ? const [] : List.from(_addresses),
           balance: 0.0,
           initialBalance: double.tryParse(initialBalanceController.text.trim()) ?? 0.0,
           initialBalanceDirection: initialBalanceDirection,
-          currency: selectedCurrency!,
+          currency: selectedCurrency ?? 'EGP',
           createdAt: now,
         );
 
-        final newId = await _dao.insert(newCustomer);
+        await _dao.insert(newCustomer);
       } else {
         final oldInitial = _formState.editingCustomer!.initialBalance;
         final newInitial = double.tryParse(initialBalanceController.text.trim()) ?? 0.0;
@@ -315,20 +349,21 @@ class CustomerCubit extends Cubit<CustomerState> {
         final updated = _formState.editingCustomer!.copyWith(
           code: codeController.text.trim(),
           name: nameController.text.trim(),
+          customerType: selectedCustomerType,
           phone: phoneController.text.trim(),
-          city: cityController.text.trim(),
-          country: countryController.text.trim(),
+          city: safeCity,
+          country: safeCountry,
           gmail: gmailController.text.trim(),
           vatNumber: vatController.text.trim(),
           eoriNo: eoriController.text.trim(),
           contactPersonName: contactNameController.text.trim(),
           contactPersonPhone: contactPhoneController.text.trim(),
           contactPersonEmail: contactEmailController.text.trim(),
-          addresses: List.from(_addresses),
+          addresses: isLocal ? const [] : List.from(_addresses),
           balance: newBalance,
           initialBalance: newInitial,
           initialBalanceDirection: initialBalanceDirection,
-          currency: selectedCurrency!,
+          currency: selectedCurrency ?? 'EGP',
         );
 
         await _dao.updateCustomer(updated);
@@ -405,7 +440,7 @@ class CustomerCubit extends Cubit<CustomerState> {
     contactNameController.clear();
     contactPhoneController.clear();
     contactEmailController.clear();
-    initialBalanceController.clear();
+    initialBalanceController.text = '0.00';
     selectedCurrency = null;
     _addresses = [];
     _formState = _formState.copyWith(clearEditingCustomer: true);

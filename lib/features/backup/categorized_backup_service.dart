@@ -10,7 +10,6 @@ import '../../data/dao/customer_dao.dart';
 import '../../data/dao/supplier_dao.dart';
 import '../../data/dao/clearing_agent_dao.dart';
 import '../../data/dao/shipping_company_dao.dart';
-import '../../data/dao/account_dao.dart';
 import '../../data/dao/treasury_dao.dart';
 import '../../data/dao/raw_material_dao.dart';
 import '../../data/dao/fruit_type_dao.dart';
@@ -42,8 +41,6 @@ import '../../data/models/customer_model.dart';
 import '../../data/models/supplier_model.dart';
 import '../../data/models/clearing_agent_model.dart';
 import '../../data/models/shipping_company_model.dart';
-import '../../data/models/account_model.dart';
-import '../../data/models/statement_row_model.dart';
 import '../../core/consolidated_statement_pdf_service.dart';
 import '../../core/statement_excel_service.dart';
 import '../../core/statement_pdf_service.dart';
@@ -221,6 +218,7 @@ class CategorizedBackupService {
         all.addAll(batch);
         if (batch.length < 500) break;
         offset += 500;
+        await Future.delayed(Duration.zero); // Prevent UI thread starvation
       }
       if (all.isEmpty) return;
 
@@ -244,7 +242,7 @@ class CategorizedBackupService {
         }
       } catch (_) {}
 
-      // Excel
+      // Excel - Segmented into dedicated sheets per code range & activity
       try {
         final bytes = _buildSuppliersExcel(all);
         if (bytes != null) await File(p.join(dirPath, 'الموردون.xlsx')).writeAsBytes(bytes, flush: true);
@@ -252,23 +250,107 @@ class CategorizedBackupService {
     } catch (_) {}
   }
 
+  /// Classifies supplier into its designated sheet based on 5-digit code ranges and activity
+  String _classifySupplierSheet(SupplierModel s) {
+    final cleanCode = s.supplierCode.replaceAll(RegExp(r'[^0-9]'), '');
+    final codeNum = int.tryParse(cleanCode);
+
+    if (codeNum != null) {
+      if (codeNum >= 50000 && codeNum <= 59999) return 'موردين المحاصيل';
+      if (codeNum >= 70000 && codeNum <= 74999) return 'موردين مواد التعبئة';
+      if (codeNum >= 75000 && codeNum <= 79999) return 'الموردين المشتركين';
+      if (codeNum >= 60000 && codeNum <= 69999) return 'موردي النقل ومقاولي الشحن';
+      if (codeNum >= 85000 && codeNum <= 89999) return 'موردي المحطات';
+      if (codeNum >= 40000 && codeNum <= 49999) return 'الخصومات والتخصيمات';
+    }
+
+    // Fallback classification based on supplierType
+    final type = s.supplierType.toLowerCase().trim();
+    switch (type) {
+      case 'crop':
+        return 'موردين المحاصيل';
+      case 'packaging':
+      case 'sticker':
+        return 'موردين مواد التعبئة';
+      case 'shared':
+        return 'الموردين المشتركين';
+      case 'transport':
+        return 'موردي النقل ومقاولي الشحن';
+      case 'station':
+        return 'موردي المحطات';
+      case 'deduction':
+      case 'deductions':
+        return 'الخصومات والتخصيمات';
+      default:
+        return 'موردون آخرون';
+    }
+  }
+
   List<int>? _buildSuppliersExcel(List<SupplierModel> list) {
     try {
       final excel = Excel.createExcel();
-      final s = excel['الموردون'];
-      s.appendRow([TextCellValue('الكود'), TextCellValue('الاسم'), TextCellValue('الهاتف'),
-        TextCellValue('العنوان'), TextCellValue('العملة'), TextCellValue('الرصيد الحالي'),
-        TextCellValue('الرصيد المبدئي'), TextCellValue('الاتجاه'), TextCellValue('التاريخ')]);
-      for (final s2 in list) {
-        s.appendRow([
-          TextCellValue(s2.supplierCode), TextCellValue(s2.name), TextCellValue(s2.phone),
-          TextCellValue(s2.address), TextCellValue(s2.currency), DoubleCellValue(s2.outstandingBalance),
-          DoubleCellValue(s2.initialBalance), TextCellValue(s2.initialBalanceDirection), TextCellValue(s2.createdAt),
-        ]);
+
+      // Defined category sheets in standard order
+      final standardSheets = [
+        'موردين المحاصيل',
+        'موردين مواد التعبئة',
+        'الموردين المشتركين',
+        'موردي النقل ومقاولي الشحن',
+        'موردي المحطات',
+        'الخصومات والتخصيمات',
+      ];
+
+      // Group suppliers by sheet
+      final Map<String, List<SupplierModel>> grouped = {
+        for (final sheet in standardSheets) sheet: <SupplierModel>[],
+      };
+
+      for (final s in list) {
+        final sheetName = _classifySupplierSheet(s);
+        grouped.putIfAbsent(sheetName, () => <SupplierModel>[]).add(s);
       }
+
+      // Populate sheets
+      for (final entry in grouped.entries) {
+        final sheetName = entry.key;
+        final suppliers = entry.value;
+
+        // Skip fallback "موردون آخرون" if empty
+        if (suppliers.isEmpty && sheetName == 'موردون آخرون') continue;
+
+        final s = excel[sheetName];
+        s.appendRow([
+          TextCellValue('الكود'),
+          TextCellValue('الاسم'),
+          TextCellValue('الهاتف'),
+          TextCellValue('العنوان'),
+          TextCellValue('العملة'),
+          TextCellValue('الرصيد الحالي'),
+          TextCellValue('الرصيد المبدئي'),
+          TextCellValue('الاتجاه'),
+          TextCellValue('التاريخ'),
+        ]);
+
+        for (final s2 in suppliers) {
+          s.appendRow([
+            TextCellValue(s2.supplierCode),
+            TextCellValue(s2.name),
+            TextCellValue(s2.phone),
+            TextCellValue(s2.address),
+            TextCellValue(s2.currency),
+            DoubleCellValue(s2.outstandingBalance),
+            DoubleCellValue(s2.initialBalance),
+            TextCellValue(s2.initialBalanceDirection),
+            TextCellValue(s2.createdAt),
+          ]);
+        }
+      }
+
       if (excel.sheets.containsKey('Sheet1')) excel.delete('Sheet1');
       return excel.encode();
-    } catch (_) { return null; }
+    } catch (_) {
+      return null;
+    }
   }
 
   // ═══════════════════════════════════════════════════
@@ -496,6 +578,7 @@ class CategorizedBackupService {
       final state = cubit.state;
       if (state is! SupplierAccountStatementLoaded) return;
       for (final s in state.suppliers) {
+        await Future.delayed(Duration.zero); // Yield to keep UI animating
         await cubit.selectSupplier(s);
         await Future.delayed(const Duration(milliseconds: 100));
         final st = cubit.state;
@@ -2019,7 +2102,7 @@ class CategorizedBackupService {
             clearingAgent: clearingAgent,
           );
           final bytes = await doc.save();
-          final no = (shipment.shipmentNo ?? 'unknown').replaceAll('/', '-');
+          final no = shipment.shipmentNo.replaceAll('/', '-');
           final file = File(p.join(dir.path, 'شحنة $no.pdf'));
           await file.writeAsBytes(bytes, flush: true);
         } catch (_) {}
@@ -2159,7 +2242,7 @@ class CategorizedBackupService {
           }
 
           final rate = shipment.exchangeRate > 0 ? shipment.exchangeRate : 1.0;
-          final currency = shipment.currency ?? shipment.currencyCode ?? 'EGP';
+          final currency = shipment.currency ?? 'EGP';
           final cartonCount = shipment.cartonsCount;
           final discountEgp = shipment.discountAmount * rate;
           final allocatedAdmin = shipment.allocatedAdminExpenses;
@@ -2197,7 +2280,7 @@ class CategorizedBackupService {
             discount: discountEgp,
           );
           final bytes = await doc.save();
-          final no = (shipment.shipmentNo ?? 'unknown').replaceAll('/', '-');
+          final no = shipment.shipmentNo.replaceAll('/', '-');
           final file = File(p.join(dir.path, 'ربحية شحنة $no.pdf'));
           await file.writeAsBytes(bytes, flush: true);
         } catch (_) {}

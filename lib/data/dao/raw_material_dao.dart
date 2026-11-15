@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../core/utils.dart';
@@ -102,13 +103,16 @@ class RawMaterialDao {
     return false;
   }
 
-  Future<List<RawMaterialModel>> getAll({String? search, String? categoryId}) async {
+  Future<List<RawMaterialModel>> getAll({String? search, String? categoryId, String? currency}) async {
     var query = _client.from(_table).select(_selectWithCategory).eq('is_active', true);
     if (search != null && search.isNotEmpty) {
       query = query.or('name.ilike.%$search%,code.ilike.%$search%');
     }
     if (categoryId != null) {
       query = query.eq('category_id', categoryId);
+    }
+    if (currency != null && currency.isNotEmpty) {
+      query = query.eq('currency', currency);
     }
     final data = await query.order('name');
     
@@ -476,6 +480,217 @@ class RawMaterialDao {
       debugPrint('❌ getBatchesForMaterial error for $materialId: $e');
       debugPrint('   $st');
       return {'batches': [], 'totalQuantity': 0, 'totalRemaining': 0, 'totalValue': 0, 'avgCost': 0, 'error': e.toString()};
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> getStockLedger(String materialId) async {
+    try {
+      final material = await getById(materialId);
+      if (material == null) return [];
+
+      final mId = material.id?.toString() ?? '';
+      final mCode = material.code.trim();
+      final mName = material.name.trim();
+
+      final entries = <Map<String, dynamic>>[];
+
+      // 1. Station names map
+      final stMap = <int, String>{};
+      try {
+        final stList = await _client.from('stations').select('id, name');
+        for (final s in stList) {
+          final sid = s['id'] is int ? s['id'] as int : int.tryParse(s['id']?.toString() ?? '');
+          if (sid != null) stMap[sid] = s['name']?.toString() ?? '';
+        }
+      } catch (_) {}
+
+      // 2. Opening balance from raw_materials
+      final initQty = material.initialQuantity;
+      final initCost = material.initialAvgPrice;
+      if (initQty > 0) {
+        entries.add({
+          'id': 'opening_$mId',
+          'date': material.createdAt ?? DateTime(2026, 1, 1),
+          'type': 'opening',
+          'type_label': 'رصيد افتتاحي',
+          'ref': 'رصيد أول المدة',
+          'warehouse': 'المخزن الرئيسي',
+          'warehouse_id': null,
+          'in_qty': initQty,
+          'out_qty': 0.0,
+          'unit_cost': initCost,
+          'total_cost': initQty * initCost,
+        });
+      }
+
+      // 3. Purchases from purchase_invoice_items
+      try {
+        final piItems = await _client
+            .from('purchase_invoice_items')
+            .select('id, invoice_id, quantity, unit_cost, total_cost, raw_material_id, station_id, created_at, purchase_invoices(invoice_number, invoice_date, supplier_id, suppliers(name))')
+            .eq('raw_material_id', mId);
+
+        for (final item in piItems) {
+          final pInv = item['purchase_invoices'] as Map<String, dynamic>?;
+          final invNumber = pInv?['invoice_number']?.toString() ?? item['invoice_id']?.toString() ?? '—';
+          final supplier = pInv?['suppliers']?['name']?.toString() ?? '';
+          final stId = item['station_id'] is int ? item['station_id'] as int : int.tryParse(item['station_id']?.toString() ?? '');
+          final station = (stId != null ? stMap[stId] : null) ?? 'المخزن الرئيسي';
+          final invDate = pInv?['invoice_date'] != null ? DateTime.tryParse(pInv!['invoice_date'].toString()) : null;
+          final createdAt = DateTime.tryParse(item['created_at']?.toString() ?? '') ?? invDate ?? DateTime.now();
+          final qty = (item['quantity'] as num?)?.toDouble() ?? 0.0;
+          final cost = (item['unit_cost'] as num?)?.toDouble() ?? 0.0;
+
+          entries.add({
+            'id': 'purchase_${item['id']}',
+            'date': invDate ?? createdAt,
+            'type': 'purchase',
+            'type_label': 'فاتورة مشتريات',
+            'ref': 'فاتورة #$invNumber${supplier.isNotEmpty ? ' | $supplier' : ''}',
+            'warehouse': station,
+            'warehouse_id': stId,
+            'in_qty': qty,
+            'out_qty': 0.0,
+            'unit_cost': cost,
+            'total_cost': qty * cost,
+          });
+        }
+      } catch (e) {
+        debugPrint('Error fetching purchases for ledger: $e');
+      }
+
+      // 4. Packing orders consumption
+      try {
+        final poList = await _client
+            .from('packing_orders')
+            .select('id, order_number, packed_at, created_at, station_id, status, product_name, notes')
+            .neq('status', 'cancelled');
+
+        for (final po in poList) {
+          final notes = po['notes'];
+          Map<String, dynamic>? notesMap;
+          if (notes is Map) {
+            notesMap = Map<String, dynamic>.from(notes);
+          } else if (notes is String && notes.trim().startsWith('{')) {
+            try {
+              notesMap = jsonDecode(notes);
+            } catch (_) {}
+          }
+
+          if (notesMap != null && notesMap['materials'] is List) {
+            for (final mat in notesMap['materials']) {
+              if (mat is! Map) continue;
+              final pCode = mat['product_code']?.toString() ?? '';
+              final pName = mat['product_name']?.toString() ?? '';
+              final rId = mat['raw_material_id']?.toString() ?? '';
+
+              if (rId == mId || pCode == mCode || normalizeName(pName) == normalizeName(mName)) {
+                final usedQty = (mat['used_qty'] as num?)?.toDouble() ?? (mat['quantity'] as num?)?.toDouble() ?? 0.0;
+                if (usedQty > 0) {
+                  final unitCost = (mat['unit_cost'] as num?)?.toDouble() ?? 0.0;
+                  final totalCost = (mat['total_cost'] as num?)?.toDouble() ?? (usedQty * unitCost);
+                  final orderNum = po['order_number']?.toString() ?? po['id']?.toString() ?? '';
+                  final prodName = po['product_name']?.toString() ?? '';
+                  final stId = po['station_id'] is int ? po['station_id'] as int : int.tryParse(po['station_id']?.toString() ?? '');
+                  final station = (stId != null ? stMap[stId] : null) ?? 'محطة التعبئة';
+                  final orderDate = DateTime.tryParse(po['packed_at']?.toString() ?? '') ??
+                      DateTime.tryParse(po['created_at']?.toString() ?? '') ??
+                      DateTime.now();
+
+                  entries.add({
+                    'id': 'packing_${po['id']}_${mat['batch_id'] ?? pCode}',
+                    'date': orderDate,
+                    'type': 'packing',
+                    'type_label': 'منصرف تعبئة',
+                    'ref': 'أمر تعبئة #$orderNum${prodName.isNotEmpty ? ' ($prodName)' : ''}',
+                    'warehouse': station,
+                    'warehouse_id': stId,
+                    'in_qty': 0.0,
+                    'out_qty': usedQty,
+                    'unit_cost': unitCost,
+                    'total_cost': totalCost,
+                  });
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error fetching packing orders for ledger: $e');
+      }
+
+      // 5. Warehouse Transfers (stock_transfers)
+      try {
+        final transfers = await _client
+            .from('stock_transfers')
+            .select('id, from_station_id, to_station_id, product_code, product_name, quantity, unit_cost, total_cost, notes, created_at')
+            .or('product_code.eq.$mCode,product_name.ilike.%$mName%');
+
+        for (final tr in transfers) {
+          final trDate = DateTime.tryParse(tr['created_at']?.toString() ?? '') ?? DateTime.now();
+          final qty = (tr['quantity'] as num?)?.toDouble() ?? 0.0;
+          final cost = (tr['unit_cost'] as num?)?.toDouble() ?? 0.0;
+          final fromStId = tr['from_station_id'] is int ? tr['from_station_id'] as int : int.tryParse(tr['from_station_id']?.toString() ?? '');
+          final toStId = tr['to_station_id'] is int ? tr['to_station_id'] as int : int.tryParse(tr['to_station_id']?.toString() ?? '');
+          final fromSt = (fromStId != null ? stMap[fromStId] : null) ?? 'مخزن $fromStId';
+          final toSt = (toStId != null ? stMap[toStId] : null) ?? 'مخزن $toStId';
+
+          entries.add({
+            'id': 'transfer_out_${tr['id']}',
+            'date': trDate,
+            'type': 'transfer_out',
+            'type_label': 'تحويل صادر',
+            'ref': 'تحويل #${tr['id']} إلى $toSt',
+            'warehouse': fromSt,
+            'warehouse_id': fromStId,
+            'in_qty': 0.0,
+            'out_qty': qty,
+            'unit_cost': cost,
+            'total_cost': qty * cost,
+          });
+
+          entries.add({
+            'id': 'transfer_in_${tr['id']}',
+            'date': trDate,
+            'type': 'transfer_in',
+            'type_label': 'تحويل وارد',
+            'ref': 'تحويل #${tr['id']} من $fromSt',
+            'warehouse': toSt,
+            'warehouse_id': toStId,
+            'in_qty': qty,
+            'out_qty': 0.0,
+            'unit_cost': cost,
+            'total_cost': qty * cost,
+          });
+        }
+      } catch (e) {
+        debugPrint('Error fetching transfers for ledger: $e');
+      }
+
+      // 6. Chronological sorting
+      entries.sort((a, b) {
+        final da = a['date'] as DateTime;
+        final db = b['date'] as DateTime;
+        final c = da.compareTo(db);
+        if (c != 0) return c;
+        if (a['type'] == 'opening') return -1;
+        if (b['type'] == 'opening') return 1;
+        return 0;
+      });
+
+      // 7. Calculate Running Balance
+      double runningBalance = 0.0;
+      for (final e in entries) {
+        final inQ = (e['in_qty'] as num).toDouble();
+        final outQ = (e['out_qty'] as num).toDouble();
+        runningBalance += (inQ - outQ);
+        e['balance'] = AppUtils.roundDouble(runningBalance);
+      }
+
+      return entries;
+    } catch (e, st) {
+      debugPrint('❌ getStockLedger error for $materialId: $e\n$st');
+      return [];
     }
   }
 }

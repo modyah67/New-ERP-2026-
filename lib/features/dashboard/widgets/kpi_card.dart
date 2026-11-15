@@ -31,9 +31,35 @@ class _KpiCardState extends State<KpiCard> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.loading) return _buildSkeleton();
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    if (widget.loading) return _buildSkeleton(isDark);
 
     final isPositive = widget.change >= 0;
+    final primaryTextColor = isDark ? Colors.white : Colors.black;
+    final mutedTextColor = isDark ? AppTheme.textMuted : Colors.black;
+    final cardBg = isDark ? const Color(0x1A0A1E3A) : Colors.white;
+    final cardBorder = isDark
+        ? (_hovered ? widget.color.withAlpha(80) : AppTheme.glassBorder.withAlpha(60))
+        : (_hovered ? widget.color.withAlpha(140) : AppTheme.lightBorder);
+    final cardShadows = isDark
+        ? (_hovered
+            ? [
+                BoxShadow(
+                  color: widget.color.withAlpha(20),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ]
+            : <BoxShadow>[])
+        : [
+            BoxShadow(
+              color: _hovered
+                  ? widget.color.withValues(alpha: 0.15)
+                  : const Color(0x0A0F172A),
+              blurRadius: _hovered ? 16 : 8,
+              offset: Offset(0, _hovered ? 6 : 2),
+            ),
+          ];
 
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
@@ -55,24 +81,12 @@ class _KpiCardState extends State<KpiCard> {
                 onTap: widget.onTap,
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 250),
-padding: const EdgeInsets.all(12),
+                  padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: const Color(0x1A0A1E3A),
+                    color: cardBg,
                     borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: _hovered
-                          ? widget.color.withAlpha(80)
-                          : AppTheme.glassBorder.withAlpha(60),
-                    ),
-                    boxShadow: _hovered
-                        ? [
-                            BoxShadow(
-                              color: widget.color.withAlpha(20),
-                              blurRadius: 20,
-                              offset: const Offset(0, 8),
-                            ),
-                          ]
-                        : [],
+                    border: Border.all(color: cardBorder),
+                    boxShadow: cardShadows,
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -89,16 +103,16 @@ padding: const EdgeInsets.all(12),
                             child: Icon(widget.icon, color: widget.color, size: 18),
                           ),
                           const Spacer(),
-                          _buildChangeBadge(isPositive),
+                          _buildChangeBadge(isPositive, isDark),
                         ],
                       ),
-const SizedBox(height: 8),
+                      const SizedBox(height: 8),
                       Text(
                         _formatValue(widget.value),
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
+                        style: TextStyle(
+                          color: primaryTextColor,
+                          fontSize: 21,
+                          fontWeight: FontWeight.w900,
                           fontFamily: 'Cairo',
                         ),
                       ),
@@ -106,12 +120,13 @@ const SizedBox(height: 8),
                       Text(
                         widget.title,
                         style: TextStyle(
-                          color: AppTheme.textMuted,
+                          color: mutedTextColor,
                           fontSize: 12,
+                          fontWeight: FontWeight.bold,
                           fontFamily: 'Cairo',
                         ),
                       ),
-const SizedBox(height: 4),
+                      const SizedBox(height: 4),
                       _buildMiniSparkline(isPositive),
                     ],
                   ),
@@ -124,19 +139,21 @@ const SizedBox(height: 4),
     );
   }
 
-  Widget _buildChangeBadge(bool isPositive) {
+  Widget _buildChangeBadge(bool isPositive, bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
       decoration: BoxDecoration(
-        color: (isPositive ? AppTheme.success : AppTheme.danger).withAlpha(20),
+        color: (isPositive ? AppTheme.success : AppTheme.danger).withAlpha(isDark ? 20 : 30),
         borderRadius: BorderRadius.circular(6),
       ),
       child: Text(
         '${isPositive ? '+' : ''}${widget.change.toStringAsFixed(1)}%',
         style: TextStyle(
-          color: isPositive ? AppTheme.success : AppTheme.danger,
+          color: isDark
+              ? (isPositive ? AppTheme.success : AppTheme.danger)
+              : (isPositive ? const Color(0xFF047857) : const Color(0xFFB91C1C)),
           fontSize: 10,
-          fontWeight: FontWeight.w600,
+          fontWeight: FontWeight.bold,
           fontFamily: 'Cairo',
         ),
       ),
@@ -156,7 +173,7 @@ const SizedBox(height: 4),
     );
   }
 
-  Widget _buildSkeleton() {
+  Widget _buildSkeleton(bool isDark) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(16),
       child: BackdropFilter(
@@ -164,9 +181,11 @@ const SizedBox(height: 4),
         child: Container(
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
-            color: const Color(0x1A0A1E3A),
+            color: isDark ? const Color(0x1A0A1E3A) : Colors.white,
             borderRadius: BorderRadius.circular(16),
-            border: Border.all(color: AppTheme.glassBorder.withAlpha(60)),
+            border: Border.all(
+              color: isDark ? AppTheme.glassBorder.withAlpha(60) : AppTheme.lightBorder,
+            ),
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,

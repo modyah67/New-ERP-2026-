@@ -41,6 +41,32 @@ class ChartOfAccountsCacheService {
     return _expenseAccounts;
   }
 
+  /// Get Operational & Administrative cash expense accounts (Group 31, leaf, active).
+  /// Strictly excludes non-cash/depreciation accounts (Group 32), assets (1), liabilities (2), and equity (4).
+  Future<List<Map<String, dynamic>>> getAdminExpenseAccounts({bool forceRefresh = false}) async {
+    final allExpenses = await getExpenseAccounts(forceRefresh: forceRefresh);
+    return allExpenses
+        .where((a) {
+          final code = (a['account_code'] ?? a['code'] ?? '').toString().trim();
+          if (const {'3121', '3123', '3212', '3222', '3223', '3224', '3412'}.contains(code)) {
+            return false;
+          }
+          return code.startsWith('31') &&
+              code != '31' &&
+              !code.startsWith('32') &&
+              !code.startsWith('1') &&
+              !code.startsWith('2') &&
+              !code.startsWith('4') &&
+              a['is_leaf'] == true &&
+              a['is_active'] == true;
+        })
+        .toList();
+  }
+
+  /// Alias for cash expense accounts.
+  Future<List<Map<String, dynamic>>> getCashExpenseAccounts({bool forceRefresh = false}) =>
+      getAdminExpenseAccounts(forceRefresh: forceRefresh);
+
   /// Get revenue accounts (leaf, active).
   Future<List<Map<String, dynamic>>> getRevenueAccounts({bool forceRefresh = false}) async {
     if (!forceRefresh && _revenueAccounts.isNotEmpty && _isCacheValid()) {
@@ -100,12 +126,17 @@ class ChartOfAccountsCacheService {
     try {
       final data = await _client
           .from('accounts')
-          .select('id, account_code, name, account_name, account_type, parent_id, balance, is_active, is_leaf, is_system')
+          .select('id, account_code, name, account_name, account_type, parent_id, balance, is_active, is_leaf, is_system, cost_center_id')
           .order('account_code', ascending: true);
 
       _allAccounts = (data as List).cast<Map<String, dynamic>>();
       _expenseAccounts = _allAccounts
-          .where((a) => a['account_type'] == 'expense' && a['is_leaf'] == true && a['is_active'] == true)
+          .where((a) =>
+              (a['account_type'] == 'expense' ||
+               a['account_type'] == 'expenses' ||
+               (a['account_code'] != null && a['account_code'].toString().startsWith('3'))) &&
+              a['is_leaf'] == true &&
+              a['is_active'] == true)
           .toList();
       _revenueAccounts = _allAccounts
           .where((a) => a['account_type'] == 'revenue' && a['is_leaf'] == true && a['is_active'] == true)

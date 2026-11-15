@@ -36,19 +36,22 @@ class GeneralLedgerPage extends StatelessWidget {
     );
   }
 
-  Widget _buildLoadMoreButton(GeneralLedgerLoaded state, GeneralLedgerCubit cubit) {
+  Widget _buildLoadMoreButton(BuildContext context, GeneralLedgerLoaded state, GeneralLedgerCubit cubit) {
     if (!state.hasMore) return const SizedBox.shrink();
+
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Center(
         child: state.isLoadingMore
-            ? const SizedBox(
+            ? SizedBox(
                 width: 20,
                 height: 20,
                 child: CircularProgressIndicator(
                   strokeWidth: 2,
-                  color: Color(0xFF16D5FF),
+                  color: primary,
                 ),
               )
             : TextButton.icon(
@@ -56,7 +59,7 @@ class GeneralLedgerPage extends StatelessWidget {
                 icon: const Icon(Icons.expand_more, size: 18),
                 label: const Text('تحميل المزيد'),
                 style: TextButton.styleFrom(
-                  foregroundColor: const Color(0xFF16D5FF),
+                  foregroundColor: primary,
                 ),
               ),
       ),
@@ -70,6 +73,8 @@ class GeneralLedgerPage extends StatelessWidget {
     bool isRefreshing = false,
   }) {
     final report = state.report;
+    final isDark = AppTheme.isDark(context);
+    final bgColor = isDark ? AppTheme.sidebarBg : AppTheme.lightBackground;
 
     var filteredRows = report.rows;
     if (state.searchQuery.isNotEmpty) {
@@ -78,11 +83,13 @@ class GeneralLedgerPage extends StatelessWidget {
         final entryStr = row.entryNumber?.toString() ?? '';
         final desc = row.description ?? '';
         final code = row.accountCode;
+        final cc = (row.costCenterName ?? row.costCenterId ?? '').toLowerCase();
         final debitStr = row.debit > 0 ? row.debit.toString() : '';
         final creditStr = row.credit > 0 ? row.credit.toString() : '';
         return entryStr.toLowerCase().contains(q) ||
             desc.toLowerCase().contains(q) ||
             code.toLowerCase().contains(q) ||
+            cc.contains(q) ||
             debitStr.contains(q) ||
             creditStr.contains(q);
       }).toList();
@@ -95,6 +102,7 @@ class GeneralLedgerPage extends StatelessWidget {
                 'date': row.date,
                 'entryNumber': row.entryNumber,
                 'accountCode': row.accountCode,
+                'costCenter': row.costCenterName ?? row.costCenterId ?? '',
                 'description': row.description ?? '',
                 'debit': row.debit,
                 'credit': row.credit,
@@ -130,6 +138,7 @@ class GeneralLedgerPage extends StatelessWidget {
                 'date': row.date,
                 'entryNumber': row.entryNumber,
                 'accountCode': row.accountCode,
+                'costCenter': row.costCenterName ?? row.costCenterId ?? '',
                 'description': row.description ?? '',
                 'debit': row.debit,
                 'credit': row.credit,
@@ -140,74 +149,78 @@ class GeneralLedgerPage extends StatelessWidget {
     }
 
     return Container(
-      color: AppTheme.sidebarBg,
+      color: bgColor,
       child: Column(
         children: [
           Expanded(
             child: ReportingScaffold(
-              backgroundColor: AppTheme.sidebarBg,
+              backgroundColor: bgColor,
               headerIcon: Icons.book_outlined,
               headerTitle: state.drillDownAccountCode != null
                   ? 'دفتر الأستاذ — ${state.drillDownAccountCode} ${state.drillDownAccountName ?? ''}'
                   : 'دفتر الأستاذ',
               headerCount: report.transactionCount,
-            headerCountLabel: 'قيود',
-            headerActions: [
-              IconButton(
-                onPressed: () => cubit.toggleFullscreen(),
-                icon: Icon(
-                  state.isFullscreen
-                      ? Icons.fullscreen_exit
-                      : Icons.fullscreen,
-                  color: AppTheme.textSecondary,
-                ),
-                tooltip: 'شاشة كاملة',
-              ),
-            ],
-            filterBar: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                ReportingFilterBar(
-                  onReset: () => cubit.resetFilters(),
-                  child: _buildFilterContent(context, state, cubit),
-                ),
-                const SizedBox(height: 12),
-                _buildEntityFilters(context, state, cubit),
+              headerCountLabel: 'قيود',
+              headerActions: [
+                Builder(builder: (ctx) {
+                  final iconColor = AppTheme.getTextSecondary(ctx);
+                  return IconButton(
+                    onPressed: () => cubit.toggleFullscreen(),
+                    icon: Icon(
+                      state.isFullscreen
+                          ? Icons.fullscreen_exit
+                          : Icons.fullscreen,
+                      color: iconColor,
+                    ),
+                    tooltip: 'شاشة كاملة',
+                  );
+                }),
               ],
+              filterBar: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ReportingFilterBar(
+                    onReset: () => cubit.resetFilters(),
+                    child: _buildFilterContent(context, state, cubit),
+                  ),
+                  const SizedBox(height: 12),
+                  _buildEntityFilters(context, state, cubit),
+                ],
+              ),
+              metrics: GeneralLedgerConfig.buildMetrics(report, context),
+              onRefresh: () => cubit.loadReport(refresh: true),
+              onFullscreen: () => cubit.toggleFullscreen(),
+              exportActions: GeneralLedgerConfig.buildExportActions(
+                  report: report, context: context),
+              columns: GeneralLedgerConfig.columns,
+              rows: gridRows,
+              cellRenderer: (row, col) =>
+                  GeneralLedgerConfig.renderCell(row.cells, col, row.isParent),
+              widgetCellRenderer: (row, col) =>
+                  GeneralLedgerConfig.renderCellWidget(context, row.cells, col, row.isParent),
+              sortColumn: state.sortColumn,
+              sortAscending: state.sortAscending,
+              onSort: (col) => cubit.sort(col),
+              emptyState: const ReportingEmptyState(
+                title: 'لا توجد قيود',
+                subtitle: 'لم يتم العثور على قيود تطابق الفلتر المحدد',
+              ),
+              isRefreshing: isRefreshing,
             ),
-            metrics: GeneralLedgerConfig.buildMetrics(report),
-            // isBalanced: report.accountId == null ? report.isBalanced : null,
-            // totalDebit: report.accountId == null ? report.totalDebit : null,
-            // totalCredit: report.accountId == null ? report.totalCredit : null,
-            // difference: report.accountId == null ? (report.totalDebit - report.totalCredit) : null,
-            // debitLabel: 'إجمالي المدين',
-            // creditLabel: 'إجمالي الدائن',
-            // differenceLabel: 'الفرق',
-            onRefresh: () => cubit.loadReport(refresh: true),
-            onFullscreen: () => cubit.toggleFullscreen(),
-            exportActions: GeneralLedgerConfig.buildExportActions(
-                report: report, context: context),
-            columns: GeneralLedgerConfig.columns,
-            rows: gridRows,
-            cellRenderer: (row, col) =>
-                GeneralLedgerConfig.renderCell(row.cells, col, row.isParent),
-            sortColumn: state.sortColumn,
-            sortAscending: state.sortAscending,
-            onSort: (col) => cubit.sort(col),
-            emptyState: const ReportingEmptyState(
-              title: 'لا توجد قيود',
-              subtitle: 'لم يتم العثور على قيود تطابق الفلتر المحدد',
-            ),
-            isRefreshing: isRefreshing,
           ),
-        ),
-        _buildLoadMoreButton(state, cubit),
-      ],
-    ));
+          _buildLoadMoreButton(context, state, cubit),
+        ],
+      ),
+    );
   }
 
   Widget _buildFilterContent(
       BuildContext context, GeneralLedgerLoaded state, GeneralLedgerCubit cubit) {
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final textPrimary = AppTheme.getTextPrimary(context);
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     return Row(
       children: [
         ReportingPresetButton(
@@ -285,24 +298,24 @@ class GeneralLedgerPage extends StatelessWidget {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
             decoration: BoxDecoration(
-              color: AppTheme.primary.withAlpha(30),
+              color: primary.withAlpha(30),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text(
+                Text(
                   'حساب محدد',
                   style: TextStyle(
                       fontSize: 12,
-                      color: AppTheme.textPrimary,
+                      color: textPrimary,
                       fontWeight: FontWeight.w500),
                 ),
                 const SizedBox(width: 6),
                 GestureDetector(
                   onTap: () => cubit.setAccountId(null),
-                  child: const Icon(Icons.close,
-                      size: 14, color: AppTheme.textSecondary),
+                  child: Icon(Icons.close,
+                      size: 14, color: textSecondary),
                 ),
               ],
             ),
@@ -313,11 +326,14 @@ class GeneralLedgerPage extends StatelessWidget {
 
   Widget _buildCurrencyFilter(
       BuildContext context, GeneralLedgerLoaded state, GeneralLedgerCubit cubit) {
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     return Row(
       children: [
-        const Text('العملة:', style: TextStyle(fontSize: 12, color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+        Text('العملة:', style: TextStyle(fontSize: 12, color: textSecondary, fontFamily: 'Cairo')),
         const SizedBox(width: 6),
         _buildCurrencyChip(
+          context: context,
           label: 'الكل (ج.م)',
           isActive: state.currencyFilter == null,
           onPressed: () => cubit.setCurrencyFilter(null),
@@ -325,6 +341,7 @@ class GeneralLedgerPage extends StatelessWidget {
         const SizedBox(width: 4),
         for (final c in ['EGP', 'USD', 'EUR', 'GBP']) ...[
           _buildCurrencyChip(
+            context: context,
             label: c,
             isActive: state.currencyFilter == c,
             onPressed: () => cubit.setCurrencyFilter(c),
@@ -336,19 +353,25 @@ class GeneralLedgerPage extends StatelessWidget {
   }
 
   Widget _buildCurrencyChip({
+    required BuildContext context,
     required String label,
     required bool isActive,
     required VoidCallback onPressed,
   }) {
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final borderColor = AppTheme.getBorderColor(context);
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     return GestureDetector(
       onTap: onPressed,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
-          color: isActive ? AppTheme.primary.withAlpha(30) : Colors.transparent,
+          color: isActive ? primary.withAlpha(30) : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
           border: Border.all(
-            color: isActive ? AppTheme.primary : AppTheme.border,
+            color: isActive ? primary : borderColor,
             width: 1,
           ),
         ),
@@ -356,7 +379,7 @@ class GeneralLedgerPage extends StatelessWidget {
           label,
           style: TextStyle(
             fontSize: 12,
-            color: isActive ? AppTheme.primary : AppTheme.textSecondary,
+            color: isActive ? primary : textSecondary,
             fontWeight: isActive ? FontWeight.w600 : FontWeight.normal,
             fontFamily: 'Cairo',
           ),
@@ -366,18 +389,23 @@ class GeneralLedgerPage extends StatelessWidget {
   }
 
   Widget _buildLoadingOrError(BuildContext context, GeneralLedgerState state) {
+    final isDark = AppTheme.isDark(context);
+    final bgColor = isDark ? AppTheme.sidebarBg : AppTheme.lightBackground;
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final textColor = AppTheme.getTextSecondary(context);
+
     if (state is GeneralLedgerLoading) {
-      return const Scaffold(
-        backgroundColor: AppTheme.sidebarBg,
+      return Scaffold(
+        backgroundColor: bgColor,
         body: Center(
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CircularProgressIndicator(color: Color(0xFF16D5FF)),
-              SizedBox(height: 16),
+              CircularProgressIndicator(color: primary),
+              const SizedBox(height: 16),
               Text(
                 'جاري تحميل دفتر الأستاذ...',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
+                style: TextStyle(color: textColor, fontSize: 14),
               ),
             ],
           ),
@@ -387,7 +415,7 @@ class GeneralLedgerPage extends StatelessWidget {
 
     if (state is GeneralLedgerError) {
       return Scaffold(
-        backgroundColor: AppTheme.sidebarBg,
+        backgroundColor: bgColor,
         body: ReportingErrorView(
           message: state.message,
           onRetry: () => context.read<GeneralLedgerCubit>().loadReport(),
@@ -395,27 +423,28 @@ class GeneralLedgerPage extends StatelessWidget {
       );
     }
 
-    return const Scaffold(backgroundColor: AppTheme.sidebarBg);
+    return Scaffold(backgroundColor: bgColor);
   }
 
   Widget _buildEntityFilters(BuildContext context, GeneralLedgerLoaded state,
       GeneralLedgerCubit cubit) {
-    
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     String getTreasuryAccount(String? currency) {
       switch (currency) {
-        case 'USD': return '11102';
-        case 'EUR': return '11103';
-        case 'GBP': return '11104';
-        default: return '11101';
+        case 'USD': return '12212';
+        case 'EUR': return '12213';
+        case 'GBP': return '12214';
+        default: return '12211';
       }
     }
 
     String getBankAccount(String? currency) {
       switch (currency) {
-        case 'USD': return '11202';
-        case 'EUR': return '11203';
-        case 'GBP': return '11204';
-        default: return '11201';
+        case 'USD': return '12112';
+        case 'EUR': return '12113';
+        case 'GBP': return '12114';
+        default: return '12111';
       }
     }
 
@@ -424,44 +453,50 @@ class GeneralLedgerPage extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16),
       child: Row(
         children: [
-          const Icon(Icons.filter_list, size: 16, color: AppTheme.textSecondary),
+          Icon(Icons.filter_list, size: 16, color: textSecondary),
           const SizedBox(width: 8),
-          const Text(
+          Text(
             'تصفية حسب الحساب / الجهة:',
             style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
-                color: AppTheme.textSecondary,
+                color: textSecondary,
                 fontFamily: 'Cairo'),
           ),
           const SizedBox(width: 12),
-          _buildEntityChip('تكلفة المبيعات', '5000', state, cubit),
-          _buildEntityChip('الإنتاج التام', '1031', state, cubit),
-          _buildEntityChip('المحاصيل (المخزون)', '1030', state, cubit),
-          _buildEntityChip('مواد التعبئة', '1040', state, cubit),
-          _buildEntityChip('المبيعات', '4000', state, cubit),
-          _buildEntityChip('إيرادات التصدير', '4200', state, cubit),
-          _buildEntityChip('العملاء', '1020', state, cubit),
-          _buildEntityChip('الموردين', '2000', state, cubit),
-          _buildEntityChip('المساهمين', '3101', state, cubit),
-          _buildEntityChip('المخلصين', '2104', state, cubit),
-          _buildEntityChip('شركات الشحن', '2103', state, cubit),
-          _buildEntityChip('الخزينة الرئيسية', getTreasuryAccount(state.currencyFilter), state, cubit, groupPrefix: '1110'),
-          _buildEntityChip('الحسابات البنكية', getBankAccount(state.currencyFilter), state, cubit, groupPrefix: '1120'),
-          _buildEntityChip('المصروفات', '6000', state, cubit),
+          _buildEntityChip(context, 'المرتبات', '3111', state, cubit),
+          _buildEntityChip(context, 'الإنتاج التام', '12413', state, cubit),
+          _buildEntityChip(context, 'مخزون الفرز', '12414', state, cubit),
+          _buildEntityChip(context, 'المحاصيل (المخزون)', '12412', state, cubit),
+          _buildEntityChip(context, 'مواد التعبئة', '12411', state, cubit),
+          _buildEntityChip(context, 'مبيعات الفراولة', '4111', state, cubit),
+          _buildEntityChip(context, 'إيرادات التصدير', '4113', state, cubit),
+          _buildEntityChip(context, 'العملاء', '1251', state, cubit, groupPrefix: '1251'),
+          _buildEntityChip(context, 'الموردين', '211', state, cubit, groupPrefix: '211'),
+          _buildEntityChip(context, 'شيكات برسم التحصيل', '12121', state, cubit, groupPrefix: '1212'),
+          _buildEntityChip(context, 'أوراق الدفع', '2112', state, cubit, groupPrefix: '2112'),
+          _buildEntityChip(context, 'المساهمين', '2321', state, cubit, groupPrefix: '2321'),
+          _buildEntityChip(context, 'الخزينة الرئيسية', getTreasuryAccount(state.currencyFilter), state, cubit, groupPrefix: '1221'),
+          _buildEntityChip(context, 'الحسابات البنكية', getBankAccount(state.currencyFilter), state, cubit, groupPrefix: '1211'),
+          _buildEntityChip(context, 'إهلاك الأصول', '3211', state, cubit),
+          _buildEntityChip(context, 'فروق العمله', '3221', state, cubit),
+          _buildEntityChip(context, 'تكاليف المبيعات', '341', state, cubit),
         ],
       ),
     );
   }
 
-  Widget _buildEntityChip(String label, String accountCode,
+  Widget _buildEntityChip(BuildContext context, String label, String accountCode,
       GeneralLedgerLoaded state, GeneralLedgerCubit cubit, {String? groupPrefix}) {
-    
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final textPrimary = AppTheme.getTextPrimary(context);
+
     // Check if the current account matches this chip
     bool isSelected = false;
     if (state.filter.accountId != null) {
       if (groupPrefix != null) {
-        isSelected = state.filter.accountId!.startsWith(groupPrefix) && state.filter.accountId!.length == 5;
+        isSelected = state.filter.accountId!.startsWith(groupPrefix) && state.filter.accountId!.length >= 4;
       } else {
         isSelected = state.filter.accountId == accountCode;
       }
@@ -475,7 +510,7 @@ class GeneralLedgerPage extends StatelessWidget {
           style: TextStyle(
             fontSize: 12,
             fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-            color: isSelected ? Colors.white : AppTheme.textPrimary,
+            color: isSelected ? Colors.white : textPrimary,
           ),
         ),
         selected: isSelected,
@@ -486,14 +521,14 @@ class GeneralLedgerPage extends StatelessWidget {
             cubit.setAccountId(null);
           }
         },
-        backgroundColor: AppTheme.primary.withAlpha(20),
-        selectedColor: AppTheme.primary,
+        backgroundColor: primary.withAlpha(20),
+        selectedColor: primary,
         checkmarkColor: Colors.white,
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 0),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
           side: BorderSide(
-            color: isSelected ? AppTheme.primary : AppTheme.primary.withAlpha(50),
+            color: isSelected ? primary : primary.withAlpha(50),
           ),
         ),
       ),

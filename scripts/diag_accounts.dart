@@ -15,13 +15,11 @@ void main() async {
     print(a);
   }
 
-  final customer = await c
-      .from('customers')
-      .select('id, name, account_id')
-      .eq('id', 1)
-      .maybeSingle();
-  print('\n=== Customer 1 ===');
-  print(customer);
+  final targetAccounts = await c.from('accounts').select('id, account_code, account_name, parent_id').inFilter('id', [1401, 1402, 1405, 1406]);
+  print('\n=== Target Accounts ===');
+  for (final a in targetAccounts) {
+    print(a);
+  }
 
   // Check what accounts RPC would pick
   final revenue = await c

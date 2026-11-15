@@ -31,6 +31,9 @@ class _UserManagementPageState extends State<UserManagementPage> {
 
   @override
   Widget build(BuildContext context) {
+    final bgColor = AppTheme.getBackgroundColor(context);
+    final cardBg = AppTheme.getCardBg(context);
+
     return BlocProvider<UserManagementCubit>.value(
       value: _cubit,
       child: BlocListener<UserManagementCubit, UserManagementState>(
@@ -47,75 +50,78 @@ class _UserManagementPageState extends State<UserManagementPage> {
           }
         },
         child: Scaffold(
-          backgroundColor: AppTheme.background,
-        appBar: AppBar(
-          title: const Text('إدارة المستخدمين',
-              style: TextStyle(fontFamily: 'Cairo')),
-          backgroundColor: AppTheme.surface,
-          actions: [
-            BlocBuilder<UserManagementCubit, UserManagementState>(
-              builder: (context, state) {
-                if (state is UserManagementLoaded && state.isAdmin) {
-                  return IconButton(
-                    icon: const Icon(Icons.person_add),
-                    tooltip: 'إضافة مستخدم',
-                    onPressed: () => _showCreateUserDialog(context),
-                  );
-                }
-                return const SizedBox.shrink();
-              },
-            ),
-          ],
+          backgroundColor: bgColor,
+          appBar: AppBar(
+            title: const Text('إدارة المستخدمين',
+                style: TextStyle(fontFamily: 'Cairo')),
+            backgroundColor: cardBg,
+            actions: [
+              BlocBuilder<UserManagementCubit, UserManagementState>(
+                builder: (context, state) {
+                  if (state is UserManagementLoaded && state.isAdmin) {
+                    return IconButton(
+                      icon: const Icon(Icons.person_add),
+                      tooltip: 'إضافة مستخدم',
+                      onPressed: () => _showCreateUserDialog(context),
+                    );
+                  }
+                  return const SizedBox.shrink();
+                },
+              ),
+            ],
+          ),
+          body: BlocBuilder<UserManagementCubit, UserManagementState>(
+            builder: (context, state) {
+              if (state is UserManagementLoading) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (state is UserManagementError) {
+                final textSecondary = AppTheme.getTextSecondary(context);
+                return Center(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.error_outline, size: 64, color: AppTheme.danger),
+                      const SizedBox(height: 16),
+                      Text(state.message,
+                          style: TextStyle(
+                              color: textSecondary,
+                              fontFamily: 'Cairo',
+                              fontSize: 16)),
+                      const SizedBox(height: 16),
+                      ElevatedButton(
+                        onPressed: () => _cubit.loadAll(),
+                        child: const Text('إعادة المحاولة',
+                            style: TextStyle(fontFamily: 'Cairo')),
+                      ),
+                    ],
+                  ),
+                );
+              }
+              if (state is UserManagementLoaded) {
+                return _buildUserList(context, state);
+              }
+              return const SizedBox.shrink();
+            },
+          ),
         ),
-        body: BlocBuilder<UserManagementCubit, UserManagementState>(
-          builder: (context, state) {
-            if (state is UserManagementLoading) {
-              return const Center(child: CircularProgressIndicator());
-            }
-            if (state is UserManagementError) {
-              return Center(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.error_outline, size: 64, color: AppTheme.danger),
-                    const SizedBox(height: 16),
-                    Text(state.message,
-                        style: const TextStyle(
-                            color: AppTheme.textSecondary,
-                            fontFamily: 'Cairo',
-                            fontSize: 16)),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: () => _cubit.loadAll(),
-                      child: const Text('إعادة المحاولة',
-                          style: TextStyle(fontFamily: 'Cairo')),
-                    ),
-                  ],
-                ),
-              );
-            }
-            if (state is UserManagementLoaded) {
-              return _buildUserList(context, state);
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-      ),
       ),
     );
   }
 
   Widget _buildUserList(BuildContext context, UserManagementLoaded state) {
+    final textSecondary = AppTheme.getTextSecondary(context);
+
     if (state.users.isEmpty) {
       return Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.people_outline, size: 80, color: AppTheme.textSecondary),
+            Icon(Icons.people_outline, size: 80, color: textSecondary),
             const SizedBox(height: 16),
-            const Text('لا يوجد مستخدمون بعد',
+            Text('لا يوجد مستخدمون بعد',
                 style: TextStyle(
-                    color: AppTheme.textSecondary,
+                    color: textSecondary,
                     fontFamily: 'Cairo',
                     fontSize: 18)),
             const SizedBox(height: 8),
@@ -152,15 +158,25 @@ class _UserManagementPageState extends State<UserManagementPage> {
     Map<String, dynamic>? role,
     bool isAdmin,
   ) {
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+    final cardBg = AppTheme.getCardBg(context);
+    final borderColor = AppTheme.getBorderColor(context);
+    final textPrimary = AppTheme.getTextPrimary(context);
+    final textSecondary = AppTheme.getTextSecondary(context);
+    final textMuted = isDark
+        ? Colors.white.withValues(alpha: 0.45)
+        : const Color(0xFF94A3B8);
+
     final roleName = role?['role']?.toString() ?? 'بدون صلاحية';
     final roleLabel = _translateRole(roleName);
 
     return Card(
-      color: AppTheme.surface,
+      color: cardBg,
       margin: const EdgeInsets.only(bottom: 8),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
-        side: BorderSide(color: AppTheme.glassBorder),
+        side: BorderSide(color: borderColor),
       ),
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -168,12 +184,12 @@ class _UserManagementPageState extends State<UserManagementPage> {
           children: [
             CircleAvatar(
               backgroundColor: user.isAdmin
-                  ? AppTheme.primary.withValues(alpha: 0.2)
+                  ? primary.withValues(alpha: 0.2)
                   : AppTheme.accent.withValues(alpha: 0.2),
               child: Text(
                 (user.fullName ?? user.email ?? '?').substring(0, 1),
                 style: TextStyle(
-                  color: user.isAdmin ? AppTheme.primary : AppTheme.accent,
+                  color: user.isAdmin ? primary : AppTheme.accent,
                   fontWeight: FontWeight.bold,
                   fontFamily: 'Cairo',
                 ),
@@ -186,8 +202,8 @@ class _UserManagementPageState extends State<UserManagementPage> {
                 children: [
                   Text(
                     user.fullName ?? 'بدون اسم',
-                    style: const TextStyle(
-                      color: Colors.white,
+                    style: TextStyle(
+                      color: textPrimary,
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Cairo',
@@ -203,7 +219,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
                           child: Text(
                             'البريد: ${user.email}',
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.6),
+                              color: textSecondary,
                               fontSize: 13,
                               fontFamily: 'Cairo',
                             ),
@@ -215,7 +231,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
                           child: Text(
                             'البريد: ${user.email ?? ""}',
                             style: TextStyle(
-                              color: Colors.white.withValues(alpha: 0.6),
+                              color: textSecondary,
                               fontSize: 13,
                               fontFamily: 'Cairo',
                             ),
@@ -229,12 +245,12 @@ class _UserManagementPageState extends State<UserManagementPage> {
                           padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 2),
                           decoration: BoxDecoration(
-                            color: AppTheme.primary.withValues(alpha: 0.15),
+                            color: primary.withValues(alpha: 0.15),
                             borderRadius: BorderRadius.circular(6),
                           ),
-                          child: const Text('مالك',
+                          child: Text('مالك',
                               style: TextStyle(
-                                  color: AppTheme.primary,
+                                  color: primary,
                                   fontSize: 11,
                                   fontFamily: 'Cairo')),
                         ),
@@ -245,7 +261,7 @@ class _UserManagementPageState extends State<UserManagementPage> {
                   Text(
                     roleLabel,
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.45),
+                      color: textMuted,
                       fontSize: 12,
                       fontFamily: 'Cairo',
                     ),
@@ -255,9 +271,8 @@ class _UserManagementPageState extends State<UserManagementPage> {
             ),
             if (isAdmin && !user.isAdmin)
               PopupMenuButton<String>(
-                icon: Icon(Icons.more_vert,
-                    color: Colors.white.withValues(alpha: 0.5)),
-                color: AppTheme.surface,
+                icon: Icon(Icons.more_vert, color: textSecondary),
+                color: cardBg,
                 onSelected: (value) async {
                   if (value == 'role') {
                     _showPermissionsDialog(context, user, role);

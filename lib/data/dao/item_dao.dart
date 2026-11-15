@@ -22,11 +22,13 @@ class ItemDao {
     }).toList();
   }
 
-  Future<List<ItemModel>> getAll({int limit = 50, int offset = 0}) async {
+  Future<List<ItemModel>> getAll({int limit = 50, int offset = 0, String? currency}) async {
     try {
-      final data = await _client
-          .from('items')
-          .select()
+      var query = _client.from('items').select();
+      if (currency != null && currency.isNotEmpty) {
+        query = query.eq('currency', currency);
+      }
+      final data = await query
           .order('name')
           .range(offset, offset + limit - 1);
       return _fromRows(data);
@@ -36,12 +38,16 @@ class ItemDao {
   }
 
   Future<List<ItemModel>> search(String query,
-      {int limit = 50, int offset = 0}) async {
+      {int limit = 50, int offset = 0, String? currency}) async {
     try {
-      final data = await _client
+      var q = _client
           .from('items')
           .select()
-          .or('name.ilike.%$query%,code.ilike.%$query%')
+          .or('name.ilike.%$query%,code.ilike.%$query%');
+      if (currency != null && currency.isNotEmpty) {
+        q = q.eq('currency', currency);
+      }
+      final data = await q
           .order('name')
           .range(offset, offset + limit - 1);
       return _fromRows(data);

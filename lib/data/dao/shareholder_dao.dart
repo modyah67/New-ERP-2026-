@@ -6,16 +6,38 @@ class ShareholderDao {
 
   Future<String> generateNextCode() async {
     try {
+      const minRange = 30000;
+      const maxRange = 40000; // 30000 to 39999
       final response = await _client.from('shareholders').select('code');
-      int maxCode = 0;
+      int maxCode = minRange - 1;
       for (var row in response) {
         final codeStr = row['code']?.toString() ?? '';
         final num = int.tryParse(codeStr.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
-        if (num > maxCode) maxCode = num;
+        if (num >= minRange && num < maxRange && num > maxCode) {
+          maxCode = num;
+        }
       }
-      return (maxCode + 1).toString().padLeft(5, '0');
+      if (maxCode < minRange) {
+        return minRange.toString();
+      }
+      return (maxCode + 1).toString();
     } catch (e) {
-      return '00001';
+      return '30000';
+    }
+  }
+
+  /// Check if a shareholder code already exists in the database to prevent collisions
+  Future<bool> checkCodeExists(String code, {String? excludeId}) async {
+    try {
+      final clean = code.trim();
+      var query = _client.from('shareholders').select('id').eq('code', clean);
+      if (excludeId != null && excludeId.isNotEmpty) {
+        query = query.neq('id', excludeId);
+      }
+      final res = await query.limit(1);
+      return res.isNotEmpty;
+    } catch (_) {
+      return false;
     }
   }
 

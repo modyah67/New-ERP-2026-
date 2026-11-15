@@ -1,0 +1,724 @@
+-- ============================================================================
+-- Migration: Persist and Flow Detailed Settlement Notes into Statements & Ledger
+-- Description:
+--   1. Updates rpc_settle_packing_cost_variances to embed detailed settlement notes
+--      and invoice references directly into ledger_entries and account_ledger_entries descriptions.
+--   2. Updates rpc_settle_packing_cost_item to similarly embed detailed notes in descriptions.
+--   3. Synchronizes historical settlement notes from packing_order_cost_items into
+--      existing ledger_entries and account_ledger_entries so prior statements reflect them.
+-- ============================================================================
+
+-- 1. Updated Canonical rpc_settle_packing_cost_variances
+CREATE OR REPLACE FUNCTION public.rpc_settle_packing_cost_variances(
+  p_packing_order_id bigint,
+  p_settlements jsonb,
+  p_general_notes text DEFAULT NULL,
+  p_settled_by uuid DEFAULT NULL
+)
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $function$
+DECLARE
+  r_order RECORD;
+  r_item RECORD;
+  v_company_id UUID;
+  v_order_num TEXT;
+  v_finished_inv_acc INT;
+  v_engineer_exp_acc INT;
+  v_je_id BIGINT;
+  v_entry_num TEXT;
+
+  v_item_elem JSONB;
+  v_cost_item_id BIGINT;
+  v_actual_amt NUMERIC;
+  v_actual_qty NUMERIC;
+  v_unit_price NUMERIC;
+  v_actual_dt TIMESTAMPTZ;
+  v_inv_ref TEXT;
+  v_item_notes TEXT;
+
+  v_expected NUMERIC;
+  v_old_actual NUMERIC;
+  v_baseline NUMERIC;
+  v_incremental_variance NUMERIC;
+  v_total_variance NUMERIC;
+  v_abs_variance NUMERIC;
+  v_total_inc_variance NUMERIC := 0;
+
+  v_is_engineer BOOLEAN;
+  v_is_admin BOOLEAN;
+  v_is_transport BOOLEAN;
+  v_custody_id INT;
+  v_supplier_id UUID;
+  v_supp_str TEXT;
+  v_supplier RECORD;
+  v_target_acc INT;
+  v_debit_acc INT;
+  v_treasury_acct INT;
+
+  v_amount_to_deduct NUMERIC;
+  v_cur_bal NUMERIC;
+  v_new_bal NUMERIC;
+  v_note_text TEXT;
+  v_supplier_ledger_desc TEXT;
+  v_existing_tx_id BIGINT;
+  v_tx_status TEXT;
+
+  v_cartons_count NUMERIC := 0;
+  v_new_other_cost_base NUMERIC := 0;
+  v_new_total_cost NUMERIC := 0;
+  v_new_carton_cost NUMERIC := 0;
+BEGIN
+  IF p_settlements IS NULL OR jsonb_typeof(p_settlements) <> 'array' OR jsonb_array_length(p_settlements) = 0 THEN
+    RETURN jsonb_build_object('success', false, 'error', 'قائمة تسوية البنود فارغة');
+  END IF;
+
+  SELECT * INTO r_order FROM public.packing_orders WHERE id = p_packing_order_id FOR UPDATE;
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'أمر التعبئة غير موجود');
+  END IF;
+
+  v_company_id := r_order.company_id;
+  v_order_num := COALESCE(r_order.order_number, r_order.id::text);
+
+  -- 1. GL account resolution
+  v_finished_inv_acc := public.resolve_gl_account('1241', v_company_id);
+  IF v_finished_inv_acc IS NULL THEN v_finished_inv_acc := public.resolve_gl_account('124', v_company_id); END IF;
+  IF v_finished_inv_acc IS NULL THEN v_finished_inv_acc := public.resolve_gl_account('12', v_company_id); END IF;
+
+  v_engineer_exp_acc := public.resolve_gl_account('31251', v_company_id);
+  IF v_engineer_exp_acc IS NULL THEN v_engineer_exp_acc := public.resolve_gl_account('3125', v_company_id); END IF;
+
+  -- Create master journal entry header
+  INSERT INTO public.journal_entries (
+    entry_number, entry_date, description, status, is_auto_generated,
+    source_type, source_id, company_id, created_by
+  ) VALUES (
+    'PENDING',
+    CURRENT_DATE,
+    COALESCE(p_general_notes, 'تسوية تكاليف أمر التعبئة #' || v_order_num),
+    'posted',
+    true,
+    'packing_cost_settlement',
+    p_packing_order_id::text,
+    v_company_id,
+    COALESCE(p_settled_by, auth.uid())
+  ) RETURNING id INTO v_je_id;
+
+  v_entry_num := 'SETTL-' || LPAD(v_je_id::text, 5, '0');
+  UPDATE public.journal_entries SET entry_number = v_entry_num WHERE id = v_je_id;
+
+  -- 2. Process each settlement item
+  FOR v_item_elem IN SELECT * FROM jsonb_array_elements(p_settlements)
+  LOOP
+    v_cost_item_id := (v_item_elem->>'cost_item_id')::bigint;
+    v_actual_amt := (v_item_elem->>'actual_amount')::numeric;
+    v_actual_qty := (v_item_elem->>'actual_quantity')::numeric;
+    v_unit_price := (v_item_elem->>'unit_price')::numeric;
+    v_actual_dt  := (v_item_elem->>'actual_date_time')::timestamptz;
+    v_inv_ref := TRIM(COALESCE(v_item_elem->>'invoice_ref', ''));
+    v_item_notes := TRIM(COALESCE(v_item_elem->>'notes', ''));
+
+    IF v_cost_item_id IS NULL OR v_actual_amt IS NULL THEN
+      CONTINUE;
+    END IF;
+
+    SELECT * INTO r_item FROM public.packing_order_cost_items
+    WHERE id = v_cost_item_id AND packing_order_id = p_packing_order_id
+    FOR UPDATE;
+
+    IF NOT FOUND THEN
+      CONTINUE;
+    END IF;
+
+    -- If notes was not passed in payload, fallback to existing notes on cost item
+    IF v_item_notes IS NULL OR v_item_notes = '' THEN
+      v_item_notes := TRIM(COALESCE(r_item.detailed_notes, r_item.settlement_notes, ''));
+    END IF;
+    IF v_inv_ref IS NULL OR v_inv_ref = '' THEN
+      v_inv_ref := TRIM(COALESCE(r_item.invoice_ref, ''));
+    END IF;
+
+    v_expected := COALESCE(r_item.expected_amount, r_item.base_amount, 0);
+    v_old_actual := r_item.actual_amount;
+    v_baseline := COALESCE(v_old_actual, v_expected);
+    v_incremental_variance := v_actual_amt - v_baseline;
+    v_total_variance := v_actual_amt - v_expected;
+    v_abs_variance := ABS(v_incremental_variance);
+    v_total_inc_variance := v_total_inc_variance + v_incremental_variance;
+
+    v_is_engineer := (r_item.category = 'engineer_expenses' OR (r_item.category IS NULL AND r_item.name ILIKE '%مهندس%'));
+    v_is_admin := (r_item.category = 'admin' OR r_item.name ILIKE '%إداري%' OR r_item.name ILIKE '%عمومية%');
+    v_is_transport := (r_item.category = 'logistics' OR r_item.name ILIKE '%نقل%' OR r_item.name ILIKE '%شحن%');
+
+    v_existing_tx_id := NULL;
+    v_custody_id := NULL;
+    v_supplier_id := NULL;
+    v_target_acc := NULL;
+    v_debit_acc := v_finished_inv_acc;
+
+    -- Build rich, unified description incorporating detailed notes & invoice reference
+    v_note_text := r_item.name || ' (أمر ' || v_order_num || ')';
+    IF v_item_notes IS NOT NULL AND v_item_notes <> '' THEN
+      v_note_text := v_note_text || ' - ' || v_item_notes;
+    END IF;
+    IF v_inv_ref IS NOT NULL AND v_inv_ref <> '' THEN
+      v_note_text := v_note_text || ' - مستند: ' || v_inv_ref;
+    END IF;
+
+    -- Case A: Engineer Expenses
+    IF v_is_engineer THEN
+      v_custody_id := (v_item_elem->>'custody_id')::integer;
+      IF v_custody_id IS NULL THEN v_custody_id := r_item.custody_id; END IF;
+      IF v_custody_id IS NULL AND r_item.currency_snapshot IS NOT NULL AND (r_item.currency_snapshot ? 'custody_id') THEN
+        v_custody_id := (r_item.currency_snapshot->>'custody_id')::integer;
+      END IF;
+      IF v_custody_id IS NULL AND r_item.engineer_name IS NOT NULL THEN
+        SELECT id INTO v_custody_id FROM public.treasuries WHERE name ILIKE '%' || r_item.engineer_name || '%' LIMIT 1;
+      END IF;
+      IF v_custody_id IS NULL THEN
+        SELECT id INTO v_custody_id FROM public.treasuries WHERE type = 'main' LIMIT 1;
+        IF v_custody_id IS NULL THEN
+          SELECT id INTO v_custody_id FROM public.treasuries WHERE type IN ('employee', 'custody') LIMIT 1;
+        END IF;
+      END IF;
+
+      v_treasury_acct := public.resolve_treasury_account(v_custody_id, 'EGP', v_company_id);
+      IF v_treasury_acct IS NULL THEN
+        SELECT account_id INTO v_treasury_acct FROM public.treasuries WHERE id = v_custody_id;
+      END IF;
+      IF v_treasury_acct IS NULL THEN
+        v_treasury_acct := public.resolve_gl_account('12211', v_company_id);
+      END IF;
+
+      IF v_item_elem ? 'expense_account_id' AND (v_item_elem->>'expense_account_id') IS NOT NULL THEN
+        v_debit_acc := (v_item_elem->>'expense_account_id')::integer;
+      ELSIF r_item.expense_account_id IS NOT NULL THEN
+        v_debit_acc := r_item.expense_account_id::integer;
+      ELSE
+        v_debit_acc := v_engineer_exp_acc;
+      END IF;
+
+      IF r_item.is_engineer_cost_settled AND r_item.treasury_transaction_id IS NOT NULL THEN
+        v_amount_to_deduct := v_incremental_variance;
+      ELSE
+        v_amount_to_deduct := v_actual_amt;
+      END IF;
+
+      SELECT balance INTO v_cur_bal FROM public.treasuries WHERE id = v_custody_id FOR UPDATE;
+      v_cur_bal := COALESCE(v_cur_bal, 0);
+      v_new_bal := v_cur_bal - v_amount_to_deduct;
+
+      UPDATE public.treasuries
+      SET balance = v_new_bal, updated_at = now()
+      WHERE id = v_custody_id;
+
+      INSERT INTO public.treasury_transactions (
+        treasury_id, transaction_type, amount, balance_after,
+        reference_type, reference_id, description, transaction_date,
+        created_at, updated_at
+      ) VALUES (
+        v_custody_id,
+        CASE WHEN v_amount_to_deduct >= 0 THEN 'expense' ELSE 'income' END,
+        ABS(v_amount_to_deduct),
+        v_new_bal,
+        'packing_order_cost_item',
+        v_cost_item_id,
+        'تسوية مصاريف مهندسين وإشراف - ' || v_note_text,
+        COALESCE(v_actual_dt, now()),
+        now(),
+        now()
+      ) RETURNING id INTO v_existing_tx_id;
+
+      -- GL Lines: Debit Expense Account / Credit Treasury Account
+      IF v_amount_to_deduct <> 0 THEN
+        INSERT INTO public.account_ledger_entries (
+          journal_entry_id, account_id, debit, credit, currency, amount_in_base_currency, description, company_id
+        ) VALUES (
+          v_je_id, v_debit_acc,
+          CASE WHEN v_amount_to_deduct > 0 THEN ABS(v_amount_to_deduct) ELSE 0 END,
+          CASE WHEN v_amount_to_deduct < 0 THEN ABS(v_amount_to_deduct) ELSE 0 END,
+          'EGP', ABS(v_amount_to_deduct),
+          'تسوية مصاريف مهندسين وإشراف - ' || v_note_text, v_company_id
+        );
+
+        INSERT INTO public.account_ledger_entries (
+          journal_entry_id, account_id, debit, credit, currency, amount_in_base_currency, description, company_id,
+          entity_type, entity_id
+        ) VALUES (
+          v_je_id, v_treasury_acct,
+          CASE WHEN v_amount_to_deduct < 0 THEN ABS(v_amount_to_deduct) ELSE 0 END,
+          CASE WHEN v_amount_to_deduct > 0 THEN ABS(v_amount_to_deduct) ELSE 0 END,
+          'EGP', ABS(v_amount_to_deduct),
+          'تسوية مصاريف مهندسين وإشراف - ' || v_note_text, v_company_id,
+          'treasury', v_custody_id::text
+        );
+      END IF;
+
+    -- Case B: Admin / Overhead Expenses
+    ELSIF v_is_admin THEN
+      IF v_item_elem ? 'expense_account_id' AND (v_item_elem->>'expense_account_id') IS NOT NULL THEN
+        v_debit_acc := (v_item_elem->>'expense_account_id')::integer;
+      ELSIF r_item.expense_account_id IS NOT NULL THEN
+        v_debit_acc := r_item.expense_account_id::integer;
+      ELSE
+        v_debit_acc := public.resolve_gl_account('31331', v_company_id);
+        IF v_debit_acc IS NULL THEN v_debit_acc := public.resolve_gl_account('313', v_company_id); END IF;
+      END IF;
+
+      -- GL lines for variance with rich detailed description
+      IF v_incremental_variance <> 0 AND v_debit_acc IS NOT NULL THEN
+        INSERT INTO public.account_ledger_entries (
+          journal_entry_id, account_id, debit, credit, currency, amount_in_base_currency, description, company_id
+        ) VALUES (
+          v_je_id, v_finished_inv_acc,
+          CASE WHEN v_incremental_variance > 0 THEN v_abs_variance ELSE 0 END,
+          CASE WHEN v_incremental_variance < 0 THEN v_abs_variance ELSE 0 END,
+          'EGP', v_abs_variance,
+          'تسوية تكلفة مصاريف إدارية (مخزون إنتاج تام) - ' || v_note_text,
+          v_company_id
+        );
+
+        INSERT INTO public.account_ledger_entries (
+          journal_entry_id, account_id, debit, credit, currency, amount_in_base_currency, description, company_id
+        ) VALUES (
+          v_je_id, v_debit_acc,
+          CASE WHEN v_incremental_variance < 0 THEN v_abs_variance ELSE 0 END,
+          CASE WHEN v_incremental_variance > 0 THEN v_abs_variance ELSE 0 END,
+          'EGP', v_abs_variance,
+          'تسوية تكلفة مصاريف إدارية - ' || v_note_text,
+          v_company_id
+        );
+      END IF;
+
+    -- Case C: Supplier / Logistics / Station / Deductions Expenses
+    ELSE
+      v_supp_str := NULL;
+      IF r_item.currency_snapshot IS NOT NULL THEN
+        v_supp_str := r_item.currency_snapshot->>'supplier_id';
+      END IF;
+
+      IF v_supp_str IS NOT NULL AND v_supp_str <> '' THEN
+        BEGIN
+          v_supplier_id := v_supp_str::uuid;
+        EXCEPTION WHEN OTHERS THEN
+          v_supplier_id := NULL;
+        END;
+      END IF;
+
+      IF v_supplier_id IS NOT NULL THEN
+        IF v_is_transport THEN
+          SELECT gl_account_id INTO v_target_acc FROM public.transport_suppliers WHERE id = v_supplier_id;
+        ELSE
+          v_target_acc := public.fn_resolve_packing_cost_supplier_account(v_supplier_id, v_company_id);
+        END IF;
+      END IF;
+
+      IF v_target_acc IS NULL THEN v_target_acc := public.resolve_gl_account('21118', v_company_id); END IF;
+      IF v_target_acc IS NULL THEN v_target_acc := public.resolve_gl_account('2111', v_company_id); END IF;
+
+      IF v_incremental_variance <> 0 AND v_supplier_id IS NOT NULL THEN
+        UPDATE public.suppliers 
+        SET outstanding_balance = COALESCE(outstanding_balance, 0) + v_incremental_variance
+        WHERE id = v_supplier_id;
+
+        -- Supplier statement description embedding detailed notes & invoice reference
+        v_supplier_ledger_desc := CASE WHEN v_incremental_variance > 0 
+          THEN 'تسوية تكلفة فعلية (زيادة) بند: ' || v_note_text
+          ELSE 'تسوية تكلفة فعلية (وفر) بند: ' || v_note_text
+        END;
+
+        INSERT INTO public.ledger_entries (
+          entity_id, entity_type, amount, currency, entry_type,
+          reference_id, reference_type, reference_text, description, created_at
+        ) VALUES (
+          v_supplier_id::text, 'supplier', v_abs_variance, 'EGP',
+          CASE WHEN v_incremental_variance > 0 THEN 'credit' ELSE 'debit' END,
+          p_packing_order_id, 'cost_settlement', COALESCE(NULLIF(v_inv_ref, ''), r_item.name),
+          v_supplier_ledger_desc,
+          now()
+        );
+
+        INSERT INTO public.account_ledger_entries (
+          journal_entry_id, account_id, debit, credit, currency, amount_in_base_currency, description, company_id
+        ) VALUES (
+          v_je_id, v_finished_inv_acc,
+          CASE WHEN v_incremental_variance > 0 THEN v_abs_variance ELSE 0 END,
+          CASE WHEN v_incremental_variance < 0 THEN v_abs_variance ELSE 0 END,
+          'EGP', v_abs_variance,
+          'تسوية تكلفة مورد - ' || v_note_text,
+          v_company_id
+        );
+
+        INSERT INTO public.account_ledger_entries (
+          journal_entry_id, account_id, debit, credit, currency, amount_in_base_currency, description, company_id,
+          entity_type, entity_id
+        ) VALUES (
+          v_je_id, v_target_acc,
+          CASE WHEN v_incremental_variance < 0 THEN v_abs_variance ELSE 0 END,
+          CASE WHEN v_incremental_variance > 0 THEN v_abs_variance ELSE 0 END,
+          'EGP', v_abs_variance,
+          'تسوية تكلفة مورد - ' || v_note_text,
+          v_company_id, 'supplier', v_supplier_id::text
+        );
+      END IF;
+    END IF;
+
+    -- Update cost item status, amounts, and itemized invoice details
+    UPDATE public.packing_order_cost_items
+    SET actual_amount = v_actual_amt,
+        actual_quantity = COALESCE(v_actual_qty, actual_quantity, 1),
+        actual_unit_price = COALESCE(v_unit_price, actual_unit_price, CASE WHEN COALESCE(v_actual_qty, 1) > 0 THEN v_actual_amt / COALESCE(v_actual_qty, 1) ELSE v_actual_amt END),
+        actual_date_time = COALESCE(v_actual_dt, actual_date_time, now()),
+        variance_amount = v_total_variance,
+        cost_status = 'actual',
+        is_locked = TRUE,
+        locked_at = now(),
+        is_engineer_cost_settled = TRUE,
+        treasury_transaction_id = COALESCE(v_existing_tx_id, treasury_transaction_id),
+        custody_id = COALESCE(v_custody_id, custody_id),
+        invoice_ref = COALESCE(NULLIF(v_inv_ref, ''), invoice_ref),
+        settlement_notes = COALESCE(NULLIF(v_item_notes, ''), settlement_notes),
+        detailed_notes = COALESCE(NULLIF(v_item_notes, ''), settlement_notes, detailed_notes),
+        reconciled_at = now()
+    WHERE id = v_cost_item_id;
+  END LOOP;
+
+  -- 3. Clean up empty Journal Entry if no GL lines were inserted
+  IF NOT EXISTS (SELECT 1 FROM public.account_ledger_entries WHERE journal_entry_id = v_je_id) THEN
+    DELETE FROM public.journal_entries WHERE id = v_je_id;
+    v_je_id := NULL;
+  END IF;
+
+  -- 4. Recalculate packing order carton costs
+  SELECT COALESCE(SUM(actual_cartons), 0) INTO v_cartons_count
+  FROM public.packing_order_items
+  WHERE packing_order_id = p_packing_order_id;
+
+  SELECT COALESCE(SUM(COALESCE(actual_amount, expected_amount, base_amount, 0)), 0)
+  INTO v_new_other_cost_base
+  FROM public.packing_order_cost_items
+  WHERE packing_order_id = p_packing_order_id;
+
+  v_new_total_cost := COALESCE(r_order.fruit_cost_egp, 0) + COALESCE(r_order.packaging_cost_egp, 0) + v_new_other_cost_base;
+  v_new_carton_cost := CASE WHEN v_cartons_count > 0 THEN ROUND(v_new_total_cost / v_cartons_count, 4) ELSE 0 END;
+
+  UPDATE public.packing_orders
+  SET other_costs_egp = v_new_other_cost_base,
+      total_cost_egp = v_new_total_cost,
+      cost_per_carton = v_new_carton_cost,
+      is_engineer_cost_settled = TRUE,
+      updated_at = now()
+  WHERE id = p_packing_order_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'message', 'تمت تسوية التكاليف وتحديث الفواتير والقيود المحاسبية بنجاح',
+    'journal_entry_id', v_je_id,
+    'new_other_costs', v_new_other_cost_base,
+    'new_carton_cost', v_new_carton_cost
+  );
+END;
+$function$;
+
+GRANT EXECUTE ON FUNCTION public.rpc_settle_packing_cost_variances(BIGINT, JSONB, TEXT, UUID) TO authenticated, service_role, anon;
+
+-- 2. Updated Canonical rpc_settle_packing_cost_item
+CREATE OR REPLACE FUNCTION public.rpc_settle_packing_cost_item(
+  p_cost_item_id BIGINT,
+  p_actual_amount NUMERIC,
+  p_invoice_ref TEXT DEFAULT NULL,
+  p_notes TEXT DEFAULT NULL,
+  p_settled_by UUID DEFAULT NULL
+)
+RETURNS JSONB
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path TO 'public'
+AS $$
+DECLARE
+  r_item RECORD;
+  r_order RECORD;
+  v_order_num TEXT;
+  v_company_id UUID;
+  v_supplier_id UUID;
+  v_supp_str TEXT;
+  v_supplier RECORD;
+
+  v_expected NUMERIC := 0;
+  v_old_actual NUMERIC := NULL;
+  v_baseline NUMERIC := 0;
+  v_incremental_variance NUMERIC := 0;
+  v_total_variance NUMERIC := 0;
+  v_abs_variance NUMERIC := 0;
+
+  v_finished_inv_acc INT;
+  v_supp_acc INT;
+  v_je_id BIGINT;
+  v_entry_num TEXT;
+  v_note_text TEXT;
+  v_clean_notes TEXT;
+  v_clean_ref TEXT;
+BEGIN
+  v_clean_notes := TRIM(COALESCE(p_notes, ''));
+  v_clean_ref := TRIM(COALESCE(p_invoice_ref, ''));
+
+  SELECT * INTO r_item 
+  FROM public.packing_order_cost_items 
+  WHERE id = p_cost_item_id 
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'بند التكلفة غير موجود');
+  END IF;
+
+  SELECT * INTO r_order 
+  FROM public.packing_orders 
+  WHERE id = r_item.packing_order_id 
+  FOR UPDATE;
+
+  IF NOT FOUND THEN
+    RETURN jsonb_build_object('success', false, 'error', 'أمر التعبئة المرتبط غير موجود');
+  END IF;
+
+  v_order_num := COALESCE(r_order.order_number, r_order.id::text);
+
+  IF v_clean_notes = '' THEN
+    v_clean_notes := TRIM(COALESCE(r_item.detailed_notes, r_item.settlement_notes, ''));
+  END IF;
+  IF v_clean_ref = '' THEN
+    v_clean_ref := TRIM(COALESCE(r_item.invoice_ref, ''));
+  END IF;
+
+  v_note_text := r_item.name || ' (أمر ' || v_order_num || ')';
+  IF v_clean_notes <> '' THEN
+    v_note_text := v_note_text || ' - ' || v_clean_notes;
+  END IF;
+  IF v_clean_ref <> '' THEN
+    v_note_text := v_note_text || ' - مستند: ' || v_clean_ref;
+  END IF;
+
+  v_expected := COALESCE(
+    NULLIF(r_item.expected_amount, 0),
+    NULLIF((r_item.currency_snapshot->'settlement'->>'expected_amount')::numeric, 0),
+    NULLIF(r_item.base_amount, 0),
+    NULLIF((r_item.currency_snapshot->>'total_egp')::numeric, 0),
+    NULLIF((r_item.currency_snapshot->>'total')::numeric, 0),
+    NULLIF(r_item.original_amount, 0),
+    0
+  );
+
+  v_old_actual := r_item.actual_amount;
+
+  IF r_item.cost_status = 'actual' AND v_old_actual IS NOT NULL THEN
+    v_baseline := v_old_actual;
+  ELSIF r_order.costs_journal_entry_id IS NOT NULL THEN
+    v_baseline := v_expected;
+  ELSE
+    v_baseline := 0;
+  END IF;
+
+  v_incremental_variance := ROUND(p_actual_amount - v_baseline, 2);
+  v_total_variance := ROUND(p_actual_amount - v_expected, 2);
+  v_abs_variance := ABS(v_incremental_variance);
+
+  v_supplier_id := NULL;
+  v_supp_str := NULL;
+  IF r_item.currency_snapshot IS NOT NULL THEN
+    v_supp_str := r_item.currency_snapshot->>'supplier_id';
+  END IF;
+  IF v_supp_str IS NULL OR v_supp_str = '' OR v_supp_str = 'null' THEN
+    v_supp_str := (to_jsonb(r_item)->>'supplier_id');
+  END IF;
+
+  IF v_supp_str IS NOT NULL AND v_supp_str <> '' AND v_supp_str <> 'null' THEN
+    BEGIN
+      v_supplier_id := v_supp_str::uuid;
+    EXCEPTION WHEN OTHERS THEN
+      v_supplier_id := NULL;
+    END;
+  END IF;
+
+  SELECT a.company_id INTO v_company_id FROM accounts a WHERE a.account_code = '1030' LIMIT 1;
+  IF v_company_id IS NULL THEN SELECT id INTO v_company_id FROM sys_companies LIMIT 1; END IF;
+
+  v_finished_inv_acc := COALESCE(public.resolve_gl_account('12413', v_company_id), public.resolve_gl_account('1031', v_company_id));
+
+  v_supp_acc := NULL;
+  IF LOWER(COALESCE(r_item.category, '')) = 'logistics' OR r_item.name ILIKE '%نقل%' THEN
+    v_supp_acc := public.resolve_gl_account('21111', v_company_id);
+    IF v_supp_acc IS NULL THEN v_supp_acc := public.resolve_gl_account('2111', v_company_id); END IF;
+  ELSIF LOWER(COALESCE(r_item.category, '')) = 'admin' OR r_item.name ILIKE '%إدار%' OR r_item.name ILIKE '%ادار%' THEN
+    v_supp_acc := public.resolve_gl_account('31331', v_company_id);
+  ELSIF v_supplier_id IS NOT NULL THEN
+    SELECT * INTO v_supplier FROM public.suppliers WHERE id = v_supplier_id;
+    IF FOUND AND v_supplier.account_id IS NOT NULL THEN
+      v_supp_acc := v_supplier.account_id;
+    ELSE
+      v_supp_acc := public.fn_resolve_packing_cost_supplier_account(v_supplier_id, v_company_id);
+    END IF;
+  END IF;
+
+  IF v_supp_acc IS NULL THEN v_supp_acc := public.resolve_gl_account('2000', v_company_id); END IF;
+  IF v_supp_acc IS NULL THEN v_supp_acc := public.resolve_gl_account('2111', v_company_id); END IF;
+
+  IF v_incremental_variance <> 0 THEN
+    IF v_supplier_id IS NOT NULL THEN
+      UPDATE public.suppliers 
+      SET outstanding_balance = COALESCE(outstanding_balance, 0) + v_incremental_variance
+      WHERE id = v_supplier_id;
+
+      INSERT INTO public.ledger_entries (
+        entity_id, entity_type, amount, currency, entry_type,
+        reference_id, reference_type, reference_text, description, created_at
+      ) VALUES (
+        v_supplier_id::text,
+        'supplier',
+        v_abs_variance,
+        'EGP',
+        CASE WHEN v_incremental_variance > 0 THEN 'credit' ELSE 'debit' END,
+        r_order.id,
+        'cost_settlement',
+        COALESCE(NULLIF(v_clean_ref, ''), r_item.name),
+        CASE 
+          WHEN v_incremental_variance > 0 THEN 
+            'تسوية تكلفة فعلية (زيادة تكلفة) بند: ' || v_note_text
+          ELSE 
+            'تسوية تكلفة فعلية (وفر تكلفة) بند: ' || v_note_text
+        END,
+        now()
+      );
+    END IF;
+
+    INSERT INTO public.journal_entries (
+      entry_number, entry_date, description, status,
+      is_auto_generated, source_type, source_id, company_id,
+      created_by, created_at, updated_at
+    ) VALUES (
+      'PENDING',
+      (CURRENT_TIMESTAMP AT TIME ZONE 'Africa/Cairo')::date,
+      'قيد تسوية تكلفة فعلية - ' || v_note_text,
+      'posted', true, 'packing_cost_settlement', p_cost_item_id::text, v_company_id,
+      COALESCE(p_settled_by, auth.uid()), now(), now()
+    ) RETURNING id INTO v_je_id;
+
+    v_entry_num := public.fn_get_next_sequence(v_company_id, 'settlement', NULL, NULL);
+    IF v_entry_num IS NULL OR v_entry_num = '' THEN
+      v_entry_num := 'SETTL-' || LPAD(v_je_id::text, 5, '0');
+    END IF;
+    UPDATE public.journal_entries SET entry_number = v_entry_num WHERE id = v_je_id;
+
+    IF v_incremental_variance > 0 THEN
+      INSERT INTO public.account_ledger_entries (
+        journal_entry_id, account_id, debit, credit, currency, amount_in_base_currency, description, company_id
+      ) VALUES (
+        v_je_id, v_finished_inv_acc, v_abs_variance, 0, 'EGP', v_abs_variance,
+        'فروق تكلفة فعلية إضافية - ' || v_note_text, v_company_id
+      );
+
+      INSERT INTO public.account_ledger_entries (
+        journal_entry_id, account_id, debit, credit, currency, amount_in_base_currency, description, company_id,
+        entity_type, entity_id
+      ) VALUES (
+        v_je_id, v_supp_acc, 0, v_abs_variance, 'EGP', v_abs_variance,
+        'تسوية تكلفة مورد - ' || v_note_text, v_company_id,
+        CASE WHEN v_supplier_id IS NOT NULL THEN 'supplier' ELSE NULL END,
+        CASE WHEN v_supplier_id IS NOT NULL THEN v_supplier_id::text ELSE NULL END
+      );
+    ELSE
+      INSERT INTO public.account_ledger_entries (
+        journal_entry_id, account_id, debit, credit, currency, amount_in_base_currency, description, company_id,
+        entity_type, entity_id
+      ) VALUES (
+        v_je_id, v_supp_acc, v_abs_variance, 0, 'EGP', v_abs_variance,
+        'تسوية تكلفة مورد (وفر) - ' || v_note_text, v_company_id,
+        CASE WHEN v_supplier_id IS NOT NULL THEN 'supplier' ELSE NULL END,
+        CASE WHEN v_supplier_id IS NOT NULL THEN v_supplier_id::text ELSE NULL END
+      );
+
+      INSERT INTO public.account_ledger_entries (
+        journal_entry_id, account_id, debit, credit, currency, amount_in_base_currency, description, company_id
+      ) VALUES (
+        v_je_id, v_finished_inv_acc, 0, v_abs_variance, 'EGP', v_abs_variance,
+        'تخفيض تكلفة مخزون إنتاج تام (وفر) - ' || v_note_text, v_company_id
+      );
+    END IF;
+  END IF;
+
+  UPDATE public.packing_order_cost_items
+  SET actual_amount = p_actual_amount,
+      variance_amount = v_total_variance,
+      cost_status = 'actual',
+      is_locked = TRUE,
+      locked_at = now(),
+      invoice_ref = COALESCE(NULLIF(v_clean_ref, ''), invoice_ref),
+      settlement_notes = COALESCE(NULLIF(v_clean_notes, ''), settlement_notes),
+      detailed_notes = COALESCE(NULLIF(v_clean_notes, ''), settlement_notes, detailed_notes),
+      reconciled_at = now()
+  WHERE id = p_cost_item_id;
+
+  RETURN jsonb_build_object(
+    'success', true,
+    'message', 'تم اعتماد وإقفال تسوية بند التكلفة بنجاح وتوليد قيد اليومية',
+    'journal_entry_id', v_je_id,
+    'incremental_variance', v_incremental_variance
+  );
+END;
+$$;
+
+GRANT EXECUTE ON FUNCTION public.rpc_settle_packing_cost_item(BIGINT, NUMERIC, TEXT, TEXT, UUID) TO authenticated, service_role, anon;
+
+-- 3. Synchronize historical notes from packing_order_cost_items to existing statement rows
+DO $$
+DECLARE
+  r RECORD;
+  v_note TEXT;
+  v_ref TEXT;
+BEGIN
+  FOR r IN 
+    SELECT c.packing_order_id, c.name, COALESCE(NULLIF(c.detailed_notes, ''), c.settlement_notes) AS notes,
+           c.invoice_ref, c.currency_snapshot
+    FROM public.packing_order_cost_items c
+    WHERE c.cost_status = 'actual'
+      AND (COALESCE(c.detailed_notes, '') <> '' OR COALESCE(c.settlement_notes, '') <> '' OR COALESCE(c.invoice_ref, '') <> '')
+  LOOP
+    v_note := TRIM(COALESCE(r.notes, ''));
+    v_ref := TRIM(COALESCE(r.invoice_ref, ''));
+
+    IF v_note <> '' THEN
+      -- Update ledger_entries for this packing order if not already containing the note
+      UPDATE public.ledger_entries
+      SET description = description || ' - ' || v_note
+      WHERE reference_type IN ('cost_settlement', 'packing_cost_settlement')
+        AND (reference_id = r.packing_order_id::integer OR reference_text = r.name OR reference_text = v_ref)
+        AND description NOT LIKE '%' || v_note || '%';
+
+      -- Update account_ledger_entries
+      UPDATE public.account_ledger_entries ale
+      SET description = ale.description || ' - ' || v_note
+      FROM public.journal_entries je
+      WHERE ale.journal_entry_id = je.id
+        AND je.source_type IN ('packing_cost_settlement', 'cost_settlement')
+        AND je.source_id = r.packing_order_id::text
+        AND ale.description NOT LIKE '%' || v_note || '%';
+    END IF;
+
+    IF v_ref <> '' THEN
+      UPDATE public.ledger_entries
+      SET description = description || ' - مستند: ' || v_ref
+      WHERE reference_type IN ('cost_settlement', 'packing_cost_settlement')
+        AND (reference_id = r.packing_order_id::integer OR reference_text = r.name)
+        AND description NOT LIKE '%' || v_ref || '%';
+
+      UPDATE public.account_ledger_entries ale
+      SET description = ale.description || ' - مستند: ' || v_ref
+      FROM public.journal_entries je
+      WHERE ale.journal_entry_id = je.id
+        AND je.source_type IN ('packing_cost_settlement', 'cost_settlement')
+        AND je.source_id = r.packing_order_id::text
+        AND ale.description NOT LIKE '%' || v_ref || '%';
+    END IF;
+  END LOOP;
+END;
+$$;

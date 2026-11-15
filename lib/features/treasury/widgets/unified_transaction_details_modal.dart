@@ -19,6 +19,7 @@ class UnifiedTransactionDetailsModal extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final isIncoming = tx.isIncoming;
     final typeColor = isIncoming ? AppTheme.success : AppTheme.danger;
 
@@ -29,12 +30,15 @@ class UnifiedTransactionDetailsModal extends StatelessWidget {
         width: 480,
         padding: const EdgeInsets.all(24),
         decoration: BoxDecoration(
-          color: const Color(0xFF1E293B),
+          color: isDark ? const Color(0xFF1E293B) : Colors.white,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: Colors.white.withOpacity(0.12)),
-          boxShadow: const [
+          border: Border.all(
+              color: isDark ? Colors.white.withValues(alpha: 0.12) : const Color(0xFFCBD5E1)),
+          boxShadow: [
             BoxShadow(
-                color: Colors.black45, blurRadius: 20, offset: Offset(0, 10)),
+                color: isDark ? Colors.black45 : Colors.black12,
+                blurRadius: 20,
+                offset: const Offset(0, 10)),
           ],
         ),
         child: SingleChildScrollView(
@@ -48,7 +52,7 @@ class UnifiedTransactionDetailsModal extends StatelessWidget {
                   Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: typeColor.withOpacity(0.15),
+                      color: typeColor.withValues(alpha: 0.15),
                       borderRadius: BorderRadius.circular(10),
                     ),
                     child: Icon(
@@ -62,10 +66,10 @@ class UnifiedTransactionDetailsModal extends StatelessWidget {
                   const SizedBox(width: 12),
                   Text(
                     tx.typeLabel,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.bold,
-                      color: Colors.white,
+                      color: isDark ? Colors.white : Colors.black,
                       fontFamily: 'Cairo',
                     ),
                   ),
@@ -94,8 +98,8 @@ class UnifiedTransactionDetailsModal extends StatelessWidget {
                     onPressed: () => TreasuryPdfService.printVoucher(tx),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close,
-                        color: Colors.white70, size: 20),
+                    icon: Icon(Icons.close,
+                        color: isDark ? Colors.white70 : Colors.black, size: 20),
                     onPressed: () => Navigator.pop(context),
                   ),
                 ],
@@ -103,13 +107,14 @@ class UnifiedTransactionDetailsModal extends StatelessWidget {
               const SizedBox(height: 20),
 
               // Details List
-              _detailRow('رقم القيد المحاسبي', tx.entryNumber),
+              _detailRow('رقم القيد المحاسبي', tx.entryNumber, isDark: isDark),
               _detailRow(
                   'التاريخ',
                   AppUtils.formatDate(
-                      DateTime.tryParse(tx.createdAt) ?? DateTime.now())),
-              _detailRow('نوع الحركة', tx.typeLabel),
-              _detailRow('المصدر / الحساب', tx.accountSourceName),
+                      DateTime.tryParse(tx.createdAt) ?? DateTime.now()),
+                  isDark: isDark),
+              _detailRow('نوع الحركة', tx.typeLabel, isDark: isDark),
+              _detailRow('المصدر / الحساب', tx.accountSourceName, isDark: isDark),
               if (tx.relatedPartyName != null &&
                   tx.relatedPartyName!.isNotEmpty)
                 _detailRow(
@@ -119,26 +124,31 @@ class UnifiedTransactionDetailsModal extends StatelessWidget {
                           ? 'العميل'
                           : 'الجهة',
                   tx.relatedPartyName!,
+                  isDark: isDark,
                 ),
               if (tx.description.isNotEmpty)
-                _detailRow('البيان', tx.description),
+                _detailRow('البيان', tx.description, isDark: isDark),
               if (tx.notes != null && tx.notes!.isNotEmpty)
-                _detailRow('الملاحظة', tx.notes!),
+                _detailRow('الملاحظة', tx.notes!, isDark: isDark),
               _detailRow(
-                  'المبلغ', '${tx.currency} ${_formatAmount(tx.amount)}'),
-              _detailRow('العملة', tx.currency),
+                  'المبلغ', '${tx.currency} ${_formatAmount(tx.amount)}',
+                  isDark: isDark),
+              _detailRow('العملة', tx.currency, isDark: isDark),
               if (tx.categoryName != null && tx.categoryName!.isNotEmpty)
-                _detailRow('التصنيف', tx.categoryName!),
+                _detailRow('التصنيف', tx.categoryName!, isDark: isDark),
               if (tx.referenceNumber != null && tx.referenceNumber!.isNotEmpty)
-                _detailRow('رقم المرجع / الشيك', tx.referenceNumber!),
+                _detailRow('رقم المرجع / الشيك', tx.referenceNumber!, isDark: isDark),
               if (tx.creatorName != null && tx.creatorName!.isNotEmpty)
-                _detailRow('المستخدم المنفذ', tx.creatorName!),
+                _detailRow('المستخدم المنفذ', tx.creatorName!, isDark: isDark),
               _detailRow('حالة الحركة', isIncoming ? 'وارد' : 'صادر',
-                  valueColor: isIncoming ? AppTheme.success : AppTheme.danger),
+                  valueColor: isIncoming ? AppTheme.success : AppTheme.danger,
+                  isDark: isDark),
               _detailRow('الرصيد قبل',
-                  '${tx.currency} ${_formatAmount(tx.balanceBefore)}'),
+                  '${tx.currency} ${_formatAmount(tx.balanceBefore)}',
+                  isDark: isDark),
               _detailRow('الرصيد بعد',
-                  '${tx.currency} ${_formatAmount(tx.balanceAfter)}'),
+                  '${tx.currency} ${_formatAmount(tx.balanceAfter)}',
+                  isDark: isDark),
               const SizedBox(height: 24),
 
               // Buttons Row
@@ -169,8 +179,8 @@ class UnifiedTransactionDetailsModal extends StatelessWidget {
                               fontSize: 13),
                         ),
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: AppTheme.accent,
-                          side: const BorderSide(color: AppTheme.accent),
+                          foregroundColor: isDark ? AppTheme.accent : const Color(0xFF0F766E),
+                          side: BorderSide(color: isDark ? AppTheme.accent : const Color(0xFF0F766E)),
                           shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12)),
                         ),
@@ -209,21 +219,25 @@ class UnifiedTransactionDetailsModal extends StatelessWidget {
     );
   }
 
-  Widget _detailRow(String label, String value, {Color? valueColor}) {
+  Widget _detailRow(String label, String value,
+      {Color? valueColor, required bool isDark}) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(label,
-              style: const TextStyle(
-                  color: Colors.white60, fontSize: 13, fontFamily: 'Cairo')),
+              style: TextStyle(
+                  color: isDark ? Colors.white60 : Colors.black,
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  fontFamily: 'Cairo')),
           Flexible(
             child: Text(
               value,
               textAlign: TextAlign.left,
               style: TextStyle(
-                color: valueColor ?? Colors.white,
+                color: valueColor ?? (isDark ? Colors.white : Colors.black),
                 fontWeight: FontWeight.bold,
                 fontSize: 13,
                 fontFamily: 'Cairo',

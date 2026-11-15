@@ -6,7 +6,6 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:excel/excel.dart' hide Border;
-import 'package:path_provider/path_provider.dart';
 import '../../core/theme.dart';
 import '../../core/utils.dart';
 import '../../data/models/cheque_model.dart';
@@ -64,7 +63,9 @@ class _ChequesViewState extends State<_ChequesView> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Scaffold(
+      backgroundColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
       body: LayoutBuilder(
         builder: (context, constraints) {
           final w = constraints.maxWidth;
@@ -74,7 +75,9 @@ class _ChequesViewState extends State<_ChequesView> {
               _buildHeader(w),
               if (_showFilters) _buildFilters(w),
               _buildStatsBar(w),
-              const Divider(height: 1, color: AppTheme.divider),
+              Divider(
+                  height: 1,
+                  color: isDark ? AppTheme.divider : const Color(0xFFE2E8F0)),
               LayoutBuilder(
                 builder: (context, constraints) {
                   return SingleChildScrollView(
@@ -82,30 +85,43 @@ class _ChequesViewState extends State<_ChequesView> {
                     child: ConstrainedBox(
                       constraints: BoxConstraints(
                         minWidth: constraints.maxWidth,
-                        maxWidth: constraints.maxWidth > 900 ? constraints.maxWidth : 900,
+                        maxWidth: constraints.maxWidth > 900
+                            ? constraints.maxWidth
+                            : 900,
                       ),
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           _buildColumnHeaders(w),
-                          const Divider(height: 1, color: AppTheme.divider),
+                          Divider(
+                              height: 1,
+                              color: isDark
+                                  ? AppTheme.divider
+                                  : const Color(0xFFE2E8F0)),
                         ],
                       ),
                     ),
                   );
                 },
               ),
-              const Divider(height: 1, color: AppTheme.divider),
+              Divider(
+                  height: 1,
+                  color: isDark ? AppTheme.divider : const Color(0xFFE2E8F0)),
               Expanded(
                 child: BlocBuilder<ChequeCubit, ChequeState>(
                   builder: (context, state) {
                     if (state is ChequeLoading) {
-                      return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
+                      return Center(
+                          child: CircularProgressIndicator(
+                              color: isDark
+                                  ? AppTheme.primary
+                                  : const Color(0xFF0284C7)));
                     }
                     if (state is ChequeError) {
                       return Center(
                         child: Text(state.message,
-                            style: const TextStyle(color: AppTheme.danger, fontFamily: 'Cairo')),
+                            style: const TextStyle(
+                                color: AppTheme.danger, fontFamily: 'Cairo')),
                       );
                     }
                     if (state is! ChequeLoaded) return const SizedBox();
@@ -114,10 +130,21 @@ class _ChequesViewState extends State<_ChequesView> {
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            const Icon(Icons.receipt_long_outlined, size: 64, color: AppTheme.textMuted),
+                            Icon(Icons.receipt_long_outlined,
+                                size: 64,
+                                color: isDark
+                                    ? AppTheme.textMuted
+                                    : const Color(0xFF94A3B8)),
                             const SizedBox(height: 16),
                             Text('لا توجد شيكات',
-                                style: TextStyle(fontFamily: 'Cairo', fontSize: _responsiveVal(w, 14.0, 16.0, 18.0), color: AppTheme.textSecondary)),
+                                style: TextStyle(
+                                    fontFamily: 'Cairo',
+                                    fontSize: _responsiveVal(
+                                        w, 14.0, 16.0, 18.0),
+                                    fontWeight: FontWeight.w600,
+                                    color: isDark
+                                        ? AppTheme.textSecondary
+                                        : const Color(0xFF64748B))),
                           ],
                         ),
                       );
@@ -162,11 +189,13 @@ class _ChequesViewState extends State<_ChequesView> {
   }
 
   Widget _buildHeader(double w) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final titleSize = _responsiveVal(w, 16.0, 18.0, 22.0);
     final subtitleSize = _responsiveVal(w, 10.0, 11.0, 13.0);
     final pad = _responsiveVal(w, 12.0, 16.0, 24.0);
     final iconBoxSize = _responsiveVal(w, 36.0, 40.0, 44.0);
     final iconSize = _responsiveVal(w, 18.0, 20.0, 22.0);
+    final primaryCol = isDark ? AppTheme.primary : const Color(0xFF0284C7);
 
     if (w < 700) {
       return Container(
@@ -177,29 +206,47 @@ class _ChequesViewState extends State<_ChequesView> {
             Row(
               children: [
                 Container(
-                  width: iconBoxSize, height: iconBoxSize,
+                  width: iconBoxSize,
+                  height: iconBoxSize,
                   decoration: BoxDecoration(
-                    color: AppTheme.primary.withValues(alpha: 0.1),
+                    color: primaryCol.withValues(alpha: isDark ? 0.1 : 0.12),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: Icon(Icons.receipt_long_outlined, color: AppTheme.primary, size: iconSize),
+                  child: Icon(Icons.receipt_long_outlined,
+                      color: primaryCol, size: iconSize),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text('إدارة الشيكات', maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: titleSize, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo')),
+                      Text('إدارة الشيكات',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: titleSize,
+                              fontWeight: FontWeight.bold,
+                              color: isDark ? Colors.white : Colors.black,
+                              fontFamily: 'Cairo')),
                       Text('شيكات صادرة وواردة',
-                          maxLines: 1, overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: subtitleSize, color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                              fontSize: subtitleSize,
+                              color: isDark
+                                  ? AppTheme.textSecondary
+                                  : const Color(0xFF64748B),
+                              fontFamily: 'Cairo')),
                     ],
                   ),
                 ),
                 IconButton(
-                  icon: Icon(_showFilters ? Icons.filter_alt_off : Icons.filter_alt_outlined,
-                      color: AppTheme.primary, size: 20),
+                  icon: Icon(
+                      _showFilters
+                          ? Icons.filter_alt_off
+                          : Icons.filter_alt_outlined,
+                      color: primaryCol,
+                      size: 20),
                   onPressed: () {
                     if (_showFilters) {
                       context.read<ChequeCubit>().clearAllFilters();
@@ -227,12 +274,6 @@ class _ChequesViewState extends State<_ChequesView> {
                   color: AppTheme.success,
                   onTap: () => _showFormDialog('incoming'),
                 ),
-                // _IconBtn(
-                //   icon: Icons.picture_as_pdf_outlined,
-                //   color: AppTheme.warning,
-                //   tooltip: 'تصدير PDF',
-                //   onTap: _exportPdf,
-                // ),
                 _IconBtn(
                   icon: Icons.table_chart_outlined,
                   color: AppTheme.success,
@@ -251,29 +292,46 @@ class _ChequesViewState extends State<_ChequesView> {
       child: Row(
         children: [
           Container(
-            width: iconBoxSize, height: iconBoxSize,
+            width: iconBoxSize,
+            height: iconBoxSize,
             decoration: BoxDecoration(
-              color: AppTheme.primary.withValues(alpha: 0.1),
+              color: primaryCol.withValues(alpha: isDark ? 0.1 : 0.12),
               borderRadius: BorderRadius.circular(14),
             ),
-            child: Icon(Icons.receipt_long_outlined, color: AppTheme.primary, size: iconSize),
+            child: Icon(Icons.receipt_long_outlined,
+                color: primaryCol, size: iconSize),
           ),
           const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('إدارة الشيكات', maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: titleSize, fontWeight: FontWeight.bold, color: Colors.white, fontFamily: 'Cairo')),
+                Text('إدارة الشيكات',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: titleSize,
+                        fontWeight: FontWeight.bold,
+                        color: isDark ? Colors.white : Colors.black,
+                        fontFamily: 'Cairo')),
                 Text('شيكات صادرة وواردة',
-                    maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: subtitleSize, color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontSize: subtitleSize,
+                        color: isDark
+                            ? AppTheme.textSecondary
+                            : const Color(0xFF64748B),
+                        fontFamily: 'Cairo')),
               ],
             ),
           ),
           IconButton(
-            icon: Icon(_showFilters ? Icons.filter_alt_off : Icons.filter_alt_outlined,
-                color: AppTheme.primary),
+            icon: Icon(
+                _showFilters
+                    ? Icons.filter_alt_off
+                    : Icons.filter_alt_outlined,
+                color: primaryCol),
             onPressed: () {
               if (_showFilters) {
                 context.read<ChequeCubit>().clearAllFilters();
@@ -289,13 +347,6 @@ class _ChequesViewState extends State<_ChequesView> {
             tooltip: 'تصدير Excel',
             onTap: _exportExcel,
           ),
-          const SizedBox(width: 8),
-          // _IconBtn(
-          //   icon: Icons.picture_as_pdf_outlined,
-          //   color: AppTheme.warning,
-          //   tooltip: 'تصدير PDF',
-          //   onTap: _exportPdf,
-          // ),
           const SizedBox(width: 8),
           _ActionBtn(
             icon: Icons.add_outlined,
@@ -476,10 +527,13 @@ class _ChequesViewState extends State<_ChequesView> {
 
   Widget _buildColumnHeaders(double w) {
     final pad = _responsiveVal(w, 12.0, 16.0, 24.0);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
 
     return Container(
       padding: EdgeInsets.symmetric(horizontal: pad, vertical: 10),
-      color: AppTheme.primary.withValues(alpha: 0.08),
+      color: isDark
+          ? AppTheme.primary.withValues(alpha: 0.08)
+          : const Color(0xFFF1F5F9),
       child: const Row(
         children: [
           Expanded(flex: 2, child: _ColH('رقم الشيك')),
@@ -487,7 +541,9 @@ class _ChequesViewState extends State<_ChequesView> {
           Expanded(flex: 2, child: _ColH('المستلم ')),
           Expanded(flex: 1, child: _ColH('المبلغ')),
           Expanded(flex: 1, child: _ColH('العملة')),
-          Expanded(flex: 1, child: _ColH('تاريخ الاستحقاق', alignment: Alignment.center)),
+          Expanded(
+              flex: 1,
+              child: _ColH('تاريخ الاستحقاق', alignment: Alignment.center)),
           Expanded(flex: 1, child: _ColH('الحالة', alignment: Alignment.center)),
           Expanded(flex: 2, child: _ColH('')),
         ],
@@ -512,20 +568,24 @@ class _ChequesViewState extends State<_ChequesView> {
       final allCheques = await cubit.fetchAllFilteredCheques();
       if (allCheques.isEmpty) {
         messenger.showSnackBar(const SnackBar(
-          content: Text('لا توجد شيكات للتصدير', style: TextStyle(fontFamily: 'Cairo')),
+          content: Text('لا توجد شيكات للتصدير',
+              style: TextStyle(fontFamily: 'Cairo')),
           backgroundColor: AppTheme.warning,
         ));
         return;
       }
       final state = cubit.state as ChequeLoaded;
-      final bytes = await _buildChequeStatementPdf(allCheques, fromDate: state.fromDate, toDate: state.toDate);
+      final bytes = await _buildChequeStatementPdf(allCheques,
+          fromDate: state.fromDate, toDate: state.toDate);
       final dir = await FileHelper.getExportDirectory();
-      final fileName = 'Cheques_Statement_${DateTime.now().millisecondsSinceEpoch}.pdf';
+      final fileName =
+          'Cheques_Statement_${DateTime.now().millisecondsSinceEpoch}.pdf';
       final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(bytes);
       if (mounted) {
         messenger.showSnackBar(SnackBar(
-          content: Text('تم الحفظ في: ${file.path}', style: const TextStyle(fontFamily: 'Cairo')),
+          content: Text('تم الحفظ في: ${file.path}',
+              style: const TextStyle(fontFamily: 'Cairo')),
           backgroundColor: AppTheme.success,
         ));
       }
@@ -546,20 +606,24 @@ class _ChequesViewState extends State<_ChequesView> {
       final allCheques = await cubit.fetchAllFilteredCheques();
       if (allCheques.isEmpty) {
         messenger.showSnackBar(const SnackBar(
-          content: Text('لا توجد شيكات للتصدير', style: TextStyle(fontFamily: 'Cairo')),
+          content: Text('لا توجد شيكات للتصدير',
+              style: TextStyle(fontFamily: 'Cairo')),
           backgroundColor: AppTheme.warning,
         ));
         return;
       }
       final state = cubit.state as ChequeLoaded;
-      final bytes = await _buildChequeStatementExcel(allCheques, fromDate: state.fromDate, toDate: state.toDate);
+      final bytes = await _buildChequeStatementExcel(allCheques,
+          fromDate: state.fromDate, toDate: state.toDate);
       final dir = await FileHelper.getExportDirectory();
-      final fileName = 'Cheques_Statement_${DateTime.now().millisecondsSinceEpoch}.xlsx';
+      final fileName =
+          'Cheques_Statement_${DateTime.now().millisecondsSinceEpoch}.xlsx';
       final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(bytes);
       if (mounted) {
         messenger.showSnackBar(SnackBar(
-          content: Text('تم الحفظ في: ${file.path}', style: const TextStyle(fontFamily: 'Cairo')),
+          content: Text('تم الحفظ في: ${file.path}',
+              style: const TextStyle(fontFamily: 'Cairo')),
           backgroundColor: AppTheme.success,
         ));
       }
@@ -598,7 +662,8 @@ class _ChequesViewState extends State<_ChequesView> {
   double _pendingFor(Map<String, Map<String, double>> totals, String cur) =>
       (totals['pending'] ?? {})[cur] ?? 0;
 
-  Future<Uint8List> _buildChequeStatementPdf(List<ChequeModel> cheques, {DateTime? fromDate, DateTime? toDate}) async {
+  Future<Uint8List> _buildChequeStatementPdf(List<ChequeModel> cheques,
+      {DateTime? fromDate, DateTime? toDate}) async {
     final regularData = await rootBundle.load('assets/fonts/Cairo-Regular.ttf');
     final boldData = await rootBundle.load('assets/fonts/Cairo-Bold.ttf');
     final font = pw.Font.ttf(regularData);
@@ -631,15 +696,35 @@ class _ChequesViewState extends State<_ChequesView> {
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
                 children: [
-                  pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-                    pw.Text('فروتي فارمز', style: pw.TextStyle(font: boldFont, fontSize: 16, color: PdfColors.blueGrey)),
-                    pw.SizedBox(height: 2),
-                    pw.Text('كشف حساب الشيكات', style: pw.TextStyle(font: boldFont, fontSize: 14, color: PdfColors.black)),
-                  ]),
-                  pw.Column(crossAxisAlignment: pw.CrossAxisAlignment.end, children: [
-                    pw.Text('إجمالي الشيكات: ${cheques.length}', style: pw.TextStyle(font: font, fontSize: 10, color: PdfColors.grey700)),
-                    pw.Text(dateRange, style: pw.TextStyle(font: font, fontSize: 10, color: PdfColors.grey700)),
-                  ]),
+                  pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.start,
+                      children: [
+                        pw.Text('فروتي فارمز',
+                            style: pw.TextStyle(
+                                font: boldFont,
+                                fontSize: 16,
+                                color: PdfColors.blueGrey)),
+                        pw.SizedBox(height: 2),
+                        pw.Text('كشف حساب الشيكات',
+                            style: pw.TextStyle(
+                                font: boldFont,
+                                fontSize: 14,
+                                color: PdfColors.black)),
+                      ]),
+                  pw.Column(
+                      crossAxisAlignment: pw.CrossAxisAlignment.end,
+                      children: [
+                        pw.Text('إجمالي الشيكات: ${cheques.length}',
+                            style: pw.TextStyle(
+                                font: font,
+                                fontSize: 10,
+                                color: PdfColors.grey700)),
+                        pw.Text(dateRange,
+                            style: pw.TextStyle(
+                                font: font,
+                                fontSize: 10,
+                                color: PdfColors.grey700)),
+                      ]),
                 ],
               ),
               pw.SizedBox(height: 16),
@@ -656,47 +741,73 @@ class _ChequesViewState extends State<_ChequesView> {
     return doc.save();
   }
 
-  pw.Widget _buildTotalsTable(Map<String, Map<String, double>> totals, pw.Font font, pw.Font boldFont) {
-    final allCurrencies = <String>{...totals['cleared']!.keys, ...totals['pending']!.keys}.toList()..sort();
+  pw.Widget _buildTotalsTable(Map<String, Map<String, double>> totals,
+      pw.Font font, pw.Font boldFont) {
+    final allCurrencies = <String>{
+      ...totals['cleared']!.keys,
+      ...totals['pending']!.keys
+    }.toList()
+      ..sort();
     return pw.TableHelper.fromTextArray(
       headerAlignment: pw.Alignment.center,
       cellAlignment: pw.Alignment.center,
-      headerStyle: pw.TextStyle(font: boldFont, fontSize: 9, color: PdfColors.white),
+      headerStyle:
+          pw.TextStyle(font: boldFont, fontSize: 9, color: PdfColors.white),
       cellStyle: pw.TextStyle(font: font, fontSize: 8, color: PdfColors.black),
       headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey),
-      cellDecoration: (row, col, isHeader) => pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300))),
-      headers: ['العملة', 'اجمالي الشيكات المتحصلة', 'اجمالي الشيكات المعلقة'],
-      data: allCurrencies.map((cur) => [
-        cur,
-        '${_clearedFor(totals, cur).toStringAsFixed(2)} $cur',
-        '${_pendingFor(totals, cur).toStringAsFixed(2)} $cur',
-      ]).toList(),
+      cellDecoration: (row, col, isHeader) => const pw.BoxDecoration(
+          border:
+              pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300))),
+      headers: const ['العملة', 'اجمالي الشيكات المتحصلة', 'اجمالي الشيكات المعلقة'],
+      data: allCurrencies
+          .map((cur) => [
+                cur,
+                '${_clearedFor(totals, cur).toStringAsFixed(2)} $cur',
+                '${_pendingFor(totals, cur).toStringAsFixed(2)} $cur',
+              ])
+          .toList(),
     );
   }
 
-  pw.Widget _buildChequesTable(List<ChequeModel> cheques, pw.Font font, pw.Font boldFont) {
+  pw.Widget _buildChequesTable(
+      List<ChequeModel> cheques, pw.Font font, pw.Font boldFont) {
     return pw.TableHelper.fromTextArray(
       headerAlignment: pw.Alignment.center,
       cellAlignment: pw.Alignment.center,
-      headerStyle: pw.TextStyle(font: boldFont, fontSize: 8, color: PdfColors.white),
+      headerStyle:
+          pw.TextStyle(font: boldFont, fontSize: 8, color: PdfColors.white),
       cellStyle: pw.TextStyle(font: font, fontSize: 7, color: PdfColors.black),
       headerDecoration: const pw.BoxDecoration(color: PdfColors.blueGrey),
-      cellDecoration: (row, col, isHeader) => pw.BoxDecoration(border: pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300))),
-      headers: ['رقم الشيك', 'النوع', 'المستلم ', 'المبلغ', 'العملة', 'تاريخ التحرير', 'تاريخ الاستحقاق', 'الحالة'],
-      data: cheques.map((c) => [
-        c.chequeNumber,
-        c.type == 'outgoing' ? 'صادر' : 'وارد',
-        c.counterpartyDisplay,
-        c.amount.toStringAsFixed(2),
-        c.currency,
-        c.issueDate,
-        c.dueDate,
-        c.statusLabel,
-      ]).toList(),
+      cellDecoration: (row, col, isHeader) => const pw.BoxDecoration(
+          border:
+              pw.Border(bottom: pw.BorderSide(color: PdfColors.grey300))),
+      headers: const [
+        'رقم الشيك',
+        'النوع',
+        'المستلم ',
+        'المبلغ',
+        'العملة',
+        'تاريخ التحرير',
+        'تاريخ الاستحقاق',
+        'الحالة'
+      ],
+      data: cheques
+          .map((c) => [
+                c.chequeNumber,
+                c.type == 'outgoing' ? 'صادر' : 'وارد',
+                c.counterpartyDisplay,
+                c.amount.toStringAsFixed(2),
+                c.currency,
+                c.issueDate,
+                c.dueDate,
+                c.statusLabel,
+              ])
+          .toList(),
     );
   }
 
-  Future<Uint8List> _buildChequeStatementExcel(List<ChequeModel> cheques, {DateTime? fromDate, DateTime? toDate}) async {
+  Future<Uint8List> _buildChequeStatementExcel(List<ChequeModel> cheques,
+      {DateTime? fromDate, DateTime? toDate}) async {
     final excel = Excel.createExcel();
     final totals = _calcTotals(cheques);
 
@@ -706,8 +817,13 @@ class _ChequesViewState extends State<_ChequesView> {
 
     final sheet1 = excel['ملخص'];
     _excelRow(sheet1, [dateRange]);
-    _excelRow(sheet1, ['العملة', 'اجمالي الشيكات المحصلة', 'اجمالي الشيكات المعلقة'], bold: true);
-    final allCurrencies = <String>{...totals['cleared']!.keys, ...totals['pending']!.keys}.toList()..sort();
+    _excelRow(sheet1, ['العملة', 'اجمالي الشيكات المحصلة', 'اجمالي الشيكات المعلقة'],
+        bold: true);
+    final allCurrencies = <String>{
+      ...totals['cleared']!.keys,
+      ...totals['pending']!.keys
+    }.toList()
+      ..sort();
     for (final cur in allCurrencies) {
       _excelRow(sheet1, [
         cur,
@@ -717,7 +833,17 @@ class _ChequesViewState extends State<_ChequesView> {
     }
 
     final sheet2 = excel['الشيكات'];
-    _excelRow(sheet2, ['رقم الشيك', 'النوع', 'المستلم', 'المبلغ', 'العملة', 'تاريخ التحرير', 'تاريخ الاستحقاق', 'الحالة', 'الملاحظات'], bold: true);
+    _excelRow(sheet2, [
+      'رقم الشيك',
+      'النوع',
+      'المستلم',
+      'المبلغ',
+      'العملة',
+      'تاريخ التحرير',
+      'تاريخ الاستحقاق',
+      'الحالة',
+      'الملاحظات'
+    ], bold: true);
     for (final c in cheques) {
       _excelRow(sheet2, [
         c.chequeNumber,
@@ -741,7 +867,9 @@ class _ChequesViewState extends State<_ChequesView> {
         hexColor = '#C6EFCE'; // Light green
       }
 
-      sheet2.cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: rowIndex)).cellStyle = CellStyle(
+      sheet2
+          .cell(CellIndex.indexByColumnRow(columnIndex: 7, rowIndex: rowIndex))
+          .cellStyle = CellStyle(
         backgroundColorHex: ExcelColor.fromHexString(hexColor),
       );
     }
@@ -764,13 +892,17 @@ class _ColH extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       alignment: alignment,
       child: Text(text,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-              fontFamily: 'Cairo', fontSize: 12, fontWeight: FontWeight.bold, color: AppTheme.textSecondary)),
+          style: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: isDark ? AppTheme.textSecondary : Colors.black)),
     );
   }
 }
@@ -780,14 +912,19 @@ class _IconBtn extends StatelessWidget {
   final Color color;
   final String tooltip;
   final VoidCallback onTap;
-  const _IconBtn({required this.icon, required this.color, required this.tooltip, required this.onTap});
+  const _IconBtn(
+      {required this.icon,
+      required this.color,
+      required this.tooltip,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Tooltip(
       message: tooltip,
       child: Container(
-        width: 36, height: 36,
+        width: 36,
+        height: 36,
         decoration: BoxDecoration(
           color: color.withValues(alpha: 0.12),
           borderRadius: BorderRadius.circular(10),
@@ -809,14 +946,20 @@ class _ActionBtn extends StatelessWidget {
   final String label;
   final Color color;
   final VoidCallback onTap;
-  const _ActionBtn({required this.icon, required this.label, required this.color, required this.onTap});
+  const _ActionBtn(
+      {required this.icon,
+      required this.label,
+      required this.color,
+      required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return ElevatedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 18),
-      label: Text(label, maxLines: 1, overflow: TextOverflow.ellipsis,
+      label: Text(label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
           style: const TextStyle(fontFamily: 'Cairo', fontSize: 13)),
       style: ElevatedButton.styleFrom(
         backgroundColor: color,
@@ -831,16 +974,21 @@ class _StatBadge extends StatelessWidget {
   final String label;
   final String value;
   final Color color;
-  const _StatBadge({required this.label, required this.value, required this.color});
+  const _StatBadge(
+      {required this.label, required this.value, required this.color});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.1),
+        color: isDark ? color.withValues(alpha: 0.1) : const Color(0xFFF1F5F9),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withValues(alpha: 0.3)),
+        border: Border.all(
+            color: isDark
+                ? color.withValues(alpha: 0.3)
+                : const Color(0xFFCBD5E1)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -848,9 +996,19 @@ class _StatBadge extends StatelessWidget {
           Text('$label: ',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontFamily: 'Cairo', fontSize: 12, color: AppTheme.textSecondary)),
+              style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: isDark
+                      ? AppTheme.textSecondary
+                      : const Color(0xFF475569))),
           Text(value,
-              style: TextStyle(fontFamily: 'Cairo', fontSize: 14, fontWeight: FontWeight.bold, color: color)),
+              style: TextStyle(
+                  fontFamily: 'Cairo',
+                  fontSize: 14,
+                  fontWeight: FontWeight.bold,
+                  color: color)),
         ],
       ),
     );
@@ -873,22 +1031,37 @@ class _FilterDropdown<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return DropdownButtonFormField<T?>(
       initialValue: value,
-      dropdownColor: const Color(0xCC05192D),
+      dropdownColor: isDark ? const Color(0xFF0A1630) : Colors.white,
       decoration: InputDecoration(
         labelText: label,
-        labelStyle: const TextStyle(fontFamily: 'Cairo', fontSize: 12),
+        labelStyle: TextStyle(
+            fontFamily: 'Cairo',
+            fontSize: 12,
+            color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B)),
         isDense: true,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       ),
-      items: List.generate(items.length, (i) => DropdownMenuItem(
-        value: items[i],
-        child: Text(itemLabels[i], maxLines: 1, overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontFamily: 'Cairo', fontSize: 12)),
-      )),
+      items: List.generate(
+          items.length,
+          (i) => DropdownMenuItem(
+                value: items[i],
+                child: Text(itemLabels[i],
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 12,
+                        color: isDark ? Colors.white : Colors.black,
+                        fontWeight: FontWeight.w600)),
+              )),
       onChanged: onChanged,
-      style: const TextStyle(fontFamily: 'Cairo', color: Colors.white, fontSize: 12),
+      style: TextStyle(
+          fontFamily: 'Cairo',
+          color: isDark ? Colors.white : Colors.black,
+          fontSize: 12),
     );
   }
 }
@@ -897,10 +1070,12 @@ class _DateFilterField extends StatelessWidget {
   final String label;
   final DateTime? date;
   final ValueChanged<DateTime?> onChanged;
-  const _DateFilterField({required this.label, required this.date, required this.onChanged});
+  const _DateFilterField(
+      {required this.label, required this.date, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return InkWell(
       onTap: () async {
         final picked = await showDatePicker(
@@ -910,7 +1085,10 @@ class _DateFilterField extends StatelessWidget {
           lastDate: DateTime(2100),
           builder: (ctx, child) => Theme(
             data: Theme.of(ctx).copyWith(
-              colorScheme: const ColorScheme.dark(primary: AppTheme.primary),
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: AppTheme.primary,
+                brightness: isDark ? Brightness.dark : Brightness.light,
+              ),
             ),
             child: child!,
           ),
@@ -921,19 +1099,37 @@ class _DateFilterField extends StatelessWidget {
       child: InputDecorator(
         decoration: InputDecoration(
           labelText: label,
-          labelStyle: const TextStyle(fontFamily: 'Cairo', fontSize: 12),
+          labelStyle: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 12,
+              color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B)),
           isDense: true,
-          contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           suffixIcon: date != null
               ? GestureDetector(
                   onTap: () => onChanged(null),
-                  child: const Icon(Icons.close, size: 16, color: AppTheme.textSecondary),
+                  child: Icon(Icons.close,
+                      size: 16,
+                      color: isDark
+                          ? AppTheme.textSecondary
+                          : const Color(0xFF64748B)),
                 )
-              : const Icon(Icons.calendar_today, size: 14, color: AppTheme.textSecondary),
+              : Icon(Icons.calendar_today,
+                  size: 14,
+                  color: isDark
+                      ? AppTheme.textSecondary
+                      : const Color(0xFF64748B)),
         ),
         child: Text(
-          date != null ? '${date!.year}-${date!.month.toString().padLeft(2, '0')}-${date!.day.toString().padLeft(2, '0')}' : '',
-          style: const TextStyle(fontFamily: 'Cairo', fontSize: 12, color: Colors.white),
+          date != null
+              ? '${date!.year}-${date!.month.toString().padLeft(2, '0')}-${date!.day.toString().padLeft(2, '0')}'
+              : '',
+          style: TextStyle(
+              fontFamily: 'Cairo',
+              fontSize: 12,
+              fontWeight: FontWeight.bold,
+              color: isDark ? Colors.white : Colors.black),
         ),
       ),
     );
@@ -944,7 +1140,8 @@ class _ChequeRow extends StatelessWidget {
   final ChequeModel cheque;
   const _ChequeRow({required this.cheque});
 
-  Color get _typeColor => cheque.isOutgoing ? AppTheme.danger : AppTheme.success;
+  Color get _typeColor =>
+      cheque.isOutgoing ? AppTheme.danger : AppTheme.success;
 
   Color get _statusColor {
     switch (cheque.status) {
@@ -974,17 +1171,26 @@ class _ChequeRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: AppTheme.divider)),
+      decoration: BoxDecoration(
+        border: Border(
+            bottom: BorderSide(
+                color: isDark ? AppTheme.divider : const Color(0xFFE2E8F0))),
       ),
       child: Row(
         children: [
           Expanded(
             flex: 2,
-            child: Text(cheque.chequeNumber, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontFamily: 'Cairo', fontSize: 13, color: AppTheme.primary, fontWeight: FontWeight.w600)),
+            child: Text(cheque.chequeNumber,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 13,
+                    color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
+                    fontWeight: FontWeight.bold)),
           ),
           Expanded(
             flex: 1,
@@ -993,12 +1199,18 @@ class _ChequeRow extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
-                  color: _typeColor.withValues(alpha: 0.1),
+                  color: _typeColor.withValues(alpha: isDark ? 0.1 : 0.12),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: Text(cheque.typeLabel, maxLines: 1, overflow: TextOverflow.ellipsis,
+                child: Text(cheque.typeLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontFamily: 'Cairo', fontSize: 11, color: _typeColor, fontWeight: FontWeight.bold)),
+                    style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 11,
+                        color: _typeColor,
+                        fontWeight: FontWeight.bold)),
               ),
             ),
           ),
@@ -1007,25 +1219,51 @@ class _ChequeRow extends StatelessWidget {
             child: Text(cheque.counterpartyDisplay,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontFamily: 'Cairo', fontSize: 13)),
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 13,
+                    color: isDark ? Colors.white : Colors.black,
+                    fontWeight: FontWeight.w600)),
           ),
           Expanded(
             flex: 1,
-            child: Text(AppUtils.formatNumber(cheque.amount), maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontFamily: 'Cairo', fontSize: 13, fontWeight: FontWeight.bold)),
+            child: Text(AppUtils.formatNumber(cheque.amount),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : Colors.black)),
           ),
           Expanded(
             flex: 1,
-            child: Text(cheque.currency, maxLines: 1, overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontFamily: 'Cairo', fontSize: 12, color: AppTheme.accent)),
+            child: Text(cheque.currency,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                    fontFamily: 'Cairo',
+                    fontSize: 12,
+                    color: isDark ? AppTheme.accent : const Color(0xFF0D9488),
+                    fontWeight: FontWeight.bold)),
           ),
           Expanded(
             flex: 1,
             child: Container(
               alignment: Alignment.center,
-              child: Text(cheque.dueDate.length >= 10 ? cheque.dueDate.substring(0, 10) : cheque.dueDate,
-                  maxLines: 1, overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontFamily: 'Cairo', fontSize: 12)),
+              child: Text(
+                  cheque.dueDate.length >= 10
+                      ? cheque.dueDate.substring(0, 10)
+                      : cheque.dueDate,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                      fontFamily: 'Cairo',
+                      fontSize: 12,
+                      color: isDark
+                          ? AppTheme.textSecondary
+                          : const Color(0xFF475569),
+                      fontWeight: FontWeight.w500)),
             ),
           ),
           Expanded(
@@ -1035,12 +1273,18 @@ class _ChequeRow extends StatelessWidget {
               child: Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _statusColor.withValues(alpha: 0.1),
+                  color: _statusColor.withValues(alpha: isDark ? 0.1 : 0.12),
                   borderRadius: BorderRadius.circular(12),
                 ),
-                child: Text(_statusBg, maxLines: 1, overflow: TextOverflow.ellipsis,
+                child: Text(_statusBg,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontFamily: 'Cairo', fontSize: 11, color: _statusColor, fontWeight: FontWeight.bold)),
+                    style: TextStyle(
+                        fontFamily: 'Cairo',
+                        fontSize: 11,
+                        color: _statusColor,
+                        fontWeight: FontWeight.bold)),
               ),
             ),
           ),
@@ -1065,25 +1309,43 @@ class _ChequeRow extends StatelessWidget {
                   ),
                 if (cheque.isCleared)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: AppTheme.success.withValues(alpha: 0.1),
+                      color: AppTheme.success
+                          .withValues(alpha: isDark ? 0.1 : 0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: Text(cheque.clearedAt != null && cheque.clearedAt!.length >= 10
-                        ? cheque.clearedAt!.substring(0, 10)
-                        : 'تم', maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontFamily: 'Cairo', fontSize: 11, color: AppTheme.success)),
+                    child: Text(
+                        cheque.clearedAt != null &&
+                                cheque.clearedAt!.length >= 10
+                            ? cheque.clearedAt!.substring(0, 10)
+                            : 'تم',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 11,
+                            color: AppTheme.success,
+                            fontWeight: FontWeight.bold)),
                   ),
                 if (cheque.isCancelled)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                     decoration: BoxDecoration(
-                      color: AppTheme.danger.withValues(alpha: 0.1),
+                      color:
+                          AppTheme.danger.withValues(alpha: isDark ? 0.1 : 0.12),
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    child: const Text('ملغي', maxLines: 1, overflow: TextOverflow.ellipsis,
-                        style: TextStyle(fontFamily: 'Cairo', fontSize: 11, color: AppTheme.danger)),
+                    child: const Text('ملغي',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                            fontFamily: 'Cairo',
+                            fontSize: 11,
+                            color: AppTheme.danger,
+                            fontWeight: FontWeight.bold)),
                   ),
               ],
             ),
@@ -1094,36 +1356,61 @@ class _ChequeRow extends StatelessWidget {
   }
 
   void _confirmClear(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xCC05192D),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24), side: const BorderSide(color: AppTheme.glassBorder)),
-        title: const Text('تسوية الشيك', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
-        content: Text('هل أنت متأكد من تسوية الشيك رقم ${cheque.chequeNumber}؟\n'
-            'سيتم تحديث رصيد الخزنة الرئيسية.',
-            style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+        backgroundColor: isDark ? const Color(0xFF0A1630) : Colors.white,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(
+                color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+        title: Text(cheque.isIncoming ? 'تحصيل الشيك' : 'صرف الشيك',
+            style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold)),
+        content: Text(
+            'هل أنت متأكد من ${cheque.isIncoming ? 'تحصيل' : 'صرف'} الشيك رقم ${cheque.chequeNumber}؟\n'
+            'سيتم ترحيل القيود المحاسبية وتحديث رصيد البنك والحسابات المتعلقة تلقائياً.',
+            style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : Colors.black87,
+                fontFamily: 'Cairo')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('إلغاء',
+                  style: TextStyle(
+                      color: isDark
+                          ? AppTheme.textSecondary
+                          : const Color(0xFF64748B),
+                      fontFamily: 'Cairo'))),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
               final cubit = context.read<ChequeCubit>();
               final messenger = ScaffoldMessenger.of(context);
               cubit.clearCheque(int.parse(cheque.id!)).then((_) {
-                messenger.showSnackBar(const SnackBar(
-                  content: Text('تمت تسوية الشيك بنجاح', style: TextStyle(fontFamily: 'Cairo')),
+                messenger.showSnackBar(SnackBar(
+                  content: Text(
+                      cheque.isIncoming
+                          ? 'تم تحصيل الشيك وإيداعه بالبنك بنجاح'
+                          : 'تم صرف الشيك من البنك بنجاح',
+                      style: const TextStyle(fontFamily: 'Cairo')),
                   backgroundColor: AppTheme.success,
                 ));
               }).catchError((e) {
                 messenger.showSnackBar(SnackBar(
-                  content: Text('$e', style: const TextStyle(fontFamily: 'Cairo')),
+                  content:
+                      Text('$e', style: const TextStyle(fontFamily: 'Cairo')),
                   backgroundColor: AppTheme.danger,
                 ));
               });
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
-            child: const Text('تأكيد التسوية', style: TextStyle(fontFamily: 'Cairo')),
+            child: Text(cheque.isIncoming ? 'تأكيد التحصيل' : 'تأكيد الصرف',
+                style: const TextStyle(
+                    fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
           ),
         ],
       ),
@@ -1131,16 +1418,33 @@ class _ChequeRow extends StatelessWidget {
   }
 
   void _confirmCancel(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
-        backgroundColor: const Color(0xCC05192D),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24), side: const BorderSide(color: AppTheme.glassBorder)),
-        title: const Text('إلغاء الشيك', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+        backgroundColor: isDark ? const Color(0xFF0A1630) : Colors.white,
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(24),
+            side: BorderSide(
+                color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
+        title: Text('إلغاء الشيك',
+            style: TextStyle(
+                color: isDark ? Colors.white : Colors.black,
+                fontFamily: 'Cairo',
+                fontWeight: FontWeight.bold)),
         content: Text('هل أنت متأكد من إلغاء الشيك رقم ${cheque.chequeNumber}؟',
-            style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+            style: TextStyle(
+                color: isDark ? AppTheme.textSecondary : Colors.black87,
+                fontFamily: 'Cairo')),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('رجوع', style: TextStyle(color: AppTheme.textSecondary))),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: Text('رجوع',
+                  style: TextStyle(
+                      color: isDark
+                          ? AppTheme.textSecondary
+                          : const Color(0xFF64748B),
+                      fontFamily: 'Cairo'))),
           ElevatedButton(
             onPressed: () {
               Navigator.pop(ctx);
@@ -1148,18 +1452,22 @@ class _ChequeRow extends StatelessWidget {
               final messenger = ScaffoldMessenger.of(context);
               cubit.cancelCheque(int.parse(cheque.id!)).then((_) {
                 messenger.showSnackBar(const SnackBar(
-                  content: Text('تم إلغاء الشيك', style: TextStyle(fontFamily: 'Cairo')),
+                  content: Text('تم إلغاء الشيك',
+                      style: TextStyle(fontFamily: 'Cairo')),
                   backgroundColor: AppTheme.warning,
                 ));
               }).catchError((e) {
                 messenger.showSnackBar(SnackBar(
-                  content: Text('$e', style: const TextStyle(fontFamily: 'Cairo')),
+                  content:
+                      Text('$e', style: const TextStyle(fontFamily: 'Cairo')),
                   backgroundColor: AppTheme.danger,
                 ));
               });
             },
             style: ElevatedButton.styleFrom(backgroundColor: AppTheme.danger),
-            child: const Text('تأكيد الإلغاء', style: TextStyle(fontFamily: 'Cairo')),
+            child: const Text('تأكيد الإلغاء',
+                style: TextStyle(
+                    fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
           ),
         ],
       ),

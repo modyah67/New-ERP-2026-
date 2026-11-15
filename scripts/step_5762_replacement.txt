@@ -1,0 +1,667 @@
+                  // Any additional cost can be settled directly (all except raw produce, packaging materials, transport which is directly actual, and admin expenses which are settled exclusively via account 31331)
+                  final bool isSettlableCost = category != 'fruit' && category != 'material' && !isTransport && !isAdmin;
+                  final int costId = item.costItemId ?? name.hashCode;
+
+                  final bool isSettledCost = isSettlableCost &&
+                      (item.status == PackingCostStatus.fullyActual || item.hasActualCost) &&
+                      !_adminForceEditingIds.contains(costId);
+
+                  String actionLabel = 'تسوية التكلفة الفعلية';
+                  IconData actionIcon = Icons.check_circle_outline;
+                  Color actionColor = AppTheme.primary;
+
+                  if (isEngineer) {
+                    actionLabel = 'تسوية مصاريف المهندس';
+                    actionIcon = Icons.engineering_outlined;
+                    actionColor = const Color(0xFFF59E0B);
+                  } else if (isStation) {
+                    actionLabel = 'تسوية مورد المحطة';
+                    actionIcon = Icons.domain_verification_outlined;
+                    actionColor = const Color(0xFF0D9488);
+                  } else if (isDeduction) {
+                    actionLabel = 'تسوية مورد التخصيمات';
+                    actionIcon = Icons.fact_check_outlined;
+                    actionColor = const Color(0xFF6366F1);
+                  } else if (isTransport) {
+                    actionLabel = 'تسوية مصاريف النقل';
+                    actionIcon = Icons.local_shipping_outlined;
+                    actionColor = const Color(0xFF2563EB);
+                  }
+
+                  return DataRow(
+                    cells: [
+                      // 1. بند التكلفة
+                      DataCell(
+                        Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _getCategoryIcon(item.category),
+                            const SizedBox(width: 8),
+                            ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 160),
+                              child: Text(
+                                item.name,
+                                style: TextStyle(
+                                  color: isDark ? AppTheme.textPrimary : Colors.black,
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  fontFamily: 'Cairo',
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      // 2. التصنيف
+                      DataCell(
+                        _buildCategoryChip(item.category),
+                      ),
+                      // 3. التقديري
+                      DataCell(
+                        Text(
+                          isTransport
+                              ? (item.estimatedCost > 0
+                                  ? item.estimatedCost.toStringAsFixed(2)
+                                  : (item.actualCost?.toStringAsFixed(2) ?? '0.00'))
+                              : item.estimatedCost.toStringAsFixed(2),
+                          style: TextStyle(
+                            color: isDark ? AppTheme.textPrimary : Colors.black,
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            fontFamily: 'Cairo',
+                          ),
+                        ),
+                      ),
+                      // 4. الفعلي
+                      DataCell(
+                        isAdmin
+                            ? (item.hasActualCost
+                                ? Text(
+                                    item.actualCost!.toStringAsFixed(2),
+                                    style: const TextStyle(
+                                      color: AppTheme.success,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  )
+                                : Tooltip(
+                                    message: 'تتم تسوية المصاريف الإدارية من شاشة تفاصيل حساب المصاريف الإدارية (31331) لكافة الأوامر دفعة واحدة.',
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3.5),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF8B5CF6).withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.25)),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.visibility_outlined, size: 12, color: Color(0xFF8B5CF6)),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'عرض فقط',
+                                            style: TextStyle(
+                                              color: Color(0xFF8B5CF6),
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ))
+                            : (isSettlableCost
+                                ? (isSettledCost
+                                    ? Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Text(
+                                            (item.actualCost ?? 0.0).toStringAsFixed(2),
+                                            style: const TextStyle(
+                                              color: AppTheme.success,
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          ),
+                                          const SizedBox(width: 4),
+                                          IconButton(
+                                            icon: Icon(Icons.edit_outlined, size: 16, color: isDark ? Colors.white : Colors.black),
+                                            tooltip: 'تعديل التكلفة الفعلية',
+                                            padding: EdgeInsets.zero,
+                                            constraints: const BoxConstraints(),
+                                            onPressed: () {
+                                              setState(() {
+                                                _adminForceEditingIds.add(costId);
+                                                _getAdminActualController(costId, item.actualCost ?? (isTransport ? 0.0 : item.estimatedCost)).text =
+                                                    (item.actualCost ?? (isTransport ? 0.0 : item.estimatedCost)).toStringAsFixed(2);
+                                              });
+                                            },
+                                          ),
+                                        ],
+                                      )
+                                    : SizedBox(
+                                        width: 105,
+                                        height: 36,
+                                        child: TextFormField(
+                                          controller: _getAdminActualController(costId, isTransport ? 0.0 : item.estimatedCost),
+                                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                                          style: TextStyle(
+                                            fontFamily: 'Cairo',
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: isDark ? Colors.white : Colors.black87,
+                                          ),
+                                          decoration: InputDecoration(
+                                            isDense: true,
+                                            hintText: isTransport ? 'المبلغ الفعلي' : null,
+                                            suffixText: 'ج.م',
+                                            suffixStyle: const TextStyle(fontFamily: 'Cairo', fontSize: 10, color: AppTheme.textMuted),
+                                            contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                                            filled: true,
+                                            fillColor: isDark ? const Color(0xFF04192F) : Colors.white,
+                                            border: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(8),
+                                              borderSide: BorderSide(color: actionColor),
+                                            ),
+                                            enabledBorder: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(8),
+                                              borderSide: BorderSide(
+                                                color: actionColor.withValues(alpha: 0.5),
+                                              ),
+                                            ),
+                                            focusedBorder: OutlineInputBorder(
+                                              borderRadius: BorderRadius.circular(8),
+                                              borderSide: BorderSide(color: actionColor, width: 1.5),
+                                            ),
+                                          ),
+                                          onChanged: (_) => setState(() {}),
+                                        ),
+                                      ))
+                                : (item.hasActualCost
+                                    ? Text(
+                                        item.actualCost!.toStringAsFixed(2),
+                                        style: const TextStyle(
+                                          color: AppTheme.success,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      )
+                                    : Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: isDark ? Colors.white.withValues(alpha: 0.05) : const Color(0xFFF1F5F9),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: isDark ? null : Border.all(color: const Color(0xFFE2E8F0)),
+                                        ),
+                                        child: Text(
+                                          'غير متاح',
+                                          style: TextStyle(
+                                            color: isDark ? AppTheme.textMuted : Colors.black54,
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                        ),
+                                      ))),
+                      ),
+                      // 5. الفرق
+                      DataCell(
+                        isAdmin
+                            ? (item.hasActualCost
+                                ? Text(
+                                    (item.variance ?? 0.0).abs() < 0.01
+                                        ? '0.00'
+                                        : '${(item.variance ?? 0.0) > 0 ? '+' : ''}${(item.variance ?? 0.0).toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      color: (item.variance ?? 0.0).abs() < 0.01
+                                          ? AppTheme.success
+                                          : ((item.variance ?? 0.0) > 0.01 ? const Color(0xFFF97316) : AppTheme.accent),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  )
+                                : Text('—', style: TextStyle(color: isDark ? AppTheme.textMuted : Colors.black54, fontWeight: FontWeight.bold)))
+                            : (isTransport
+                                ? Text(
+                                    (item.variance ?? 0.0).abs() < 0.01
+                                        ? '0.00'
+                                        : '${(item.variance ?? 0.0) > 0 ? '+' : ''}${(item.variance ?? 0.0).toStringAsFixed(2)}',
+                                    style: TextStyle(
+                                      color: (item.variance ?? 0.0).abs() < 0.01
+                                          ? AppTheme.success
+                                          : ((item.variance ?? 0.0) > 0.01 ? const Color(0xFFF97316) : AppTheme.accent),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  )
+                                : (isSettlableCost
+                                    ? (isSettledCost
+                                        ? Text(
+                                            '${(item.variance ?? 0.0) > 0 ? '+' : ''}${(item.variance ?? 0.0).toStringAsFixed(2)}',
+                                            style: TextStyle(
+                                              color: (item.variance ?? 0.0) > 0.01
+                                                  ? const Color(0xFFF97316)
+                                                  : ((item.variance ?? 0.0) < -0.01
+                                                      ? AppTheme.accent
+                                                      : (isDark ? AppTheme.textSecondary : Colors.black87)),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          )
+                                        : Builder(builder: (_) {
+                                            final text = _getAdminActualController(costId, item.estimatedCost).text.trim();
+                                            final entered = double.tryParse(text);
+                                            if (entered == null) {
+                                              return Text('—', style: TextStyle(color: isDark ? AppTheme.textMuted : Colors.black54, fontWeight: FontWeight.bold));
+                                            }
+                                            final diff = entered - item.estimatedCost;
+                                            final col = diff > 0.01
+                                                ? const Color(0xFFF97316)
+                                                : (diff < -0.01 ? AppTheme.accent : (isDark ? AppTheme.textSecondary : Colors.black87));
+                                            return Text(
+                                              '${diff > 0 ? '+' : ''}${diff.toStringAsFixed(2)}',
+                                              style: TextStyle(
+                                                color: col,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Cairo',
+                                              ),
+                                            );
+                                          }))
+                                    : (item.hasActualCost
+                                        ? Text(
+                                            '${item.variance! > 0 ? '+' : ''}${item.variance!.toStringAsFixed(2)}',
+                                            style: TextStyle(
+                                              color: item.variance! > 0.01
+                                                  ? const Color(0xFFF97316)
+                                                  : (item.variance! < -0.01
+                                                      ? AppTheme.accent
+                                                      : (isDark ? AppTheme.textSecondary : Colors.black87)),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          )
+                                        : Text('—', style: TextStyle(color: isDark ? AppTheme.textMuted : Colors.black54, fontWeight: FontWeight.bold))))),
+                      ),
+                      // 6. الانحراف %
+                      DataCell(
+                        isAdmin
+                            ? (item.hasActualCost && item.variancePercent != null
+                                ? Text(
+                                    '${item.variancePercent! > 0 ? '+' : ''}${item.variancePercent!.toStringAsFixed(1)}%',
+                                    style: TextStyle(
+                                      color: item.variancePercent! > 0.01
+                                          ? const Color(0xFFF97316)
+                                          : (item.variancePercent! < -0.01
+                                              ? AppTheme.accent
+                                              : (isDark ? AppTheme.textSecondary : Colors.black87)),
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      fontFamily: 'Cairo',
+                                    ),
+                                  )
+                                : Text('—', style: TextStyle(color: isDark ? AppTheme.textMuted : Colors.black54, fontWeight: FontWeight.bold)))
+                            : (isTransport
+                                ? Text('—', style: TextStyle(color: isDark ? AppTheme.textMuted : Colors.black54, fontWeight: FontWeight.bold))
+                                : (isSettlableCost
+                                    ? (isSettledCost
+                                        ? (item.variancePercent != null
+                                            ? Text(
+                                                '${item.variancePercent! > 0 ? '+' : ''}${item.variancePercent!.toStringAsFixed(1)}%',
+                                                style: TextStyle(
+                                                  color: item.variancePercent! > 0.01
+                                                      ? const Color(0xFFF97316)
+                                                      : (item.variancePercent! < -0.01
+                                                          ? AppTheme.accent
+                                                          : (isDark ? AppTheme.textSecondary : Colors.black87)),
+                                                  fontSize: 12,
+                                                  fontWeight: FontWeight.bold,
+                                                  fontFamily: 'Cairo',
+                                                ),
+                                              )
+                                            : Text('—', style: TextStyle(color: isDark ? AppTheme.textMuted : Colors.black54, fontWeight: FontWeight.bold)))
+                                        : Builder(builder: (_) {
+                                            final text = _getAdminActualController(costId, item.estimatedCost).text.trim();
+                                            final entered = double.tryParse(text);
+                                            if (entered == null || item.estimatedCost <= 0) {
+                                              return Text('—', style: TextStyle(color: isDark ? AppTheme.textMuted : Colors.black54, fontWeight: FontWeight.bold));
+                                            }
+                                            final diff = entered - item.estimatedCost;
+                                            final pct = diff / item.estimatedCost * 100;
+                                            final col = pct > 0.01
+                                                ? const Color(0xFFF97316)
+                                                : (pct < -0.01 ? AppTheme.accent : (isDark ? AppTheme.textSecondary : Colors.black87));
+                                            return Text(
+                                              '${pct > 0 ? '+' : ''}${pct.toStringAsFixed(1)}%',
+                                              style: TextStyle(
+                                                color: col,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Cairo',
+                                              ),
+                                            );
+                                          }))
+                                    : (item.hasActualCost && item.variancePercent != null
+                                        ? Text(
+                                            '${item.variancePercent! > 0 ? '+' : ''}${item.variancePercent!.toStringAsFixed(1)}%',
+                                            style: TextStyle(
+                                              color: item.variancePercent! > 0.01
+                                                  ? const Color(0xFFF97316)
+                                                  : (item.variancePercent! < -0.01
+                                                      ? AppTheme.accent
+                                                      : (isDark ? AppTheme.textSecondary : Colors.black87)),
+                                              fontSize: 12,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          )
+                                        : Text('—', style: TextStyle(color: isDark ? AppTheme.textMuted : Colors.black54, fontWeight: FontWeight.bold))))),
+                      ),
+                      // 7. الحالة
+                      DataCell(
+                        isAdmin
+                            ? (item.hasActualCost || item.status == PackingCostStatus.fullyActual
+                                ? _buildStatusBadge(PackingCostStatus.fullyActual)
+                                : Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF8B5CF6).withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.3)),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(Icons.account_balance_wallet_outlined, size: 12, color: Color(0xFF8B5CF6)),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'تسوية بالحساب',
+                                          style: TextStyle(
+                                            color: Color(0xFF8B5CF6),
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ))
+                            : (isSettlableCost
+                                ? _buildStatusBadge(isSettledCost ? PackingCostStatus.fullyActual : (isTransport ? PackingCostStatus.estimatedOnly : item.status))
+                                : _buildStatusBadge(item.status)),
+                      ),
+                      // 8. المصدر والمستند
+                      DataCell(
+                        isAdmin
+                            ? ConstrainedBox(
+                                constraints: const BoxConstraints(maxWidth: 220),
+                                child: Tooltip(
+                                  message: 'تتم تسوية المصاريف الإدارية من خلال شاشة تفاصيل حساب المصاريف الإدارية (كود 31331) لكافة الأوامر دفعة واحدة.',
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const Icon(Icons.account_tree_outlined, size: 14, color: Color(0xFF8B5CF6)),
+                                      const SizedBox(width: 6),
+                                      Flexible(
+                                        child: Text(
+                                          item.hasActualCost
+                                              ? (item.source.isNotEmpty ? item.source : 'تسوية معتمدة بالحساب (31331)')
+                                              : 'حساب المصاريف الإدارية (31331)',
+                                          style: TextStyle(
+                                            color: item.hasActualCost
+                                                ? (isDark ? AppTheme.textSecondary : Colors.black87)
+                                                : const Color(0xFF8B5CF6),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          ),
+                                          overflow: TextOverflow.ellipsis,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              )
+                            : (isSettlableCost
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        isSettledCost ? Icons.check_circle_outline : Icons.schedule_outlined,
+                                        size: 14,
+                                        color: isSettledCost ? AppTheme.success : AppTheme.warning,
+                                      ),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        isSettledCost
+                                            ? (item.source.isNotEmpty ? item.source : 'تسوية فعلية معتمدة')
+                                            : (isTransport ? 'تكلفة نقل (فعلي فقط - بانتظار التسوية)' : 'تقديري - بانتظار التسوية'),
+                                        style: TextStyle(
+                                          color: isSettledCost ? (isDark ? AppTheme.textSecondary : Colors.black87) : AppTheme.warning,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.bold,
+                                          fontFamily: 'Cairo',
+                                        ),
+                                      ),
+                                    ],
+                                  )
+                                : ConstrainedBox(
+                                    constraints: const BoxConstraints(maxWidth: 220),
+                                    child: Tooltip(
+                                      message: item.reasonNotAvailable ?? item.source,
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(
+                                            item.hasActualCost ? Icons.check_circle_outline : Icons.help_outline,
+                                            size: 14,
+                                            color: item.hasActualCost ? AppTheme.success : AppTheme.warning,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Flexible(
+                                            child: Text(
+                                              item.hasActualCost ? item.source : (item.reasonNotAvailable ?? item.source),
+                                              style: TextStyle(
+                                                color: item.hasActualCost ? (isDark ? AppTheme.textSecondary : Colors.black87) : AppTheme.warning,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Cairo',
+                                              ),
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  )),
+                      ),
+                      // 9. إجراء (تسوية التكلفة الفعلية أو عرض القيد)
+                      DataCell(
+                        isAdmin
+                            ? (item.hasActualCost
+                                ? Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.success.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: AppTheme.success.withValues(alpha: 0.3)),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.check, size: 12, color: AppTheme.success),
+                                            SizedBox(width: 4),
+                                            Text(
+                                              'تمت التسوية بالحساب',
+                                              style: TextStyle(
+                                                color: AppTheme.success,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Cairo',
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (item.journalEntryId != null) ...[
+                                        const SizedBox(width: 4),
+                                        IconButton(
+                                          tooltip: 'عرض القيد المحاسبي (${item.journalEntryId})',
+                                          icon: const Icon(Icons.open_in_new, size: 16, color: AppTheme.primary),
+                                          onPressed: () => JournalEntryNavigationService.openById(
+                                            context,
+                                            journalEntryId: item.journalEntryId,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  )
+                                : Tooltip(
+                                    message: 'تتم تسوية هذا البند مجمعاً من شاشة تفاصيل حساب المصاريف الإدارية (كود 31331) منعاً لتكرار الإدخال.',
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFF8B5CF6).withValues(alpha: 0.08),
+                                        borderRadius: BorderRadius.circular(6),
+                                        border: Border.all(color: const Color(0xFF8B5CF6).withValues(alpha: 0.25)),
+                                      ),
+                                      child: const Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Icon(Icons.lock_clock_outlined, size: 13, color: Color(0xFF8B5CF6)),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'تسوية من كشف الحساب',
+                                            style: TextStyle(
+                                              color: Color(0xFF8B5CF6),
+                                              fontSize: 10.5,
+                                              fontWeight: FontWeight.bold,
+                                              fontFamily: 'Cairo',
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ))
+                            : (isSettlableCost
+                                ? (!isSettledCost
+                                    ? ElevatedButton.icon(
+                                        onPressed: _adminSettlingIds.contains(costId)
+                                            ? null
+                                            : () => _settleCostItemRow(item, costId),
+                                        icon: _adminSettlingIds.contains(costId)
+                                            ? const SizedBox(
+                                                width: 12,
+                                                height: 12,
+                                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                              )
+                                            : Icon(actionIcon, size: 14),
+                                        label: Text(
+                                          actionLabel,
+                                          style: const TextStyle(
+                                            fontFamily: 'Cairo',
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                          ),
+                                        ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: actionColor,
+                                          foregroundColor: Colors.white,
+                                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                          elevation: 1,
+                                        ),
+                                      )
+                                    : Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                            decoration: BoxDecoration(
+                                              color: AppTheme.success.withValues(alpha: 0.12),
+                                              borderRadius: BorderRadius.circular(6),
+                                              border: Border.all(color: AppTheme.success.withValues(alpha: 0.3)),
+                                            ),
+                                            child: const Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(Icons.check, size: 12, color: AppTheme.success),
+                                                SizedBox(width: 4),
+                                                Text(
+                                                  'تمت التسوية',
+                                                  style: TextStyle(
+                                                    color: AppTheme.success,
+                                                    fontSize: 11,
+                                                    fontWeight: FontWeight.bold,
+                                                    fontFamily: 'Cairo',
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                          if (item.journalEntryId != null) ...[
+                                            const SizedBox(width: 4),
+                                            IconButton(
+                                              tooltip: 'عرض القيد المحاسبي (${item.journalEntryId})',
+                                              icon: const Icon(Icons.open_in_new, size: 16, color: AppTheme.primary),
+                                              onPressed: () => JournalEntryNavigationService.openById(
+                                                context,
+                                                journalEntryId: item.journalEntryId,
+                                              ),
+                                            ),
+                                          ],
+                                        ],
+                                      ))
+                                : Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                        decoration: BoxDecoration(
+                                          color: AppTheme.success.withValues(alpha: 0.12),
+                                          borderRadius: BorderRadius.circular(6),
+                                          border: Border.all(color: AppTheme.success.withValues(alpha: 0.3)),
+                                        ),
+                                        child: Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            const Icon(Icons.check_circle, size: 12, color: AppTheme.success),
+                                            const SizedBox(width: 4),
+                                            Text(
+                                              isTransport ? 'فعلي معتمد' : 'مكتمل فعلياً',
+                                              style: const TextStyle(
+                                                color: AppTheme.success,
+                                                fontSize: 11,
+                                                fontWeight: FontWeight.bold,
+                                                fontFamily: 'Cairo',
+                                              ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      if (item.journalEntryId != null) ...[
+                                        const SizedBox(width: 4),
+                                        IconButton(
+                                          tooltip: 'عرض القيد المحاسبي (${item.journalEntryId})',
+                                          icon: const Icon(Icons.open_in_new, size: 16, color: AppTheme.primary),
+                                          onPressed: () => JournalEntryNavigationService.openById(
+                                            context,
+                                            journalEntryId: item.journalEntryId,
+                                          ),
+                                        ),
+                                      ],
+                                    ],
+                                  )),
+                      ),

@@ -1,8 +1,8 @@
-import 'package:supabase_flutter/supabase_flutter.dart';
 import '../dao/crop_purchase_dao.dart';
 import '../dao/fruit_type_dao.dart';
 import '../models/fruit_type_model.dart';
 import '../models/crop_purchase_model.dart';
+import 'crop_purchase_calculation_service.dart';
 
 class CropPurchaseService {
   final CropPurchaseDao _dao = CropPurchaseDao();
@@ -55,5 +55,47 @@ class CropPurchaseService {
   /// Get purchase statistics
   Future<Map<String, dynamic>> getStats() async {
     return _dao.getStats();
+  }
+
+  /// Calculate total financial liability amount credited to supplier
+  double calculateTotal({
+    required String purchaseMethod,
+    int? cartonCount,
+    double? pricePerCarton,
+    double? grossWeightKg,
+    double? netWeightKg,
+    double? pricePerKg,
+  }) {
+    return CropPurchaseCalculationService.calculateTotalAmount(
+      purchaseMethod: purchaseMethod,
+      cartonCount: cartonCount,
+      pricePerCarton: pricePerCarton,
+      grossWeightKg: grossWeightKg,
+      netWeightKg: netWeightKg,
+      pricePerKg: pricePerKg,
+    );
+  }
+
+  /// Build active formula description (e.g. 500.00 كجم (إجمالي) × 25.00 $ = 12,500.00 $)
+  String buildFormula({
+    required String purchaseMethod,
+    int? cartonCount,
+    double? pricePerCarton,
+    double? grossWeightKg,
+    double? netWeightKg,
+    double? pricePerKg,
+    required double totalAmount,
+    required String currency,
+  }) {
+    return CropPurchaseCalculationService.buildFormulaDescription(
+      purchaseMethod: purchaseMethod,
+      cartonCount: cartonCount,
+      pricePerCarton: pricePerCarton,
+      grossWeightKg: grossWeightKg,
+      netWeightKg: netWeightKg,
+      pricePerKg: pricePerKg,
+      totalAmount: totalAmount,
+      currency: currency,
+    );
   }
 }

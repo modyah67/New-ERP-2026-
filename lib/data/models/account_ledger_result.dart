@@ -99,8 +99,20 @@ class AccountLedgerEntry {
   /// Account display name
   final String accountName;
 
+  /// Cost Center ID/code
+  final String? costCenterId;
+
+  /// Cost Center display name
+  final String? costCenterName;
+
   /// Created at timestamp (for deterministic ordering)
   final String createdAt;
+
+  /// Multi-currency original amounts and exchange rate
+  final double? foreignDebit;
+  final double? foreignCredit;
+  final String? foreignCurrency;
+  final double? exchangeRate;
 
   const AccountLedgerEntry({
     required this.id,
@@ -115,7 +127,13 @@ class AccountLedgerEntry {
     required this.currency,
     required this.accountCode,
     required this.accountName,
+    this.costCenterId,
+    this.costCenterName,
     required this.createdAt,
+    this.foreignDebit,
+    this.foreignCredit,
+    this.foreignCurrency,
+    this.exchangeRate,
   });
 
   /// Whether this entry is a debit entry

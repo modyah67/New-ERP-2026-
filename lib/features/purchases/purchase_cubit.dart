@@ -140,7 +140,7 @@ class PurchaseCubit extends Cubit<PurchaseState> {
 
       // If reference data is empty (e.g. after PurchaseFormSaved), reload in parallel
       final refFutures = <Future>[];
-      if (reset && prevSuppliers.isEmpty) refFutures.add(_supplierDao.getAll(limit: 2000, offset: 0).then((s) => prevSuppliers = s));
+      if (reset && prevSuppliers.isEmpty) refFutures.add(_supplierDao.getAll(limit: 2000, offset: 0, supplierTypes: ['packaging', 'shared']).then((s) => prevSuppliers = s));
       if (reset && prevItems.isEmpty) refFutures.add(_reloadItemsCache().then((items) => prevItems = items));
       if (reset && prevStations.isEmpty) refFutures.add(_stationDao.getAll(limit: 100).then((s) => prevStations = s));
 
@@ -371,7 +371,7 @@ class PurchaseCubit extends Cubit<PurchaseState> {
   // ── Load suppliers ──
 
   Future<void> _loadSuppliers() async {
-    final suppliers = await _supplierDao.getAll(limit: 2000, offset: 0);
+    final suppliers = await _supplierDao.getAll(limit: 2000, offset: 0, supplierTypes: ['packaging', 'shared']);
     _cachedSuppliers = suppliers;
     final currentState = state;
     if (currentState is PurchaseLoaded) {
@@ -481,10 +481,56 @@ class PurchaseCubit extends Cubit<PurchaseState> {
     _formState = _formState.copyWith(nextPurchaseNumber: nextNum);
   }
 
-  // ── Form: Select supplier ──
+  // ── Form: Select supplier & currency ──
 
-  void selectSupplier(SupplierModel supplier) {
-    _formState = _formState.copyWith(selectedSupplier: supplier);
+  void selectSupplier(SupplierModel supplier, {String? initialCurrency}) {
+    String cur = initialCurrency ?? 'EGP';
+    if (initialCurrency == null) {
+      if (supplier.supportsMultiCurrency) {
+        if (supplier.packagingCurrency.isNotEmpty && supplier.supportedCurrencies.contains(supplier.packagingCurrency)) {
+          cur = supplier.packagingCurrency;
+        } else if (supplier.supportedCurrencies.isNotEmpty) {
+          cur = supplier.supportedCurrencies.first;
+        }
+      } else {
+        cur = (supplier.currency.isNotEmpty && supplier.currency != 'MULTI') ? supplier.currency : 'EGP';
+      }
+    }
+    _formState = _formState.copyWith(
+      selectedSupplier: supplier,
+      invoiceCurrency: cur,
+    );
+  }
+
+  void setInvoiceCurrency(String currency, {double rate = 1.0}) {
+    _formState = _formState.copyWith(
+      invoiceCurrency: currency,
+      exchangeRate: rate,
+    );
+  }
+
+  void updateExchangeRate(double rate) {
+    _formState = _formState.copyWith(exchangeRate: rate);
+  }
+
+  /// Filters items strictly by invoice currency and optional supplier.
+  List<ItemModel> getFilteredItems({required String currency, String? supplierId}) {
+    final cur = currency.trim().toUpperCase();
+    final items = (state is PurchaseLoaded) ? (state as PurchaseLoaded).allItems : _cachedItems;
+    return items.where((item) {
+      final itemCur = item.currency.trim().toUpperCase();
+      if (cur.isNotEmpty) {
+        if (cur == 'EGP') {
+          if (itemCur != 'EGP' && itemCur.isNotEmpty) return false;
+        } else {
+          if (itemCur != cur) return false;
+        }
+      }
+      if (supplierId != null && supplierId.isNotEmpty && item.supplierId != null && item.supplierId!.isNotEmpty) {
+        if (item.supplierId != supplierId) return false;
+      }
+      return true;
+    }).toList();
   }
 
   // ── Build preview purchase ──
@@ -522,10 +568,70 @@ class PurchaseCubit extends Cubit<PurchaseState> {
       totalAmount: total,
       paidAmount: 0.0,
       status: 'confirmed',
-      currency: _formState.selectedSupplier!.currency,
+      currency: _formState.invoiceCurrency,
       createdAt: DateTime.now().toIso8601String(),
       items: items,
     );
+  }
+
+  /// Generates granular item-level journal entry lines for the current purchase form invoice.
+  List<Map<String, dynamic>>? generateJournalLinesForCurrentInvoice({
+    required int supplierAccountId,
+    int? packagingInventoryAccountId,
+    int? cropInventoryAccountId,
+    String? supplierAccountCode,
+  }) {
+    if (_formState.selectedSupplier == null) return null;
+    final validLines = _formState.purchaseLines
+        .where((l) => l.quantity > 0 && l.code.isNotEmpty)
+        .toList();
+    if (validLines.isEmpty) return null;
+
+    return PurchaseDao.generateItemLevelJournalLines(
+      validLines: validLines,
+      supplierAccountId: supplierAccountId,
+      supplierName: _formState.selectedSupplier!.name,
+      invoiceNumber: _formState.nextPurchaseNumber,
+      currency: _formState.invoiceCurrency,
+      exchangeRate: validLines.isNotEmpty ? validLines.first.exchangeRate : 1.0,
+      packagingInventoryAccountId: packagingInventoryAccountId,
+      cropInventoryAccountId: cropInventoryAccountId,
+      supplierAccountCode: supplierAccountCode,
+    );
+  }
+
+  /// Recalculates line financial totals strictly by purchase method:
+  /// - Cartons: cartonCount × pricePerCarton (weights are never multiplied into amount)
+  /// - Weight: grossWeightKg × pricePerKg (supplier liability based on gross weight, inventory quantity tracks net weight)
+  void updateLinePurchaseMethod(int index, {
+    required String purchaseMethod,
+    int? cartonCount,
+    double? pricePerCarton,
+    double? grossWeightKg,
+    double? netWeightKg,
+    double? pricePerKg,
+  }) {
+    if (index < 0 || index >= _formState.purchaseLines.length) return;
+    final lines = List<PurchaseLineData>.from(_formState.purchaseLines);
+    final line = lines[index];
+    line.purchaseMethod = purchaseMethod;
+    line.cartonCount = cartonCount;
+    line.pricePerCarton = pricePerCarton;
+    line.grossWeightKg = grossWeightKg;
+    line.netWeightKg = netWeightKg;
+    if (line.isCarton) {
+      if (cartonCount != null) line.quantity = cartonCount.toDouble();
+      if (pricePerCarton != null) line.purchasePrice = pricePerCarton;
+    } else {
+      if (netWeightKg != null) line.quantity = netWeightKg;
+      if (pricePerKg != null) line.purchasePrice = pricePerKg;
+    }
+    lines[index] = line;
+    _formState = _formState.copyWith(
+      purchaseLines: lines,
+      subtotal: AppUtils.roundDouble(lines.fold(0.0, (s, l) => s + l.totalPrice)),
+    );
+    _safeEmit(state);
   }
 
   // ── Save purchase ──
@@ -573,6 +679,7 @@ class PurchaseCubit extends Cubit<PurchaseState> {
               sellingPrice: 0,
               totalPrice: l.totalPrice,
               unit: l.unit,
+              costCenterId: l.costCenterId ?? 'packing_station',
             ))
         .toList();
 
@@ -620,13 +727,13 @@ class PurchaseCubit extends Cubit<PurchaseState> {
                 : 'unpaid',
         'status': 'draft',
         'notes': purchase.notes,
-        'currency': selectedSupplier.currency,
+        'currency': _formState.invoiceCurrency,
         'user_id': _client.auth.currentUser?.id,
         'payment_treasury_id': paymentTreasuryId,
         'payment_source_type': paymentSourceType ?? 'treasury',
         'payment_bank_account_id': paymentBankAccountId,
         'currency_snapshot': CurrencyConversionService.instance.createSnapshot(
-          currency: selectedSupplier.currency,
+          currency: _formState.invoiceCurrency,
           amount: purchase.totalAmount,
           exchangeRate: validLines.isNotEmpty ? validLines.first.exchangeRate : 1.0,
           createdBy: _client.auth.currentUser?.id,
@@ -650,9 +757,10 @@ class PurchaseCubit extends Cubit<PurchaseState> {
       for (final l in validLines) {
         final code = l.code;
         final stationIdInt = int.tryParse(l.stationId ?? '');
+        final costCenterId = l.costCenterId ?? 'packing_station';
 
         final snapshot = CurrencyConversionService.instance.createSnapshot(
-          currency: selectedSupplier.currency,
+          currency: _formState.invoiceCurrency,
           amount: l.totalPrice,
           exchangeRate: l.exchangeRate,
           createdBy: _client.auth.currentUser?.id,
@@ -670,6 +778,7 @@ class PurchaseCubit extends Cubit<PurchaseState> {
           'total_cost': l.totalPrice,
           'exchange_rate': l.exchangeRate,
           'station_id': stationIdInt,
+          'cost_center_id': costCenterId,
           'currency_snapshot': snapshot,
         });
       }
@@ -678,20 +787,23 @@ class PurchaseCubit extends Cubit<PurchaseState> {
         try {
           await _client.from('purchase_invoice_items').insert(purchaseItemMaps);
         } catch (e) {
-          debugPrint('⚠️ insert with station_id failed, retrying without: $e');
-          final noStationMaps = purchaseItemMaps.map((m) => {
-            ...m,
+          debugPrint('⚠️ insert with station_id/cost_center_id failed, retrying without: $e');
+          final fallbackMaps = purchaseItemMaps.map((m) {
+            final copy = Map<String, dynamic>.from(m);
+            copy.remove('cost_center_id');
+            copy.remove('station_id');
+            return copy;
           }).toList();
-          for (final m in noStationMaps) { m.remove('station_id'); }
           try {
-            await _client.from('purchase_invoice_items').insert(noStationMaps);
-          } catch (e2) {
-            debugPrint('⚠️ insert without station_id also failed, retrying without raw_material_id: $e2');
-            final fallbackMaps = noStationMaps.map((m) => {
-              ...m,
-              'raw_material_id': null,
-            }).toList();
             await _client.from('purchase_invoice_items').insert(fallbackMaps);
+          } catch (e2) {
+            debugPrint('⚠️ insert fallback failed, retrying without raw_material_id: $e2');
+            final noRawMaps = fallbackMaps.map((m) {
+              final copy = Map<String, dynamic>.from(m);
+              copy['raw_material_id'] = null;
+              return copy;
+            }).toList();
+            await _client.from('purchase_invoice_items').insert(noRawMaps);
           }
         }
       }
@@ -876,7 +988,7 @@ class PurchaseCubit extends Cubit<PurchaseState> {
         List<SupplierModel> suppliers = currentSuppliers;
         List<StationModel> stations = currentStations;
         List<ItemModel> items = currentItems;
-        if (currentSuppliers.isEmpty) futures.add(_supplierDao.getAll(limit: 2000, offset: 0).then((s) => suppliers = s));
+        if (currentSuppliers.isEmpty) futures.add(_supplierDao.getAll(limit: 2000, offset: 0, supplierTypes: ['packaging', 'shared']).then((s) => suppliers = s));
         if (currentStations.isEmpty) futures.add(_stationDao.getAll(limit: 100).then((s) => stations = s));
         if (currentItems.isEmpty) futures.add(_reloadItemsCache().then((i) => items = i));
         await Future.wait(futures);
@@ -897,6 +1009,13 @@ class PurchaseCubit extends Cubit<PurchaseState> {
         }
       }
 
+      final effectiveCurrency = (purchase.currency.isNotEmpty && purchase.currency != 'MULTI')
+          ? purchase.currency
+          : 'EGP';
+      final firstRate = purchase.items.isNotEmpty && purchase.items.first.exchangeRate > 0
+          ? purchase.items.first.exchangeRate
+          : 1.0;
+
       _formState = PurchaseFormState(
         selectedSupplier: SupplierModel(
           id: purchase.supplierId?.toString(),
@@ -904,7 +1023,9 @@ class PurchaseCubit extends Cubit<PurchaseState> {
           name: purchase.supplierName ?? '',
           currency: purchase.currency,
         ),
-        purchaseDate: DateTime.tryParse(purchase.purchaseDate ?? '') ?? DateTime.now(),
+        invoiceCurrency: effectiveCurrency,
+        exchangeRate: firstRate,
+        purchaseDate: DateTime.tryParse(purchase.purchaseDate) ?? DateTime.now(),
         purchaseLines: purchase.items.map((i) => PurchaseLineData(
           code: i.itemCode,
           name: i.itemName,
@@ -914,6 +1035,7 @@ class PurchaseCubit extends Cubit<PurchaseState> {
           existingItemId: i.itemId,
           stationId: i.stationId?.toString(),
           exchangeRate: i.exchangeRate,
+          costCenterId: i.costCenterId,
         )).toList(),
         nextPurchaseNumber: purchase.purchaseNumber,
         subtotal: purchase.totalAmount,
@@ -958,11 +1080,11 @@ class PurchaseCubit extends Cubit<PurchaseState> {
 
       // Re-insert items
       final insertedIds = <int>[];
-      final supplierCurrency = _formState.selectedSupplier?.currency ?? 'EGP';
+      final invoiceCurrency = _formState.invoiceCurrency;
       for (final l in validLines) {
         final stationIdInt = int.tryParse(l.stationId ?? '');
         final snapshot = CurrencyConversionService.instance.createSnapshot(
-          currency: supplierCurrency,
+          currency: invoiceCurrency,
           amount: l.totalPrice,
           exchangeRate: l.exchangeRate,
           createdBy: _client.auth.currentUser?.id,
@@ -1037,7 +1159,7 @@ class PurchaseCubit extends Cubit<PurchaseState> {
         'payment_status': paymentStatus,
         'notes': notes,
         'supplier_id': _formState.selectedSupplier?.id,
-        'currency': supplierCurrency,
+        'currency': _formState.invoiceCurrency,
         'payment_treasury_id': paymentTreasuryId,
         'payment_source_type': paymentSourceType ?? 'treasury',
         'payment_bank_account_id': paymentBankAccountId,

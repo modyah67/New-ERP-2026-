@@ -153,6 +153,26 @@ class StatementCubit extends Cubit<StatementState> {
             openingBalance += amt;
           }
         }
+        // General Ledger entries before date
+        final priorGl = await _fetchGlEntries(customerId, currentState.selectedCustomer!.accountId, null, from);
+        for (final gl in priorGl) {
+          final sType = gl['source_type']?.toString() ?? '';
+          if (sType == 'opening_balance' ||
+              sType == 'invoice' ||
+              sType == 'sales_invoice' ||
+              sType == 'invoice_return' ||
+              sType == 'cheque' ||
+              sType == 'cheque_clearance' ||
+              sType == 'treasury_tx' ||
+              sType == 'bank_tx') {
+            continue;
+          }
+          final debit = (gl['debit'] as num?)?.toDouble() ?? 0.0;
+          final credit = (gl['credit'] as num?)?.toDouble() ?? 0.0;
+          final isCredit = credit > 0;
+          final amt = isCredit ? credit : debit;
+          openingBalance += isCredit ? -amt : amt;
+        }
         // Cheques before date
         final priorCheques = await _fetchCheques(customerId, null, from);
         for (final ch in priorCheques) {
@@ -186,13 +206,68 @@ class StatementCubit extends Cubit<StatementState> {
       );
 
       final ledgerEntries = await _fetchLedgerEntries(customerId, from, to);
+      final glEntries = await _fetchGlEntries(customerId, currentState.selectedCustomer!.accountId, from, to);
 
       debugPrint('📊 Transactions found: ${transactions.length}');
       debugPrint('📊 Ledger entries found: ${ledgerEntries.length}');
+      debugPrint('📊 GL entries found: ${glEntries.length}');
 
       final rows = _buildRows(invoicesWithItems, transactions);
 
       debugPrint('📊 Rows built: ${rows.length}');
+
+      // Add general ledger journal entries (cash receipts, payments, sorting sales, settlements)
+      for (final gl in glEntries) {
+        final sType = gl['source_type']?.toString() ?? '';
+        if (sType == 'opening_balance' ||
+            sType == 'invoice' ||
+            sType == 'sales_invoice' ||
+            sType == 'invoice_return' ||
+            sType == 'cheque' ||
+            sType == 'cheque_clearance' ||
+            sType == 'treasury_tx' ||
+            sType == 'bank_tx') {
+          continue;
+        }
+
+        final debit = (gl['debit'] as num?)?.toDouble() ?? 0.0;
+        final credit = (gl['credit'] as num?)?.toDouble() ?? 0.0;
+        final isCredit = credit > 0;
+        final amount = isCredit ? credit : debit;
+        if (amount == 0) continue;
+
+        final entryNumber = gl['entry_number']?.toString() ?? gl['id']?.toString() ?? '—';
+        final txDate = gl['transaction_date'] != null
+            ? gl['transaction_date'].toString()
+            : _toLocalDate(gl['created_at']);
+        final desc = gl['description']?.toString() ?? '';
+
+        String accountName;
+        if (sType == 'cash_receipt' || sType == 'receipt') {
+          accountName = 'سند قبض';
+        } else if (sType == 'cash_payment' || sType == 'payment') {
+          accountName = 'سند صرف';
+        } else if (sType == 'sale_sorting' || sType == 'sorting_sale') {
+          accountName = isCredit ? 'سداد بيع فرز' : 'مديونية بيع فرز';
+        } else {
+          accountName = isCredit ? 'سند قبض / قيد تسوية' : 'سند صرف / قيد تسوية';
+        }
+
+        rows.add(StatementRow(
+          transactionNumber: entryNumber,
+          date: txDate,
+          accountName: accountName,
+          description: desc.isNotEmpty ? desc : accountName,
+          piecesCount: 0,
+          quantity: 0,
+          unitPrice: 0,
+          debit: isCredit ? 0 : amount,
+          credit: isCredit ? amount : 0,
+          balance: 0,
+          type: isCredit ? 'cash_receipt' : 'cash_payment',
+          createdAt: (gl['created_at'] ?? '').toString(),
+        ));
+      }
 
       // Add ledger entries as statement rows
       for (final entry in ledgerEntries) {
@@ -204,10 +279,15 @@ class StatementCubit extends Cubit<StatementState> {
             (refType == 'receive' ? 'استلام' : refType == 'expense' ? 'مصروف' : 'قيد');
 
         final isCredit = entryType == 'credit';
+        final refText = entry['reference_text']?.toString() ?? '';
+        final isSorting = refText.contains('sorting_sale') || refType == 'sorting_sale';
+        final accountName = isSorting
+            ? (isCredit ? 'سداد نقدي (فرزة)' : 'فاتورة بيع فرز')
+            : (isCredit ? 'سند قبض' : 'مصروف');
         rows.add(StatementRow(
           transactionNumber: entry['id']?.toString() ?? '—',
           date: entryDate,
-          accountName: isCredit ? 'سند قبض' : 'مصروف',
+          accountName: accountName,
           description: description,
           piecesCount: 0,
           quantity: 0,
@@ -308,7 +388,7 @@ class StatementCubit extends Cubit<StatementState> {
           .select('*')
           .eq('entity_type', 'customer')
           .eq('entity_id', customerId.toString())
-          .inFilter('reference_type', ['receive', 'expense', 'payment']);
+          .inFilter('reference_type', ['receive', 'expense', 'payment', 'sale', 'sorting_sale']);
       if (fromDate != null) query = query.gte('created_at', fromDate);
       if (toDate != null) query = query.lte('created_at', '${toDate}T23:59:59');
       final data = await query.order('created_at', ascending: true);
@@ -334,6 +414,42 @@ class StatementCubit extends Cubit<StatementState> {
       return List<Map<String, dynamic>>.from(data);
     } catch (e) {
       debugPrint('⚠️ _fetchCheques error: $e');
+      return [];
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> _fetchGlEntries(
+    dynamic customerId,
+    int? customerAccountId,
+    String? fromDate,
+    String? toDate,
+  ) async {
+    try {
+      final client = Supabase.instance.client;
+      final orConditions = <String>[
+        'entity_id.eq.$customerId',
+        'source_id.eq.customers_$customerId',
+      ];
+      if (customerAccountId != null && customerAccountId > 0) {
+        orConditions.add('account_id.eq.$customerAccountId');
+      }
+
+      var query = client
+          .from('v_journal_entry_lines')
+          .select('*')
+          .or(orConditions.join(','));
+
+      if (fromDate != null) {
+        query = query.gte('transaction_date', fromDate);
+      }
+      if (toDate != null) {
+        query = query.lte('transaction_date', toDate);
+      }
+
+      final data = await query.order('transaction_date', ascending: true);
+      return List<Map<String, dynamic>>.from(data);
+    } catch (e) {
+      debugPrint('⚠️ _fetchGlEntries error: $e');
       return [];
     }
   }

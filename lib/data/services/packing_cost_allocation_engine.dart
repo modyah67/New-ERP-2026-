@@ -254,29 +254,76 @@ class PackingCostAllocationEngine {
           (m['item_name'] as String?) ??
           (m['material_name'] as String?) ??
           'مادة تعبئة';
-      if (applyTo.startsWith('line:')) {
-        final idx = int.tryParse(applyTo.substring(5));
-        if (idx != null && idx >= 0 && idx < n) {
-          specific[idx] += cost;
-          if (includeTrace) {
-            traces.add(AllocationItemTrace(
-              itemName: matName,
-              itemType: 'material',
-              applyTo: applyTo,
-              allocationMethod: 'SPECIFIC',
-              totalAmount: _round2(cost),
-              entries: [AllocationTraceEntry(
-                lineIndex: idx,
-                productName: lines[idx].productName,
-                methodName: 'محدد لمنتج',
-                basisValue: cost,
-                basisPercent: 100.0,
-                allocatedAmount: _round2(cost),
-              )],
-            ));
+
+      // 1. Check if single line exists -> 100% specific to line 0
+      if (n == 1) {
+        specific[0] += cost;
+        if (includeTrace) {
+          traces.add(AllocationItemTrace(
+            itemName: matName,
+            itemType: 'material',
+            applyTo: 'line:0',
+            allocationMethod: 'SPECIFIC',
+            totalAmount: _round2(cost),
+            entries: [AllocationTraceEntry(
+              lineIndex: 0,
+              productName: lines[0].productName,
+              methodName: 'مخصص بالكامل للمحصول',
+              basisValue: cost,
+              basisPercent: 100.0,
+              allocatedAmount: _round2(cost),
+            )],
+          ));
+        }
+        continue;
+      }
+
+      // 2. Resolve specific targeted product line if present
+      int? resolvedTargetIdx = (m['target_line_index'] as num?)?.toInt();
+      if (resolvedTargetIdx == null || resolvedTargetIdx < 0 || resolvedTargetIdx >= n) {
+        if (applyTo.startsWith('line:')) {
+          final idx = int.tryParse(applyTo.substring(5));
+          if (idx != null && idx >= 0 && idx < n) {
+            resolvedTargetIdx = idx;
           }
-        } else {
-          sharedMats.add(m);
+        }
+      }
+
+      if (resolvedTargetIdx == null) {
+        final targetProd = (m['target_product_name'] as String? ?? '').trim().toLowerCase();
+        final ccName = (m['cost_center_name'] as String? ?? '').trim().toLowerCase();
+        final ccId = (m['cost_center_id'] as String? ?? '').trim().toLowerCase();
+        if (targetProd.isNotEmpty || ccName.isNotEmpty || (ccId.isNotEmpty && ccId != 'all')) {
+          for (var i = 0; i < n; i++) {
+            final pName = lines[i].productName.trim().toLowerCase();
+            if ((targetProd.isNotEmpty && (pName.contains(targetProd) || targetProd.contains(pName))) ||
+                (ccName.isNotEmpty && (ccName.contains(pName) || pName.contains(ccName))) ||
+                (ccId.isNotEmpty && lines[i].productId?.toString().toLowerCase() == ccId)) {
+              resolvedTargetIdx = i;
+              break;
+            }
+          }
+        }
+      }
+
+      if (resolvedTargetIdx != null && resolvedTargetIdx >= 0 && resolvedTargetIdx < n) {
+        specific[resolvedTargetIdx] += cost;
+        if (includeTrace) {
+          traces.add(AllocationItemTrace(
+            itemName: matName,
+            itemType: 'material',
+            applyTo: 'line:$resolvedTargetIdx',
+            allocationMethod: 'SPECIFIC',
+            totalAmount: _round2(cost),
+            entries: [AllocationTraceEntry(
+              lineIndex: resolvedTargetIdx,
+              productName: lines[resolvedTargetIdx].productName,
+              methodName: 'مخصص بالكامل للمحصول',
+              basisValue: cost,
+              basisPercent: 100.0,
+              allocatedAmount: _round2(cost),
+            )],
+          ));
         }
       } else {
         sharedMats.add(m);
@@ -291,7 +338,9 @@ class PackingCostAllocationEngine {
         final matCost = _materialCost(m);
         if (matCost <= 0) continue;
         final matMethod = CostAllocationMethod.fromCode(
-          m['allocation_method'] as String?,
+          (m['cost_center_id'] == 'ALL' || m['allocation_method'] == 'EQUAL')
+              ? 'EQUAL'
+              : m['allocation_method'] as String?,
         );
         final matName = (m['product_name'] as String?)?.replaceAll(' (مادة تعبئة)', '') ??
             (m['name'] as String?)?.replaceAll(' (مادة تعبئة)', '') ??
@@ -340,29 +389,48 @@ class PackingCostAllocationEngine {
       );
       final itemName = (item['name'] as String?) ?? 'بند تكلفة';
 
-      if (method == CostAllocationMethod.manual) {
-        final targetIdx = (item['target_line_index'] as num?)?.toInt();
-        if (targetIdx != null && targetIdx >= 0 && targetIdx < n) {
-          overhead[targetIdx] += amount;
-          if (includeTrace) {
-            traces.add(AllocationItemTrace(
-              itemName: itemName,
-              itemType: 'cost_item',
-              applyTo: 'line:$targetIdx',
-              allocationMethod: 'MANUAL',
-              totalAmount: _round2(amount),
-              entries: [AllocationTraceEntry(
-                lineIndex: targetIdx,
-                productName: lines[targetIdx].productName,
-                methodName: 'يدوي (محدد)',
-                basisValue: amount,
-                basisPercent: 100.0,
-                allocatedAmount: _round2(amount),
-              )],
-            ));
+      // 1. Resolve specific targeted product line if present
+      int? resolvedTargetIdx = (item['target_line_index'] as num?)?.toInt();
+      if (resolvedTargetIdx == null || resolvedTargetIdx < 0 || resolvedTargetIdx >= n) {
+        final targetProd = (item['target_product_name'] as String? ?? item['product_name'] as String? ?? '').trim().toLowerCase();
+        final ccName = (item['cost_center_name'] as String? ?? '').trim().toLowerCase();
+        final ccId = (item['cost_center_id'] as String? ?? '').trim().toLowerCase();
+        if (targetProd.isNotEmpty || ccName.isNotEmpty || (ccId.isNotEmpty && ccId != 'all')) {
+          for (var i = 0; i < n; i++) {
+            final pName = lines[i].productName.trim().toLowerCase();
+            if ((targetProd.isNotEmpty && (pName.contains(targetProd) || targetProd.contains(pName))) ||
+                (ccName.isNotEmpty && (ccName.contains(pName) || pName.contains(ccName))) ||
+                (ccId.isNotEmpty && lines[i].productId?.toString().toLowerCase() == ccId)) {
+              resolvedTargetIdx = i;
+              break;
+            }
           }
-          continue;
         }
+      }
+
+      if (resolvedTargetIdx != null && resolvedTargetIdx >= 0 && resolvedTargetIdx < n) {
+        overhead[resolvedTargetIdx] += amount;
+        if (includeTrace) {
+          traces.add(AllocationItemTrace(
+            itemName: itemName,
+            itemType: 'cost_item',
+            applyTo: 'line:$resolvedTargetIdx',
+            allocationMethod: 'MANUAL',
+            totalAmount: _round2(amount),
+            entries: [AllocationTraceEntry(
+              lineIndex: resolvedTargetIdx,
+              productName: lines[resolvedTargetIdx].productName,
+              methodName: 'مخصص بالكامل للمحصول',
+              basisValue: amount,
+              basisPercent: 100.0,
+              allocatedAmount: _round2(amount),
+            )],
+          ));
+        }
+        continue;
+      }
+
+      if (method == CostAllocationMethod.manual) {
         final manual = item['manual_amounts'];
         if (manual is Map) {
           var assigned = 0.0;

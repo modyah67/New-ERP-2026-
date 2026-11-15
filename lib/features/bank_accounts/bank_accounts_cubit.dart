@@ -1,5 +1,6 @@
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/data_change_event_bus.dart';
 import '../../data/dao/bank_account_dao.dart';
 import 'bank_accounts_state.dart';
 
@@ -132,6 +133,13 @@ class BankAccountsCubit extends Cubit<BankAccountsState> {
         return a;
       }).toList();
       emit(loaded.copyWith(accounts: updatedAccounts, isSaving: false));
+      if (counterpartyType == 'supplier' || supplierId != null) {
+        DataChangeEventBus.instance.notifySuppliersChanged();
+      } else if (counterpartyType == 'customer') {
+        DataChangeEventBus.instance.notifyCustomersChanged();
+      } else if (counterpartyType == 'shareholder' || shareholderId != null) {
+        DataChangeEventBus.instance.notifyShareholdersChanged();
+      }
       if (loaded.selectedAccountId != null) {
         await loadTransactions(loaded.selectedAccountId!);
       }
@@ -208,6 +216,13 @@ class BankAccountsCubit extends Cubit<BankAccountsState> {
         return a;
       }).toList();
       emit(loaded.copyWith(accounts: updatedAccounts, isSaving: false));
+      if (counterpartyType == 'supplier' || supplierId != null) {
+        DataChangeEventBus.instance.notifySuppliersChanged();
+      } else if (counterpartyType == 'customer') {
+        DataChangeEventBus.instance.notifyCustomersChanged();
+      } else if (counterpartyType == 'shareholder' || shareholderId != null) {
+        DataChangeEventBus.instance.notifyShareholdersChanged();
+      }
       if (loaded.selectedAccountId != null) {
         await loadTransactions(loaded.selectedAccountId!);
       }
@@ -220,6 +235,7 @@ class BankAccountsCubit extends Cubit<BankAccountsState> {
     required int transactionId,
     required double newAmount,
     String? newDescription,
+    String? newType,
   }) async {
     if (state is! BankAccountsLoaded) return;
     final loaded = state as BankAccountsLoaded;
@@ -229,6 +245,7 @@ class BankAccountsCubit extends Cubit<BankAccountsState> {
         transactionId: transactionId,
         newAmount: newAmount,
         newDescription: newDescription,
+        newType: newType,
       );
       // For edit/delete we don't know the delta, reload accounts then transactions
       final freshAccounts = await _dao.getAll();
@@ -238,6 +255,7 @@ class BankAccountsCubit extends Cubit<BankAccountsState> {
       }
     } catch (e) {
       emit(BankAccountsError('فشل تعديل الحركة: $e'));
+      rethrow;
     }
   }
 

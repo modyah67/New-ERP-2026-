@@ -9,6 +9,7 @@ class FruitTypeModel {
   final bool isActive;
   final String currency;
   final String? purchaseMode;
+  final String? costCenterId;
   final DateTime? createdAt;
   final DateTime? updatedAt;
 
@@ -36,6 +37,7 @@ class FruitTypeModel {
     this.isActive = true,
     this.currency = 'EGP',
     this.purchaseMode,
+    this.costCenterId,
     this.createdAt,
     this.updatedAt,
     this.latestPurchasePrice,
@@ -64,6 +66,7 @@ class FruitTypeModel {
       isActive: map['is_active'] is bool ? map['is_active'] : (map['is_active']?.toString() == 'true'),
       currency: map['currency']?.toString() ?? 'EGP',
       purchaseMode: map['purchase_mode']?.toString(),
+      costCenterId: map['cost_center_id']?.toString(),
       createdAt: map['created_at'] != null ? DateTime.tryParse(map['created_at'].toString()) : null,
       updatedAt: map['updated_at'] != null ? DateTime.tryParse(map['updated_at'].toString()) : null,
       latestPurchasePrice: n(map['latest_price']),
@@ -88,6 +91,7 @@ class FruitTypeModel {
       'icon': icon,
       'currency': currency,
       'purchase_mode': purchaseMode,
+      if (costCenterId != null) 'cost_center_id': costCenterId,
     };
   }
 
@@ -102,6 +106,7 @@ class FruitTypeModel {
     bool? isActive,
     String? currency,
     String? purchaseMode,
+    String? costCenterId,
     DateTime? createdAt,
     DateTime? updatedAt,
     double? latestPurchasePrice,
@@ -127,6 +132,7 @@ class FruitTypeModel {
       isActive: isActive ?? this.isActive,
       currency: currency ?? this.currency,
       purchaseMode: purchaseMode ?? this.purchaseMode,
+      costCenterId: costCenterId ?? this.costCenterId,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       latestPurchasePrice: latestPurchasePrice ?? this.latestPurchasePrice,

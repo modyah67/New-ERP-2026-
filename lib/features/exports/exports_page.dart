@@ -21,6 +21,7 @@ import '../../data/dao/shipment_cost_breakdown_dao.dart';
 import '../../data/models/shipment_cost_breakdown_model.dart';
 import 'package:accounting_system/core/utils/file_helper.dart';
 import '../../data/services/journal_entry_navigation_service.dart';
+import 'export_shipment_return_page.dart';
 
 class ExportsPage extends StatefulWidget {
   const ExportsPage({super.key});
@@ -60,7 +61,7 @@ class _ExportsPageState extends State<ExportsPage> {
   }
 
   static const _statuses = [
-    null, 'draft', 'booked', 'loaded', 'sailed', 'arrived', 'completed', 'cancelled',
+    null, 'draft', 'booked', 'loaded', 'sailed', 'arrived', 'completed', 'returned_from_airport', 'cancelled',
   ];
 
   String _statusLabel(String? status) {
@@ -72,6 +73,7 @@ class _ExportsPageState extends State<ExportsPage> {
       case 'sailed': return 'أبحرت';
       case 'arrived': return 'وصلت';
       case 'completed': return 'مكتملة';
+      case 'returned_from_airport': return 'عائدة من المطار';
       case 'cancelled': return 'ملغاة';
       default: return status;
     }
@@ -85,6 +87,7 @@ class _ExportsPageState extends State<ExportsPage> {
       case 'sailed': return const Color(0xFF22D3EE);
       case 'arrived': return const Color(0xFF8B5CF6);
       case 'completed': return AppTheme.success;
+      case 'returned_from_airport': return const Color(0xFFEA580C);
       case 'cancelled': return AppTheme.danger;
       default: return AppTheme.primary;
     }
@@ -125,22 +128,28 @@ class _ExportsPageState extends State<ExportsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : const Color(0xFFF8FAFC),
         body: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft, end: Alignment.bottomRight,
-              colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
-            ),
+          decoration: BoxDecoration(
+            gradient: isDark
+                ? const LinearGradient(
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                    colors: [AppTheme.background, Color(0xFF0D2137), AppTheme.background],
+                  )
+                : const LinearGradient(
+                    begin: Alignment.topLeft, end: Alignment.bottomRight,
+                    colors: [Color(0xFFF8FAFC), Color(0xFFF1F5F9), Color(0xFFF8FAFC)],
+                  ),
           ),
           child: Column(
             children: [
-              _buildHeader(),
-              _buildSearchBar(),
-              if (_showFilters) _buildFilters(),
+              _buildHeader(isDark),
+              _buildSearchBar(isDark),
+              if (_showFilters) _buildFilters(isDark),
               Expanded(
                 child: BlocConsumer<ExportShipmentCubit, ExportShipmentState>(
                   listener: (context, state) {
@@ -163,8 +172,8 @@ class _ExportsPageState extends State<ExportsPage> {
                       return const Center(child: CircularProgressIndicator(color: AppTheme.primary));
                     }
                     if (state is ExportShipmentListLoaded) {
-                      if (state.shipments.isEmpty) return _buildEmptyState();
-                      return _buildDataGrid(state.shipments, state.isLoadingMore);
+                      if (state.shipments.isEmpty) return _buildEmptyState(isDark);
+                      return _buildDataGrid(state.shipments, state.isLoadingMore, isDark);
                     }
                     if (state is ExportShipmentError) {
                       return Center(
@@ -173,12 +182,12 @@ class _ExportsPageState extends State<ExportsPage> {
                           children: [
                             const Icon(Icons.error_outline, color: AppTheme.danger, size: 48),
                             const SizedBox(height: 12),
-                            Text(state.message, style: const TextStyle(color: AppTheme.textSecondary)),
+                            Text(state.message, style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontFamily: 'Cairo')),
                           ],
                         ),
                       );
                     }
-                    return _buildEmptyState();
+                    return _buildEmptyState(isDark);
                   },
                 ),
               ),
@@ -189,21 +198,21 @@ class _ExportsPageState extends State<ExportsPage> {
           onPressed: () => _openForm(null),
           backgroundColor: AppTheme.primary,
           icon: const Icon(Icons.add, color: Colors.white),
-          label: const Text('شحنة جديدة', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+          label: const Text('شحنة جديدة', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
         ),
       ),
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     return ClipRRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
         child: Container(
           padding: EdgeInsets.only(top: MediaQuery.of(context).padding.top + 16, bottom: 16, left: 20, right: 20),
           decoration: BoxDecoration(
-            color: const Color(0x3805192D),
-            border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(50))),
+            color: isDark ? const Color(0x3805192D) : Colors.white.withAlpha(220),
+            border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(50) : const Color(0xFFE2E8F0))),
           ),
           child: Row(
             children: [
@@ -213,26 +222,27 @@ class _ExportsPageState extends State<ExportsPage> {
                 child: const Icon(Icons.flight_outlined, color: AppTheme.primary, size: 24),
               ),
               const SizedBox(width: 12),
-              const Expanded(
+              Expanded(
                 child: Text('الشحنات التصديرية',
-                    style: TextStyle(color: AppTheme.textPrimary, fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                    style: TextStyle(color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A), fontSize: 20, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
               ),
               GestureDetector(
                 onTap: () => setState(() => _showFilters = !_showFilters),
                 child: Container(
                   padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(color: AppTheme.primary.withAlpha(20), borderRadius: BorderRadius.circular(12), border: Border.all(color: AppTheme.primary.withAlpha(60))),
-                  child: Icon(Icons.filter_list, color: AppTheme.primary, size: 20),
+                  decoration: BoxDecoration(
+                    color: AppTheme.primary.withAlpha(isDark ? 20 : 30),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: AppTheme.primary.withAlpha(isDark ? 60 : 90)),
+                  ),
+                  child: const Icon(Icons.filter_list, color: AppTheme.primary, size: 20),
                 ),
               ),
               const SizedBox(width: 8),
               _buildIconButton(Icons.refresh_rounded, () {
                 _applyAllFilters();
-              }, AppTheme.textSecondary),
+              }, isDark ? AppTheme.textSecondary : const Color(0xFF64748B), isDark),
               const SizedBox(width: 8),
-             // _buildIconButton(Icons.table_chart_outlined, () => _exportExcel(), AppTheme.primary),
-              const SizedBox(width: 8),
-            //  _buildIconButton(Icons.picture_as_pdf_outlined, () => _exportPdfAll(), AppTheme.danger),
             ],
           ),
         ),
@@ -240,21 +250,22 @@ class _ExportsPageState extends State<ExportsPage> {
     );
   }
 
-  Widget _buildIconButton(IconData icon, VoidCallback onTap, Color color) {
+  Widget _buildIconButton(IconData icon, VoidCallback onTap, Color color, bool isDark) {
     return GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(10),
         decoration: BoxDecoration(
+          color: isDark ? Colors.transparent : Colors.white,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: AppTheme.glassBorder),
+          border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         ),
         child: Icon(icon, color: color, size: 22),
       ),
     );
   }
 
-  Widget _buildSearchBar() {
+  Widget _buildSearchBar(bool isDark) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
       child: ClipRRect(
@@ -263,22 +274,31 @@ class _ExportsPageState extends State<ExportsPage> {
           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
           child: Container(
             decoration: BoxDecoration(
-              color: const Color(0x3805192D),
+              color: isDark ? const Color(0x3805192D) : Colors.white,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(8),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
             ),
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
               children: [
-                const Icon(Icons.search, color: AppTheme.textSecondary, size: 20),
+                Icon(Icons.search, color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), size: 20),
                 const SizedBox(width: 12),
                 Expanded(
                   child: TextField(
                     controller: _searchController,
-                    style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Cairo', fontSize: 14),
-                    decoration: const InputDecoration(
+                    style: TextStyle(color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A), fontFamily: 'Cairo', fontSize: 14, fontWeight: FontWeight.bold),
+                    decoration: InputDecoration(
                       hintText: 'بحث برقم الشحنة...',
-                      hintStyle: TextStyle(color: AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo'),
+                      hintStyle: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontSize: 13, fontFamily: 'Cairo'),
                       border: InputBorder.none,
                     ),
                     onChanged: (v) {
@@ -292,7 +312,7 @@ class _ExportsPageState extends State<ExportsPage> {
                       _searchController.clear();
                       _applyAllFilters();
                     },
-                    child: const Icon(Icons.clear, color: AppTheme.textSecondary, size: 18),
+                    child: Icon(Icons.clear, color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), size: 18),
                   ),
               ],
             ),
@@ -302,7 +322,7 @@ class _ExportsPageState extends State<ExportsPage> {
     );
   }
 
-  Widget _buildFilters() {
+  Widget _buildFilters(bool isDark) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: ClipRRect(
@@ -312,20 +332,29 @@ class _ExportsPageState extends State<ExportsPage> {
           child: Container(
             padding: const EdgeInsets.all(12),
             decoration: BoxDecoration(
-              color: const Color(0x3805192D),
+              color: isDark ? const Color(0x3805192D) : Colors.white,
               borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: AppTheme.glassBorder),
+              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+              boxShadow: isDark
+                  ? null
+                  : [
+                      BoxShadow(
+                        color: Colors.black.withAlpha(8),
+                        blurRadius: 8,
+                        offset: const Offset(0, 2),
+                      ),
+                    ],
             ),
             child: Column(
               children: [
                 Row(
                   children: [
                     Expanded(
-                      child: _buildDateField('من تاريخ', _fromDate, (v) => _fromDate = v),
+                      child: _buildDateField('من تاريخ', _fromDate, (v) => _fromDate = v, isDark),
                     ),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _buildDateField('إلى تاريخ', _toDate, (v) => _toDate = v),
+                      child: _buildDateField('إلى تاريخ', _toDate, (v) => _toDate = v, isDark),
                     ),
                   ],
                 ),
@@ -335,7 +364,7 @@ class _ExportsPageState extends State<ExportsPage> {
                   child: ElevatedButton(
                     onPressed: _applyAllFilters,
                     style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary, foregroundColor: Colors.white, shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
-                    child: const Text('بحث', style: TextStyle(fontFamily: 'Cairo')),
+                    child: const Text('بحث', style: TextStyle(fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
                   ),
                 ),
               ],
@@ -346,7 +375,7 @@ class _ExportsPageState extends State<ExportsPage> {
     );
   }
 
-  Widget _buildDateField(String label, String? value, Function(String?) onChanged) {
+  Widget _buildDateField(String label, String? value, Function(String?) onChanged, bool isDark) {
     return GestureDetector(
       onTap: () async {
         final date = await showDatePicker(
@@ -354,9 +383,12 @@ class _ExportsPageState extends State<ExportsPage> {
           initialDate: DateTime.now(),
           firstDate: DateTime(2020),
           lastDate: DateTime(2030),
-          builder: (context, child) => Theme(data: ThemeData.dark().copyWith(
-            colorScheme: const ColorScheme.dark(primary: AppTheme.primary),
-          ), child: child!),
+          builder: (context, child) => Theme(
+            data: isDark
+                ? ThemeData.dark().copyWith(colorScheme: const ColorScheme.dark(primary: AppTheme.primary))
+                : ThemeData.light().copyWith(colorScheme: const ColorScheme.light(primary: AppTheme.primary)),
+            child: child!,
+          ),
         );
         if (date != null) {
           final formatted = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
@@ -367,22 +399,28 @@ class _ExportsPageState extends State<ExportsPage> {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: const Color(0x1AFFFFFF),
+          color: isDark ? const Color(0x1AFFFFFF) : const Color(0xFFF1F5F9),
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppTheme.glassBorder),
+          border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
         ),
         child: Row(
           children: [
-            const Icon(Icons.calendar_today, color: AppTheme.textSecondary, size: 16),
+            Icon(Icons.calendar_today, color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), size: 16),
             const SizedBox(width: 8),
-            Text(value ?? label, style: TextStyle(color: value != null ? AppTheme.textPrimary : AppTheme.textSecondary, fontSize: 13, fontFamily: 'Cairo')),
+            Text(value ?? label,
+                style: TextStyle(
+                  color: value != null ? (isDark ? AppTheme.textPrimary : const Color(0xFF0F172A)) : (isDark ? AppTheme.textSecondary : const Color(0xFF64748B)),
+                  fontSize: 13,
+                  fontWeight: value != null ? FontWeight.bold : FontWeight.normal,
+                  fontFamily: 'Cairo',
+                )),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildDataGrid(List<ExportShipmentModel> shipments, bool isLoadingMore) {
+  Widget _buildDataGrid(List<ExportShipmentModel> shipments, bool isLoadingMore, bool isDark) {
     return LayoutBuilder(
       builder: (context, constraints) {
         return SingleChildScrollView(
@@ -404,14 +442,23 @@ class _ExportsPageState extends State<ExportsPage> {
                           filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
                           child: Container(
                             decoration: BoxDecoration(
-                              color: const Color(0x3805192D),
+                              color: isDark ? const Color(0x3805192D) : Colors.white,
                               borderRadius: BorderRadius.circular(20),
-                              border: Border.all(color: AppTheme.glassBorder),
+                              border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
+                              boxShadow: isDark
+                                  ? null
+                                  : [
+                                      BoxShadow(
+                                        color: Colors.black.withAlpha(10),
+                                        blurRadius: 10,
+                                        offset: const Offset(0, 4),
+                                      ),
+                                    ],
                             ),
                             child: Column(
                               children: [
-                                _buildTableHeader(),
-                                ...shipments.asMap().entries.map((entry) => _buildTableRow(entry.key, entry.value)),
+                                _buildTableHeader(isDark),
+                                ...shipments.asMap().entries.map((entry) => _buildTableRow(entry.key, entry.value, isDark)),
                               ],
                             ),
                           ),
@@ -432,32 +479,32 @@ class _ExportsPageState extends State<ExportsPage> {
     );
   }
 
-  Widget _buildTableHeader() {
+  Widget _buildTableHeader(bool isDark) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: AppTheme.primary.withAlpha(15),
+        color: AppTheme.primary.withAlpha(isDark ? 15 : 20),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child:const Row(
-        children:  [
-          Expanded(flex: 2, child: Text('رقم الشحنة', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),textAlign: TextAlign.center)),
-          SizedBox(width: 8),
-          Expanded(flex: 2, child: Text('التاريخ', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),textAlign: TextAlign.center)),
-          SizedBox(width: 8),
-          Expanded(flex: 3, child: Text('العميل', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-          SizedBox(width: 8),
-          Expanded(flex: 2, child: Text('الوجهة', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
-          SizedBox(width: 8),
-          Expanded(flex: 2, child: Text('اجمالي الفاتورة', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
-          SizedBox(width: 8),
-          Expanded(flex: 2, child: Text('', style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
+      child: Row(
+        children: [
+          Expanded(flex: 2, child: Text('رقم الشحنة', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF334155), fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
+          const SizedBox(width: 8),
+          Expanded(flex: 2, child: Text('التاريخ', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF334155), fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
+          const SizedBox(width: 8),
+          Expanded(flex: 3, child: Text('العميل', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF334155), fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+          const SizedBox(width: 8),
+          Expanded(flex: 2, child: Text('الوجهة', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF334155), fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'))),
+          const SizedBox(width: 8),
+          Expanded(flex: 2, child: Text('اجمالي الفاتورة', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF334155), fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
+          const SizedBox(width: 8),
+          Expanded(flex: 2, child: Text('', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF334155), fontSize: 12, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
         ],
       ),
     );
   }
 
-  Widget _buildTableRow(int index, ExportShipmentModel shipment) {
+  Widget _buildTableRow(int index, ExportShipmentModel shipment, bool isDark) {
     final isLast = index == (context.read<ExportShipmentCubit>().state is ExportShipmentListLoaded
         ? (context.read<ExportShipmentCubit>().state as ExportShipmentListLoaded).shipments.length - 1
         : 0);
@@ -465,31 +512,49 @@ class _ExportsPageState extends State<ExportsPage> {
     final dateStr = dateToUse != null
         ? '${dateToUse.year}-${dateToUse.month.toString().padLeft(2, '0')}-${dateToUse.day.toString().padLeft(2, '0')}'
         : '—';
+    final textColor = isDark ? AppTheme.textPrimary : const Color(0xFF0F172A);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
-        border: isLast ? null : Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(30))),
+        border: isLast ? null : Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(30) : const Color(0xFFE2E8F0))),
       ),
       child: Row(
         children: [
-          Expanded(flex: 2, child: UIUtils.shipmentNoText(shipment.shipmentNo,
-              style: const TextStyle(color: AppTheme.primary, fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'Cairo'),textAlign: TextAlign.center)),
+          Expanded(flex: 2, child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              UIUtils.shipmentNoText(shipment.shipmentNo,
+                  style: const TextStyle(color: AppTheme.primary, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Cairo'), textAlign: TextAlign.center),
+              if (shipment.status == 'returned_from_airport')
+                Container(
+                  margin: const EdgeInsets.only(top: 2),
+                  padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFEA580C).withAlpha(20),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(color: const Color(0xFFEA580C).withAlpha(60)),
+                  ),
+                  child: const Text('عائدة من المطار', style: TextStyle(fontFamily: 'Cairo', fontSize: 9, fontWeight: FontWeight.bold, color: Color(0xFFEA580C))),
+                ),
+            ],
+          )),
           const SizedBox(width: 8),
           Expanded(flex: 2, child: Text(dateStr,
-              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 12, fontFamily: 'Cairo'), textAlign: TextAlign.center)),
+              style: TextStyle(color: textColor, fontSize: 12, fontFamily: 'Cairo', fontWeight: FontWeight.bold), textAlign: TextAlign.center)),
           const SizedBox(width: 8),
           Expanded(flex: 3, child: Text(shipment.customerName ?? '—',
-              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, fontFamily: 'Cairo'), overflow: TextOverflow.ellipsis)),
+              style: TextStyle(color: textColor, fontSize: 13, fontFamily: 'Cairo', fontWeight: FontWeight.bold), overflow: TextOverflow.ellipsis)),
           const SizedBox(width: 8),
           Expanded(flex: 2, child: Text(shipment.country?.isNotEmpty == true ? shipment.country! : '—',
-              style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, fontFamily: 'Cairo'))),
+              style: TextStyle(color: textColor, fontSize: 13, fontFamily: 'Cairo', fontWeight: FontWeight.bold))),
           const SizedBox(width: 8),
           Expanded(flex: 2, child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               Flexible(
                 child: Text(AppUtils.formatNumber(_itemTotals[shipment.id?.toString()] ?? 0),
-                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.w600, fontFamily: 'Cairo'),
+                    style: TextStyle(color: textColor, fontSize: 13, fontWeight: FontWeight.bold, fontFamily: 'Cairo'),
                     overflow: TextOverflow.ellipsis),
               ),
               const SizedBox(width: 4),
@@ -500,7 +565,7 @@ class _ExportsPageState extends State<ExportsPage> {
                   borderRadius: BorderRadius.circular(6),
                 ),
                 child: Text(shipment.currency ?? 'USD',
-                    style: TextStyle(color: AppTheme.primary, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                    style: const TextStyle(color: AppTheme.primary, fontSize: 10, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
               ),
             ],
           )),
@@ -508,24 +573,43 @@ class _ExportsPageState extends State<ExportsPage> {
           Expanded(flex: 2, child: Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              if (!shipment.isConfirmed) ...[
-                _buildRowAction(Icons.check, () => _confirmShipment(shipment), AppTheme.success),
+              if (!shipment.isConfirmed && shipment.status != 'returned_from_airport' && shipment.status != 'returned') ...[
+                _buildRowAction(Icons.check, () => _confirmShipment(shipment), AppTheme.success, tooltip: 'تأكيد الشحنة'),
                 const SizedBox(width: 6),
-                _buildRowAction(Icons.edit_outlined, () => _openForm(shipment), AppTheme.primary),
+                _buildRowAction(Icons.edit_outlined, () => _openForm(shipment), AppTheme.primary, tooltip: 'تعديل'),
               ] else ...[
-                if (!_distributedShipmentIds.contains(shipment.id?.toString() ?? '')) ...[
-                  _buildRowAction(Icons.discount_outlined, () => _editDiscount(shipment), AppTheme.warning),
+                if (!_distributedShipmentIds.contains(shipment.id?.toString() ?? '') && shipment.status != 'returned_from_airport' && shipment.status != 'returned') ...[
+                  _buildRowAction(Icons.discount_outlined, () => _editDiscount(shipment), AppTheme.warning, tooltip: 'إضافة خصم'),
                   const SizedBox(width: 6),
                 ],
-                _buildRowAction(Icons.visibility, () => _viewShipment(shipment), AppTheme.primary),
+                _buildRowAction(Icons.visibility, () => _viewShipment(shipment), AppTheme.primary, tooltip: 'عرض التفاصيل'),
                 const SizedBox(width: 6),
-                _buildShipmentJournalDropdown(shipment),
+                if (shipment.status != 'returned_from_airport' && shipment.status != 'returned' && shipment.status != 'cancelled') ...[
+                  _buildRowAction(Icons.keyboard_return_rounded, () => _openReturnPage(shipment), const Color(0xFFEA580C), tooltip: 'تسجيل رجوع شحنة من المطار'),
+                  const SizedBox(width: 6),
+                ],
+                _buildShipmentJournalDropdown(shipment, isDark),
               ],
             ],
           )),
         ],
       ),
     );
+  }
+
+  void _openReturnPage(ExportShipmentModel shipment) async {
+    final result = await Navigator.push<bool>(
+      context,
+      MaterialPageRoute(
+        builder: (_) => ExportShipmentReturnPage(
+          shipmentId: shipment.id,
+          initialShipment: shipment,
+        ),
+      ),
+    );
+    if (result == true) {
+      _applyAllFilters();
+    }
   }
 
   Widget _buildStatusChip(String status, Color color) {
@@ -541,8 +625,8 @@ class _ExportsPageState extends State<ExportsPage> {
     );
   }
 
-  Widget _buildRowAction(IconData icon, VoidCallback onTap, Color color) {
-    return GestureDetector(
+  Widget _buildRowAction(IconData icon, VoidCallback onTap, Color color, {String? tooltip}) {
+    final w = GestureDetector(
       onTap: onTap,
       child: Container(
         padding: const EdgeInsets.all(6),
@@ -550,18 +634,23 @@ class _ExportsPageState extends State<ExportsPage> {
         child: Icon(icon, color: color, size: 16),
       ),
     );
+    if (tooltip != null) {
+      return Tooltip(message: tooltip, child: w);
+    }
+    return w;
   }
 
-  Widget _buildShipmentJournalDropdown(ExportShipmentModel shipment) {
+  Widget _buildShipmentJournalDropdown(ExportShipmentModel shipment, bool isDark) {
     return PopupMenuButton<String>(
       onSelected: (entryNumber) {
         JournalEntryNavigationService.openById(context, journalEntryId: entryNumber);
       },
       offset: const Offset(0, 30),
-      color: AppTheme.surface,
+      constraints: const BoxConstraints(minWidth: 290, maxWidth: 360),
+      color: isDark ? AppTheme.surface : Colors.white,
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(10),
-        side: BorderSide(color: AppTheme.glassBorder.withAlpha(40)),
+        side: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(40) : const Color(0xFFCBD5E1)),
       ),
       itemBuilder: (ctx) => [
         PopupMenuItem<String>(
@@ -577,8 +666,8 @@ class _ExportsPageState extends State<ExportsPage> {
               }
               final entries = snapshot.data ?? [];
               if (entries.isEmpty) {
-                return const Text('لا توجد قيود محاسبية',
-                    style: TextStyle(color: AppTheme.textSecondary, fontSize: 12, fontFamily: 'Cairo'));
+                return Text('لا توجد قيود محاسبية',
+                    style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontSize: 12, fontFamily: 'Cairo'));
               }
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -593,38 +682,72 @@ class _ExportsPageState extends State<ExportsPage> {
                     final debit = (je['total_debit'] as num?)?.toDouble() ?? 0;
                     final cur = je['currency']?.toString() ?? 'EGP';
                     final srcType = je['source_type']?.toString() ?? '';
+                    final cat = je['category']?.toString() ?? '';
+                    final isReturn = je['is_return_entry'] == true ||
+                        srcType == 'export_return' ||
+                        srcType == 'export_shipment_return' ||
+                        cat == 'return';
+
                     String typeLabel;
                     IconData iconData;
                     Color iconColor;
-                    switch (srcType) {
-                      case 'export_shipment':
-                        typeLabel = 'قيد البيع';
-                        iconData = Icons.receipt_long_outlined;
-                        iconColor = AppTheme.cyan;
-                        break;
-                      case 'export_discount':
-                        typeLabel = 'قيد الخصم';
-                        iconData = Icons.discount_outlined;
-                        iconColor = AppTheme.warning;
-                        break;
-                      case 'customer_treasury_deposit':
-                      case 'bank_deposit':
-                      case 'customer_bank_deposit':
-                      case 'export_payment':
-                        typeLabel = 'قيد السداد';
-                        iconData = Icons.payment_outlined;
-                        iconColor = AppTheme.success;
-                        break;
-                      case 'customer_treasury_withdrawal':
-                        typeLabel = 'قيـد اسـترداد السـداد';
-                        iconData = Icons.replay_outlined;
-                        iconColor = AppTheme.danger;
-                        break;
-                      default:
-                        typeLabel = srcType;
-                        iconData = Icons.article_outlined;
-                        iconColor = AppTheme.textSecondary;
+
+                    if (isReturn) {
+                      typeLabel = 'قيد إلغاء / مرتجع الشحنة';
+                      iconData = Icons.assignment_return_outlined;
+                      iconColor = const Color(0xFFEA580C);
+                    } else {
+                      switch (srcType) {
+                        case 'export_shipment':
+                          typeLabel = 'قيد البيع';
+                          iconData = Icons.receipt_long_outlined;
+                          iconColor = AppTheme.cyan;
+                          break;
+                        case 'export_discount':
+                          typeLabel = 'قيد الخصم';
+                          iconData = Icons.discount_outlined;
+                          iconColor = AppTheme.warning;
+                          break;
+                        case 'customer_treasury_deposit':
+                        case 'bank_deposit':
+                        case 'customer_bank_deposit':
+                        case 'export_payment':
+                          typeLabel = 'قيد السداد';
+                          iconData = Icons.payment_outlined;
+                          iconColor = AppTheme.success;
+                          break;
+                        case 'customer_treasury_withdrawal':
+                          typeLabel = 'قيـد اسـترداد السـداد';
+                          iconData = Icons.replay_outlined;
+                          iconColor = AppTheme.danger;
+                          break;
+                        case 'packing_order':
+                          typeLabel = 'قيد أمر التعبئة';
+                          iconData = Icons.inventory_2_outlined;
+                          iconColor = AppTheme.primary;
+                          break;
+                        case 'packing_debit_note':
+                          typeLabel = 'خصم مورد تعبئة';
+                          iconData = Icons.money_off_outlined;
+                          iconColor = AppTheme.warning;
+                          break;
+                        case 'shipment_cost_accrual':
+                          typeLabel = 'استحقاق تكلفة شحنة';
+                          iconData = Icons.pending_actions_outlined;
+                          iconColor = const Color(0xFF8B5CF6);
+                          break;
+                        case 'shipment_cost_paid':
+                          typeLabel = 'سداد تكلفة شحنة';
+                          iconData = Icons.paid_outlined;
+                          iconColor = AppTheme.success;
+                          break;
+                        default:
+                          typeLabel = je['category_label']?.toString() ?? srcType;
+                          iconData = Icons.article_outlined;
+                          iconColor = isDark ? AppTheme.textSecondary : const Color(0xFF64748B);
+                      }
                     }
+
                     return GestureDetector(
                       onTap: () {
                         Navigator.of(ctx).pop();
@@ -633,7 +756,9 @@ class _ExportsPageState extends State<ExportsPage> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 6),
                         decoration: BoxDecoration(
-                          border: Border(bottom: BorderSide(color: AppTheme.glassBorder.withAlpha(30))),
+                          color: isReturn ? const Color(0xFFEA580C).withAlpha(15) : Colors.transparent,
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border(bottom: BorderSide(color: isDark ? AppTheme.glassBorder.withAlpha(30) : const Color(0xFFE2E8F0))),
                         ),
                         child: Row(children: [
                           Icon(iconData, size: 14, color: iconColor),
@@ -642,15 +767,35 @@ class _ExportsPageState extends State<ExportsPage> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('قيد #$entryNum — $typeLabel',
-                                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 11, fontWeight: FontWeight.w600, fontFamily: 'Cairo')),
+                                Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text('قيد #$entryNum — $typeLabel',
+                                          style: TextStyle(
+                                            color: isReturn ? const Color(0xFFEA580C) : (isDark ? AppTheme.textPrimary : const Color(0xFF0F172A)),
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.bold,
+                                            fontFamily: 'Cairo',
+                                          )),
+                                    ),
+                                    if (isReturn)
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEA580C).withAlpha(30),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: const Text('مرتجع', style: TextStyle(color: Color(0xFFEA580C), fontSize: 9, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+                                      ),
+                                  ],
+                                ),
                                 const SizedBox(height: 2),
                                 Text('$date — ${debit.toStringAsFixed(2)} $cur',
-                                    style: const TextStyle(color: AppTheme.textMuted, fontSize: 10, fontFamily: 'Cairo')),
+                                    style: TextStyle(color: isDark ? AppTheme.textMuted : const Color(0xFF64748B), fontSize: 10, fontFamily: 'Cairo')),
                               ],
                             ),
                           ),
-                          const Icon(Icons.open_in_new, size: 12, color: AppTheme.textMuted),
+                          Icon(Icons.open_in_new, size: 12, color: isDark ? AppTheme.textMuted : const Color(0xFF64748B)),
                         ]),
                       ),
                     );
@@ -672,40 +817,45 @@ class _ExportsPageState extends State<ExportsPage> {
     );
   }
 
-  Widget _buildEmptyState() {
+  Widget _buildEmptyState(bool isDark) {
     return Center(
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Container(
             padding: const EdgeInsets.all(24),
-            decoration: BoxDecoration(color: AppTheme.primary.withAlpha(15), shape: BoxShape.circle),
+            decoration: BoxDecoration(
+              color: isDark ? AppTheme.primary.withAlpha(15) : AppTheme.primary.withAlpha(25),
+              shape: BoxShape.circle,
+            ),
             child: const Icon(Icons.flight_outlined, size: 48, color: AppTheme.primary),
           ),
           const SizedBox(height: 20),
-          const Text('لا توجد شحنات', style: TextStyle(color: AppTheme.textPrimary, fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
+          Text('لا توجد شحنات',
+              style: TextStyle(color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A), fontSize: 18, fontWeight: FontWeight.bold, fontFamily: 'Cairo')),
           const SizedBox(height: 8),
           Text('اضغط على "شحنة جديدة" لإنشاء أول شحنة',
-              style: TextStyle(color: AppTheme.textSecondary.withAlpha(180), fontSize: 14, fontFamily: 'Cairo')),
+              style: TextStyle(color: isDark ? AppTheme.textSecondary.withAlpha(180) : const Color(0xFF64748B), fontSize: 14, fontFamily: 'Cairo', fontWeight: FontWeight.w600)),
         ],
       ),
     );
   }
 
   void _confirmShipment(ExportShipmentModel shipment) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     showDialog(
       context: context,
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          backgroundColor: AppTheme.surface,
-          title: const Text('تأكيد الشحنة', style: TextStyle(color: AppTheme.textPrimary, fontFamily: 'Cairo')),
+          backgroundColor: isDark ? AppTheme.surface : Colors.white,
+          title: Text('تأكيد الشحنة', style: TextStyle(color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A), fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
           content: Text('هل أنت متأكد من تأكيد الشحنة رقم ${shipment.shipmentNo}؟ لن يمكنك تعديل تفاصيلها بعد التأكيد وسيتم ترحيل قيودها المالية.',
-              style: const TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+              style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF475569), fontFamily: 'Cairo')),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+              child: Text('إلغاء', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontFamily: 'Cairo')),
             ),
             ElevatedButton(
               onPressed: () {
@@ -713,7 +863,7 @@ class _ExportsPageState extends State<ExportsPage> {
                 context.read<ExportShipmentCubit>().confirmShipment(shipment);
               },
               style: ElevatedButton.styleFrom(backgroundColor: AppTheme.success),
-              child: const Text('تأكيد', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+              child: const Text('تأكيد', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
             ),
           ],
         ),
@@ -722,6 +872,7 @@ class _ExportsPageState extends State<ExportsPage> {
   }
 
   void _editDiscount(ExportShipmentModel shipment) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     final sid = shipment.id?.toString() ?? '';
     if (_distributedShipmentIds.contains(sid)) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -736,37 +887,28 @@ class _ExportsPageState extends State<ExportsPage> {
       builder: (ctx) => Directionality(
         textDirection: TextDirection.rtl,
         child: AlertDialog(
-          backgroundColor: AppTheme.surface,
-          title: const Text('تعديل الخصم', style: TextStyle(color: AppTheme.textPrimary, fontFamily: 'Cairo')),
+          backgroundColor: isDark ? AppTheme.surface : Colors.white,
+          title: Text('تعديل الخصم', style: TextStyle(color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A), fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               TextField(
                 controller: amountController,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Cairo'),
-                decoration: const InputDecoration(
+                style: TextStyle(color: isDark ? AppTheme.textPrimary : const Color(0xFF0F172A), fontFamily: 'Cairo', fontWeight: FontWeight.bold),
+                decoration: InputDecoration(
                   labelText: 'مبلغ الخصم',
-                  labelStyle: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
-                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppTheme.glassBorder)),
+                  labelStyle: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontFamily: 'Cairo'),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1))),
                 ),
               ),
               const SizedBox(height: 12),
-              // TextField(
-              //   controller: reasonController,
-              //   style: const TextStyle(color: AppTheme.textPrimary, fontFamily: 'Cairo'),
-              //   decoration: const InputDecoration(
-              //     labelText: 'سبب الخصم (اختياري)',
-              //     labelStyle: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo'),
-              //     enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppTheme.glassBorder)),
-              //   ),
-              // ),
             ],
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(ctx),
-              child: const Text('إلغاء', style: TextStyle(color: AppTheme.textSecondary, fontFamily: 'Cairo')),
+              child: Text('إلغاء', style: TextStyle(color: isDark ? AppTheme.textSecondary : const Color(0xFF64748B), fontFamily: 'Cairo')),
             ),
             ElevatedButton(
               onPressed: () {
@@ -775,7 +917,7 @@ class _ExportsPageState extends State<ExportsPage> {
                 context.read<ExportShipmentCubit>().updateDiscount(shipment.id, amount, reasonController.text);
               },
               style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primary),
-              child: const Text('حفظ', style: TextStyle(color: Colors.white, fontFamily: 'Cairo')),
+              child: const Text('حفظ', style: TextStyle(color: Colors.white, fontFamily: 'Cairo', fontWeight: FontWeight.bold)),
             ),
           ],
         ),

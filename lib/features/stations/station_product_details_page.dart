@@ -284,16 +284,17 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
   @override
   Widget build(BuildContext context) {
     final isMobile = MediaQuery.of(context).size.width < 600;
+    final isDark = AppTheme.isDark(context);
     return Directionality(
       textDirection: TextDirection.rtl,
       child: Scaffold(
-        backgroundColor: AppTheme.background,
+        backgroundColor: isDark ? AppTheme.background : AppTheme.lightBackground,
         body: Padding(
           padding: EdgeInsets.all(isMobile ? 12 : 24),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildHeader(),
+              _buildHeader(isDark),
               const SizedBox(height: 20),
               Expanded(
                 child: RefreshIndicator(
@@ -305,7 +306,7 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                       children: [
                       //  _buildStockOverview(),
                         const SizedBox(height: 20),
-                        _buildBatchesTable(),
+                        _buildBatchesTable(isDark),
                       ],
                     ),
                   ),
@@ -318,13 +319,13 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
     );
   }
 
-  Widget _buildHeader() {
+  Widget _buildHeader(bool isDark) {
     final isMobile = MediaQuery.of(context).size.width < 600;
     return Row(
       children: [
         IconButton(
-          icon: const Icon(Icons.arrow_back_ios,
-              color: AppTheme.primary, size: 20),
+          icon: Icon(Icons.arrow_back_ios,
+              color: isDark ? AppTheme.primary : Colors.black, size: 20),
           onPressed: () => Navigator.pop(context),
         ),
         Container(
@@ -359,26 +360,27 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                     style: TextStyle(
                         fontSize: isMobile ? 18 : 22,
                         fontWeight: FontWeight.bold,
-                        color: Colors.white,
+                        color: isDark ? Colors.white : Colors.black,
                         fontFamily: 'Cairo')),
                 Row(
                   children: [
                     Text(widget.stationName,
-                        style: const TextStyle(
-                            color: AppTheme.accent,
+                        style: TextStyle(
+                            color: isDark ? AppTheme.accent : const Color(0xFF0284C7),
                             fontSize: 13,
+                            fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo')),
                     if (widget.productCode.isNotEmpty) ...[
                       const SizedBox(width: 8),
                       Text('•',
                           style: TextStyle(
-                              color:
-                                  AppTheme.textSecondary.withValues(alpha: 0.5),
+                              color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.5) : Colors.black54,
                               fontSize: 13)),
                       const SizedBox(width: 8),
                       Text(widget.productCode,
-                          style: const TextStyle(
-                              color: AppTheme.textSecondary,
+                          style: TextStyle(
+                              color: isDark ? AppTheme.textSecondary : Colors.black87,
+                              fontWeight: FontWeight.bold,
                               fontSize: 13,
                               fontFamily: 'Cairo')),
                     ],
@@ -392,7 +394,7 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
     );
   }
 
-  Widget _glass({required Widget child}) {
+  Widget _glass({required Widget child, bool isDark = true}) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: BackdropFilter(
@@ -400,55 +402,73 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(22),
-          decoration: AppTheme.glassCard(),
+          decoration: isDark
+              ? AppTheme.glassCard()
+              : BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(color: const Color(0xFFCBD5E1)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 8,
+                      offset: const Offset(0, 2),
+                    ),
+                  ],
+                ),
           child: child,
         ),
       ),
     );
   }
 
-  Widget _sectionTitle(String title, IconData icon) {
+  Widget _sectionTitle(String title, IconData icon, bool isDark) {
     return Row(
       children: [
         Container(
           width: 36,
           height: 36,
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [
-                AppTheme.primary.withValues(alpha: 0.2),
-                AppTheme.accent.withValues(alpha: 0.1)
-              ],
-            ),
+            gradient: isDark
+                ? LinearGradient(
+                    colors: [
+                      AppTheme.primary.withValues(alpha: 0.2),
+                      AppTheme.accent.withValues(alpha: 0.1)
+                    ],
+                  )
+                : null,
+            color: isDark ? null : const Color(0xFFE0F2FE),
             borderRadius: BorderRadius.circular(10),
+            border: isDark ? null : Border.all(color: const Color(0xFFBAE6FD)),
           ),
-          child: Icon(icon, color: AppTheme.primary, size: 18),
+          child: Icon(icon, color: isDark ? AppTheme.primary : const Color(0xFF0284C7), size: 18),
         ),
         const SizedBox(width: 10),
         Text(title,
-            style: const TextStyle(
+            style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.bold,
-                color: Colors.white,
+                color: isDark ? Colors.white : Colors.black,
                 fontFamily: 'Cairo')),
       ],
     );
   }
 
-  Widget _buildStockOverview() {
+  Widget _buildStockOverview(bool isDark) {
     final isLow = _currentQuantity <= _lowStockThreshold;
     final totalValue = _batches.fold(0.0, (sum, b) => sum + b.batchTotalCost);
     debugPrint(
         '📊 _buildStockOverview: _currentQuantity=$_currentQuantity, totalValue=$totalValue, _batches.length=${_batches.length}');
 
     return _glass(
+      isDark: isDark,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _sectionTitle('ملخص المخزون', Icons.analytics_outlined),
+              _sectionTitle('ملخص المخزون', Icons.analytics_outlined, isDark),
               Container(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -476,13 +496,13 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
           Row(
             children: [
               _stockStat('الكمية الحالية بالمخزن',
-                  AppUtils.formatNumber(_currentQuantity), '', _stockColor),
+                  AppUtils.formatNumber(_currentQuantity), '', _stockColor, isDark),
               const SizedBox(width: 12),
               _stockStat(
                   'إجمالي قيمة المخزون',
                   '${AppUtils.formatNumber(totalValue)} ${widget.currency}',
                   '',
-                  AppTheme.accent),
+                  AppTheme.accent, isDark),
             ],
           ),
           if (isLow && _currentQuantity > 0) ...[
@@ -522,7 +542,7 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                   ? (_currentQuantity / _lowStockThreshold).clamp(0.0, 1.0)
                   : 0.0,
               minHeight: 14,
-              backgroundColor: Colors.white.withValues(alpha: 0.06),
+              backgroundColor: isDark ? Colors.white.withValues(alpha: 0.06) : const Color(0xFFE2E8F0),
               valueColor: AlwaysStoppedAnimation<Color>(_stockColor),
             ),
           ),
@@ -531,7 +551,7 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
     );
   }
 
-  Widget _stockStat(String label, String value, String unit, Color color) {
+  Widget _stockStat(String label, String value, String unit, Color color, bool isDark) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -544,8 +564,9 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label,
-                style: const TextStyle(
-                    color: AppTheme.textSecondary,
+                style: TextStyle(
+                    color: isDark ? AppTheme.textSecondary : Colors.black87,
+                    fontWeight: FontWeight.bold,
                     fontSize: 11,
                     fontFamily: 'Cairo')),
             const SizedBox(height: 6),
@@ -579,7 +600,7 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
     );
   }
 
-  Widget _buildBatchesTable() {
+  Widget _buildBatchesTable(bool isDark) {
     final totalRemaining =
         _batches.fold(0.0, (sum, b) => sum + b.remainingQuantity);
     final totalValue = _batches.fold(0.0, (sum, b) => sum + b.batchTotalCost);
@@ -592,15 +613,17 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
     }
 
     return _glass(
+      isDark: isDark,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _sectionTitle('الدفعات', Icons.local_shipping_outlined),
+          _sectionTitle('الدفعات', Icons.local_shipping_outlined, isDark),
           const SizedBox(height: 8),
-          const Text(
+          Text(
               'كل مشتري بالتاريخ والسعر — أول كمية اشتريت هي أول حاجة هتسحب منها',
               style: TextStyle(
-                  color: AppTheme.textSecondary,
+                  color: isDark ? AppTheme.textSecondary : Colors.black87,
+                  fontWeight: FontWeight.bold,
                   fontSize: 12,
                   fontFamily: 'Cairo')),
           const SizedBox(height: 16),
@@ -613,20 +636,21 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
             Container(
               padding: const EdgeInsets.all(24),
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.03),
+                color: isDark ? Colors.white.withValues(alpha: 0.03) : const Color(0xFFF8FAFC),
                 borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: AppTheme.glassBorder),
+                border: Border.all(color: isDark ? AppTheme.glassBorder : const Color(0xFFCBD5E1)),
               ),
               child: Center(
                 child: Column(
                   children: [
                     Icon(Icons.local_shipping_outlined,
                         size: 48,
-                        color: AppTheme.textSecondary.withValues(alpha: 0.3)),
+                        color: isDark ? AppTheme.textSecondary.withValues(alpha: 0.3) : Colors.black26),
                     const SizedBox(height: 12),
-                    const Text('لا توجد دفعات مسجلة',
+                    Text('لا توجد دفعات مسجلة',
                         style: TextStyle(
-                            color: AppTheme.textSecondary,
+                            color: isDark ? AppTheme.textSecondary : Colors.black,
+                            fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo',
                             fontSize: 14)),
                   ],
@@ -642,31 +666,31 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                   Container(
                     padding: const EdgeInsets.symmetric(
                         horizontal: 14, vertical: 10),
-                    color: const Color(0x1A00E5FF),
-                    child: const Row(
+                    color: isDark ? const Color(0x1A00E5FF) : const Color(0xFFF1F5F9),
+                    child: Row(
                       children: [
                         SizedBox(
                             width: 36,
                             child: Text('#',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12))),
                         SizedBox(
                             width: 80,
                             child: Text('التاريخ',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12))),
                         SizedBox(
                             width: 120,
                             child: Text('المصدر',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12))),
                         SizedBox(
@@ -682,8 +706,8 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                             width: 75,
                             child: Text('الكمية',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12),
                                 textAlign: TextAlign.center)),
@@ -691,8 +715,8 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                             width: 75,
                             child: Text('المتبقي',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12),
                                 textAlign: TextAlign.center)),
@@ -700,8 +724,8 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                             width: 80,
                             child: Text('سعر الصرف',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12),
                                 textAlign: TextAlign.center)),
@@ -709,8 +733,8 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                             width: 100,
                             child: Text('سعر الوحدة',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12),
                                 textAlign: TextAlign.center)),
@@ -718,8 +742,8 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                             width: 100,
                             child: Text('الإجمالي',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
-                                    fontWeight: FontWeight.w600,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12),
                                 textAlign: TextAlign.center)),
@@ -754,17 +778,20 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                       padding: const EdgeInsets.symmetric(
                           horizontal: 14, vertical: 12),
                       color: isFirstAvailable
-                          ? AppTheme.primary.withValues(alpha: 0.08)
-                          : (isEven
-                              ? Colors.white.withValues(alpha: 0.03)
-                              : Colors.white.withValues(alpha: 0.05)),
+                          ? (isDark ? AppTheme.primary.withValues(alpha: 0.08) : const Color(0xFFE0F2FE))
+                          : isDark
+                              ? (isEven
+                                  ? Colors.white.withValues(alpha: 0.03)
+                                  : Colors.white.withValues(alpha: 0.05))
+                              : (isEven ? Colors.white : const Color(0xFFF8FAFC)),
                       child: Row(
                         children: [
                           SizedBox(
                             width: 36,
                             child: Text('${i + 1}',
                                 style: TextStyle(
-                                    color: AppTheme.textSecondary,
+                                    color: isDark ? AppTheme.textSecondary : Colors.black87,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12,
                                     decoration: isFullyConsumed
@@ -779,8 +806,9 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                                     : batch.createdAt),
                                 style: TextStyle(
                                     color: isFullyConsumed
-                                        ? AppTheme.textSecondary
-                                        : Colors.white,
+                                        ? (isDark ? AppTheme.textSecondary : Colors.black54)
+                                        : (isDark ? Colors.white : Colors.black),
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12,
                                     decoration: isFullyConsumed
@@ -792,8 +820,9 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                             child: Text(sourceLabel,
                                 style: TextStyle(
                                     color: isFullyConsumed
-                                        ? AppTheme.textSecondary
-                                        : Colors.white,
+                                        ? (isDark ? AppTheme.textSecondary : Colors.black54)
+                                        : (isDark ? Colors.white : Colors.black),
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12),
                                 overflow: TextOverflow.ellipsis),
@@ -820,9 +849,9 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                                         textAlign: TextAlign.center),
                                   )
                                 : isFullyConsumed
-                                    ? const Text('—',
+                                    ? Text('—',
                                         style: TextStyle(
-                                            color: AppTheme.textSecondary,
+                                            color: isDark ? AppTheme.textSecondary : Colors.black54,
                                             fontFamily: 'Cairo',
                                             fontSize: 11),
                                         textAlign: TextAlign.center)
@@ -833,8 +862,9 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                             child: Text(AppUtils.formatNumber(batch.quantity),
                                 style: TextStyle(
                                     color: isFullyConsumed
-                                        ? AppTheme.textSecondary
-                                        : Colors.white,
+                                        ? (isDark ? AppTheme.textSecondary : Colors.black54)
+                                        : (isDark ? Colors.white : Colors.black),
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12),
                                 textAlign: TextAlign.center),
@@ -847,7 +877,7 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                               decoration: BoxDecoration(
                                 color: batch.remainingQuantity > 0
                                     ? AppTheme.success.withValues(alpha: 0.1)
-                                    : AppTheme.textSecondary
+                                    : (isDark ? AppTheme.textSecondary : Colors.black54)
                                         .withValues(alpha: 0.1),
                                 borderRadius: BorderRadius.circular(6),
                               ),
@@ -857,7 +887,7 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                                   style: TextStyle(
                                       color: batch.remainingQuantity > 0
                                           ? AppTheme.success
-                                          : AppTheme.textSecondary,
+                                          : (isDark ? AppTheme.textSecondary : Colors.black54),
                                       fontFamily: 'Cairo',
                                       fontSize: 12,
                                       fontWeight: FontWeight.bold),
@@ -872,8 +902,9 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                                     : batch.exchangeRate.toStringAsFixed(4),
                                 style: TextStyle(
                                     color: batch.exchangeRate == 1.0
-                                        ? AppTheme.textSecondary
+                                        ? (isDark ? AppTheme.textSecondary : Colors.black54)
                                         : AppTheme.info,
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 11),
                                 textAlign: TextAlign.center),
@@ -884,8 +915,9 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                                 '${AppUtils.formatNumber(batch.unitCost)} ${widget.currency}',
                                 style: TextStyle(
                                     color: isFullyConsumed
-                                        ? AppTheme.textSecondary
-                                        : AppTheme.accent,
+                                        ? (isDark ? AppTheme.textSecondary : Colors.black54)
+                                        : (isDark ? AppTheme.accent : const Color(0xFF0284C7)),
+                                    fontWeight: FontWeight.bold,
                                     fontFamily: 'Cairo',
                                     fontSize: 12),
                                 textAlign: TextAlign.center),
@@ -896,8 +928,8 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                                 '${AppUtils.formatNumber(rowTotal)} ${widget.currency}',
                                 style: TextStyle(
                                     color: isFullyConsumed
-                                        ? AppTheme.textSecondary
-                                        : Colors.white,
+                                        ? (isDark ? AppTheme.textSecondary : Colors.black54)
+                                        : (isDark ? Colors.white : Colors.black),
                                     fontFamily: 'Cairo',
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold),
@@ -914,34 +946,37 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  colors: [
-                    AppTheme.primary.withValues(alpha: 0.1),
-                    AppTheme.accent.withValues(alpha: 0.05)
-                  ],
-                ),
+                gradient: isDark
+                    ? LinearGradient(
+                        colors: [
+                          AppTheme.primary.withValues(alpha: 0.1),
+                          AppTheme.accent.withValues(alpha: 0.05)
+                        ],
+                      )
+                    : null,
+                color: isDark ? null : const Color(0xFFE0F2FE),
                 borderRadius: BorderRadius.circular(14),
-                border:
-                    Border.all(color: AppTheme.primary.withValues(alpha: 0.2)),
+                border: Border.all(
+                    color: isDark ? AppTheme.primary.withValues(alpha: 0.2) : const Color(0xFFBAE6FD)),
               ),
               child: SingleChildScrollView(
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const Icon(Icons.summarize_outlined,
-                        color: AppTheme.primary, size: 20),
+                    Icon(Icons.summarize_outlined,
+                        color: isDark ? AppTheme.primary : const Color(0xFF0284C7), size: 20),
                     const SizedBox(width: 10),
                     Text('الإجمالي',
-                        style: const TextStyle(
-                            color: Colors.white,
+                        style: TextStyle(
+                            color: isDark ? Colors.white : Colors.black,
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo')),
                     const SizedBox(width: 16),
                     Text('${AppUtils.formatNumber(totalRemaining)} وحدة',
                         style: TextStyle(
-                            color: AppTheme.primary,
+                            color: isDark ? AppTheme.primary : const Color(0xFF0284C7),
                             fontSize: 16,
                             fontWeight: FontWeight.w800,
                             fontFamily: 'Cairo')),
@@ -949,14 +984,14 @@ class _StationProductDetailsPageState extends State<StationProductDetailsPage> {
                     Text(
                         '${AppUtils.formatNumber(totalValue)} ${widget.currency}',
                         style: TextStyle(
-                            color: AppTheme.accent,
+                            color: isDark ? AppTheme.accent : const Color(0xFF0284C7),
                             fontSize: 14,
                             fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo')),
                     const SizedBox(width: 8),
                     Text('${_batches.length} دفعة',
                         style: TextStyle(
-                            color: AppTheme.accent,
+                            color: isDark ? AppTheme.accent : Colors.black87,
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
                             fontFamily: 'Cairo')),

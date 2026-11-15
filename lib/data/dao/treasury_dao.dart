@@ -411,8 +411,75 @@ class TreasuryDao {
       if (employeeId != null) params['p_employee_id'] = employeeId;
       if (notes != null && notes.isNotEmpty) params['p_notes'] = notes;
 
-      final newId = await _client.rpc('create_treasury', params: params);
-      _log('createTreasury via RPC: OK, id=$newId');
+      dynamic newId;
+      try {
+        newId = await _client.rpc('create_treasury', params: params);
+        _log('createTreasury via RPC: OK, id=$newId');
+      } on PostgrestException catch (pe) {
+        _log('createTreasury RPC failed (${pe.code}): ${pe.message}');
+        if (pe.code == 'PGRST202' && params.containsKey('p_company_id')) {
+          final fallbackParams = Map<String, dynamic>.from(params)..remove('p_company_id');
+          try {
+            newId = await _client.rpc('create_treasury', params: fallbackParams);
+            _log('createTreasury via fallback RPC: OK, id=$newId');
+            if (companyId != null && newId != null) {
+              await _client
+                  .from('treasuries')
+                  .update({'company_id': companyId})
+                  .eq('id', newId);
+            }
+          } catch (pe2) {
+            _log('createTreasury fallback RPC also failed: $pe2');
+          }
+        }
+      }
+
+      // Fallback to direct insert if RPC failed or is missing
+      if (newId == null) {
+        _log('createTreasury: Falling back to direct database insert');
+        final insertData = <String, dynamic>{
+          'name': name,
+          'type': type,
+          'approval_status': 'approved',
+          'is_active': true,
+        };
+        if (employeeId != null) {
+          insertData['employee_id'] = employeeId;
+          insertData['user_id'] = employeeId;
+        }
+        if (notes != null && notes.isNotEmpty) {
+          insertData['notes'] = notes;
+        }
+        if (companyId != null) {
+          insertData['company_id'] = companyId;
+        }
+
+        final inserted = await _client
+            .from('treasuries')
+            .insert(insertData)
+            .select('id')
+            .single();
+        newId = inserted['id'];
+
+        // Initialize balances for the new treasury
+        for (final curr in ['EGP', 'USD', 'EUR', 'GBP']) {
+          await _client.from('treasury_balances').upsert({
+            'treasury_id': newId,
+            'currency': curr,
+            'balance': 0.0,
+          }, onConflict: 'treasury_id, currency');
+        }
+        _log('createTreasury via direct insert: OK, id=$newId');
+      }
+
+      // Ensure dedicated Level-5 account exists in COA for employee custody
+      if (type == 'employee' || type == 'custody') {
+        try {
+          await ensureCustodyAccount('$newId');
+        } catch (e) {
+          _log('ensureCustodyAccount background call notice: $e');
+        }
+      }
 
       final fullResult = await _client
           .from('treasuries')
@@ -429,6 +496,22 @@ class TreasuryDao {
         throw Exception('يوجد خزنة بهذا الاسم بالفعل، يرجى اختيار اسم مختلف');
       }
       rethrow;
+    }
+  }
+
+  /// Ensures and provisions a dedicated Level-5 posting account for an employee custody.
+  Future<int?> ensureCustodyAccount(String treasuryId) async {
+    try {
+      final res = await _client.rpc('ensure_custody_account', params: {
+        'p_treasury_id': int.tryParse(treasuryId) ?? treasuryId,
+        if (TenantService().tenantId != null) 'p_company_id': TenantService().tenantId,
+      });
+      _log('ensureCustodyAccount: accountId=$res for treasury=$treasuryId');
+      if (res is int) return res;
+      return int.tryParse('$res');
+    } catch (e) {
+      _log('ensureCustodyAccount error: $e');
+      return null;
     }
   }
 
@@ -477,7 +560,7 @@ class TreasuryDao {
     }
   }
 
-  /// Transfer from one employee treasury to another.
+  /// Transfer from one employee treasury to another with optional Branch & Cost Center tracking.
   Future<void> transferCustody({
     required String fromTreasuryId,
     required String toTreasuryId,
@@ -485,6 +568,10 @@ class TreasuryDao {
     required double amount,
     String description = '',
     String? notes,
+    String? costCenterId,
+    dynamic branchId,
+    dynamic toBranchId,
+    String? toCostCenterId,
   }) async {
     try {
       await _client.rpc('transfer_custody', params: {
@@ -494,6 +581,10 @@ class TreasuryDao {
         'p_amount': amount,
         'p_description': description,
         if (notes != null && notes.trim().isNotEmpty) 'p_notes': notes.trim(),
+        if (costCenterId != null && costCenterId.trim().isNotEmpty) 'p_cost_center_id': costCenterId.trim(),
+        if (branchId != null) 'p_branch_id': int.tryParse(branchId.toString()) ?? branchId,
+        if (toBranchId != null) 'p_to_branch_id': int.tryParse(toBranchId.toString()) ?? toBranchId,
+        if (toCostCenterId != null && toCostCenterId.trim().isNotEmpty) 'p_to_cost_center_id': toCostCenterId.trim(),
       });
       _log('transferCustody via RPC: OK');
     } catch (e) {
@@ -526,6 +617,8 @@ class TreasuryDao {
     String? shareholderId,
     PurchaseModel? invoice,
     String? notes,
+    String? costCenterId,
+    dynamic branchId,
   }) async {
     debugPrint('═══════════════════════════════════════════════');
     debugPrint('💰 TREASURY_DAO.spend() ENTRY');
@@ -590,6 +683,8 @@ class TreasuryDao {
         if (refType != null) 'p_reference_type': refType,
         if (refId != null) 'p_reference_id': refId,
         if (notes != null && notes.trim().isNotEmpty) 'p_notes': notes.trim(),
+        if (costCenterId != null && costCenterId.isNotEmpty) 'p_cost_center_id': costCenterId,
+        if (branchId != null) 'p_branch_id': int.tryParse(branchId.toString()) ?? branchId,
       };
 
       debugPrint('💰 spend() → RPC CALLING spend_custody');
@@ -597,7 +692,10 @@ class TreasuryDao {
       debugPrint('💰 spend() → param types:');
       params.forEach((k, v) => debugPrint('   $k: $v (${v.runtimeType})'));
 
-      final txId = await _client.rpc('spend_custody', params: params) as int;
+      final res = await _client.rpc('spend_custody', params: params);
+      final int txId = res is Map
+          ? ((res['transaction_id'] ?? res['id']) as num?)?.toInt() ?? 0
+          : (res is num ? res.toInt() : int.tryParse(res?.toString() ?? '') ?? 0);
       _log('spend via RPC: OK (txId=$txId)');
     } catch (e) {
       _log('RPC spend_custody failed: $e');
@@ -625,6 +723,8 @@ class TreasuryDao {
     String? shareholderId,
     PurchaseModel? invoice,
     String? notes,
+    String? costCenterId,
+    dynamic branchId,
   }) async {
     debugPrint('═══════════════════════════════════════════════');
     debugPrint('💰 TREASURY_DAO.spendWithCategory() ENTRY');
@@ -635,6 +735,9 @@ class TreasuryDao {
     debugPrint('  categoryId       = "$categoryId"');
     debugPrint('  supplierId       = "$supplierId"');
     debugPrint('  customerId       = "$customerId"');
+    debugPrint('  shareholderId    = "$shareholderId"');
+    debugPrint('  costCenterId     = "$costCenterId"');
+    debugPrint('  branchId         = "$branchId"');
     debugPrint('═══════════════════════════════════════════════');
 
     // 1. Run validation
@@ -674,6 +777,8 @@ class TreasuryDao {
         if (refType != null) 'p_reference_type': refType,
         if (refId != null) 'p_reference_id': refId,
         if (notes != null && notes.trim().isNotEmpty) 'p_notes': notes.trim(),
+        if (costCenterId != null && costCenterId.isNotEmpty) 'p_cost_center_id': costCenterId,
+        if (branchId != null) 'p_branch_id': int.tryParse(branchId.toString()) ?? branchId,
       };
 
       debugPrint('💰 spendWithCategory → RPC CALLING spend_with_category');
@@ -681,7 +786,10 @@ class TreasuryDao {
       debugPrint('💰 spendWithCategory → param types:');
       params.forEach((k, v) => debugPrint('   $k: $v (${v.runtimeType})'));
 
-      final txId = await _client.rpc('spend_with_category', params: params) as int;
+      final res = await _client.rpc('spend_with_category', params: params);
+      final int txId = res is Map
+          ? ((res['transaction_id'] ?? res['id']) as num?)?.toInt() ?? 0
+          : (res is num ? res.toInt() : int.tryParse(res?.toString() ?? '') ?? 0);
       _log('spendWithCategory via RPC: OK (txId=$txId, cat=$categoryId, acct=$expenseAccountId)');
     } catch (e) {
       _log('RPC spend_with_category failed: $e');
@@ -843,6 +951,7 @@ class TreasuryDao {
     double? amount,
     String? transactionType,
     String? treasuryId,
+    String? currency,
   }) async {
     try {
       final updates = <String, dynamic>{};
@@ -850,19 +959,21 @@ class TreasuryDao {
       if (categoryId != null) updates['category_id'] = categoryId;
       if (transactionType != null) updates['type'] = transactionType;
       if (treasuryId != null) updates['treasury_id'] = treasuryId;
+      if (currency != null) updates['currency'] = currency;
       if (updates.isEmpty && amount == null) return;
 
       final tx = await _client
           .from('treasury_transactions')
-          .select('treasury_id, currency, amount, type, customer_id, supplier_id, clearing_agent_id, shipping_company_id')
+          .select('treasury_id, currency, amount, type, customer_id, supplier_id, clearing_agent_id, shipping_company_id, journal_entry_id')
           .eq('id', transactionId)
           .maybeSingle();
       if (tx == null) throw Exception('الحركة غير موجودة');
 
-      final oldTreasId = tx['treasury_id'] as String;
-      final currency = tx['currency'] as String;
-      final oldAmount = (tx['amount'] as num).toDouble().abs();
-      final oldTxType = tx['type'] as String;
+      final oldTreasId = tx['treasury_id']?.toString() ?? '';
+      final oldCurrency = tx['currency']?.toString() ?? 'EGP';
+      final targetCurrency = currency ?? oldCurrency;
+      final oldAmount = (tx['amount'] as num?)?.toDouble().abs() ?? 0.0;
+      final oldTxType = tx['type']?.toString() ?? '';
 
       final absNew = amount ?? oldAmount;
       final newType = transactionType ?? oldTxType;
@@ -882,13 +993,19 @@ class TreasuryDao {
       final treasuryDelta = newTxDelta - oldTxDelta;
 
       final batch = <Future<void>>[];
-      if (targetTreasId == oldTreasId) {
-        if (treasuryDelta != 0) {
-          batch.add(_updateBalance(targetTreasId, currency, treasuryDelta));
+      if (targetCurrency == oldCurrency) {
+        if (targetTreasId == oldTreasId) {
+          if (treasuryDelta != 0) {
+            batch.add(_updateBalance(targetTreasId, oldCurrency, treasuryDelta));
+          }
+        } else {
+          batch.add(_updateBalance(oldTreasId, oldCurrency, -oldTxDelta));
+          batch.add(_updateBalance(targetTreasId, oldCurrency, newTxDelta));
         }
       } else {
-        batch.add(_updateBalance(oldTreasId, currency, -oldTxDelta));
-        batch.add(_updateBalance(targetTreasId, currency, newTxDelta));
+        // Currency changed: reverse from old currency, add to new currency
+        batch.add(_updateBalance(oldTreasId, oldCurrency, -oldTxDelta));
+        batch.add(_updateBalance(targetTreasId, targetCurrency, newTxDelta));
       }
 
       // ── Counterparty balance delta ──
@@ -904,10 +1021,16 @@ class TreasuryDao {
       final newVendorEffect = newIsOutflow ? -absNew : absNew;
       final vendorDelta = newVendorEffect - oldVendorEffect;
 
-      final customerId = tx['customer_id'] as int?;
-      final supplierId = tx['supplier_id'] as String?;
-      final clearingAgentId = tx['clearing_agent_id'] as int?;
-      final shippingCompanyId = tx['shipping_company_id'] as int?;
+      final customerId = tx['customer_id'] is int
+          ? tx['customer_id'] as int
+          : int.tryParse(tx['customer_id']?.toString() ?? '');
+      final supplierId = tx['supplier_id']?.toString();
+      final clearingAgentId = tx['clearing_agent_id'] is int
+          ? tx['clearing_agent_id'] as int
+          : int.tryParse(tx['clearing_agent_id']?.toString() ?? '');
+      final shippingCompanyId = tx['shipping_company_id'] is int
+          ? tx['shipping_company_id'] as int
+          : int.tryParse(tx['shipping_company_id']?.toString() ?? '');
 
       final needsLedgerUpdate = amount != null && (customerId != null || supplierId != null || clearingAgentId != null || shippingCompanyId != null);
 
@@ -941,15 +1064,62 @@ class TreasuryDao {
         }
       }
 
+      // 3) Synchronize GL / Journal Entry if linked
+      final jeId = tx['journal_entry_id'];
+      if (jeId != null) {
+        try {
+          if (description != null && description.isNotEmpty) {
+            await _client.from('journal_entries').update({
+              'description': description,
+              'updated_at': DateTime.now().toIso8601String(),
+            }).eq('id', jeId);
+          }
+
+          if (amount != null) {
+            final lines = await _client
+                .from('account_ledger_entries')
+                .select('id, debit, credit')
+                .eq('journal_entry_id', jeId);
+
+            for (final line in lines) {
+              final lineId = line['id'];
+              final oldDebit = (line['debit'] as num?)?.toDouble() ?? 0.0;
+              final oldCredit = (line['credit'] as num?)?.toDouble() ?? 0.0;
+              final lineUpdates = <String, dynamic>{};
+              if (oldDebit > 0) {
+                lineUpdates['debit'] = absNew;
+                lineUpdates['amount_in_base_currency'] = absNew;
+              } else if (oldCredit > 0) {
+                lineUpdates['credit'] = absNew;
+                lineUpdates['amount_in_base_currency'] = absNew;
+              }
+              if (description != null && description.isNotEmpty) {
+                lineUpdates['description'] = description;
+              }
+              if (lineUpdates.isNotEmpty) {
+                await _client.from('account_ledger_entries').update(lineUpdates).eq('id', lineId);
+              }
+            }
+          }
+        } catch (glError) {
+          _log('Error syncing GL for journal_entry $jeId: $glError');
+        }
+      }
+
       if (batch.isNotEmpty) await _doAtomic(batch);
 
       // Update the transaction row itself
       final updatePayload = <String, dynamic>{};
       if (description != null) updatePayload['description'] = description;
-      if (categoryId != null) updatePayload['category_id'] = categoryId;
+      if (categoryId != null) {
+        updatePayload['category_id'] = int.tryParse(categoryId) ?? categoryId;
+      }
       if (updates.containsKey('amount')) updatePayload['amount'] = updates['amount'];
       if (transactionType != null) updatePayload['type'] = transactionType;
-      if (treasuryId != null) updatePayload['treasury_id'] = treasuryId;
+      if (treasuryId != null) {
+        updatePayload['treasury_id'] = int.tryParse(treasuryId) ?? treasuryId;
+      }
+      if (currency != null) updatePayload['currency'] = targetCurrency;
       if (updatePayload.isNotEmpty) {
         await _client.from('treasury_transactions').update(updatePayload).eq('id', transactionId);
       }
@@ -970,14 +1140,20 @@ class TreasuryDao {
       if (tx == null) throw Exception('الحركة غير موجودة');
 
       final treasuryId = tx['treasury_id'];
-      final currency = tx['currency'] as String;
-      final amount = (tx['amount'] as num).toDouble().abs();
-      final txType = tx['type'] as String;
+      final currency = tx['currency']?.toString() ?? 'EGP';
+      final amount = (tx['amount'] as num?)?.toDouble().abs() ?? 0.0;
+      final txType = tx['type']?.toString() ?? '';
       final isOutflow = {'expense', 'withdrawal', 'transfer_out', 'return_out', 'disbursement_out'}.contains(txType);
-      final customerId = tx['customer_id'] as int?;
-      final supplierId = tx['supplier_id'] as String?;
-      final clearingAgentId = tx['clearing_agent_id'] as int?;
-      final shippingCompanyId = tx['shipping_company_id'] as int?;
+      final customerId = tx['customer_id'] is int
+          ? tx['customer_id'] as int
+          : int.tryParse(tx['customer_id']?.toString() ?? '');
+      final supplierId = tx['supplier_id']?.toString();
+      final clearingAgentId = tx['clearing_agent_id'] is int
+          ? tx['clearing_agent_id'] as int
+          : int.tryParse(tx['clearing_agent_id']?.toString() ?? '');
+      final shippingCompanyId = tx['shipping_company_id'] is int
+          ? tx['shipping_company_id'] as int
+          : int.tryParse(tx['shipping_company_id']?.toString() ?? '');
 
       // 1) RPC: ONLY delete ledger_entries (cleanup audit trail)
       try {
@@ -1196,6 +1372,125 @@ class TreasuryDao {
     return (data as List).map((e) => Map<String, dynamic>.from(e)).toList();
   }
 
+  /// Fetches comprehensive custody/treasury balance details reconciling:
+  /// 1. Operational cash balance from `treasury_balances` (for specified currency, default EGP).
+  /// 2. Chart of accounts mapping from `treasuries.account_id` or `treasury_balances.account_id` or `resolve_treasury_account`.
+  /// 3. General Ledger movements from `account_ledger_entries` (sum of debit & credit).
+  Future<Map<String, dynamic>> getCustodyBalanceDetails({
+    required dynamic treasuryId,
+    String currency = 'EGP',
+  }) async {
+    final tId = treasuryId.toString();
+    try {
+      final tData = await _client
+          .from('treasuries')
+          .select('id, name, type, employee_id, account_id, treasury_balances(id, balance, currency, account_id)')
+          .eq('id', tId)
+          .maybeSingle();
+
+      double opBalance = 0.0;
+      dynamic resolvedAccountId = tData?['account_id'];
+
+      final balancesRaw = tData?['treasury_balances'];
+      if (balancesRaw is List) {
+        final match = balancesRaw.firstWhere(
+          (b) => (b['currency']?.toString() ?? '').toUpperCase() == currency.toUpperCase(),
+          orElse: () => null,
+        );
+        if (match != null) {
+          opBalance = (match['balance'] as num?)?.toDouble() ?? 0.0;
+          if (resolvedAccountId == null && match['account_id'] != null) {
+            resolvedAccountId = match['account_id'];
+          }
+        }
+      }
+
+      if (opBalance == 0.0) {
+        try {
+          final directTb = await _client
+              .from('treasury_balances')
+              .select('balance, account_id')
+              .eq('treasury_id', tId)
+              .eq('currency', currency)
+              .maybeSingle();
+          if (directTb != null) {
+            opBalance = (directTb['balance'] as num?)?.toDouble() ?? 0.0;
+            if (resolvedAccountId == null && directTb['account_id'] != null) {
+              resolvedAccountId = directTb['account_id'];
+            }
+          }
+        } catch (_) {}
+      }
+
+      if (resolvedAccountId == null) {
+        try {
+          final rpcRes = await _client.rpc('resolve_treasury_account', params: {
+            'p_treasury_id': int.tryParse(tId) ?? treasuryId,
+            'p_currency': currency,
+          });
+          if (rpcRes != null) resolvedAccountId = rpcRes;
+        } catch (_) {}
+      }
+
+      String? accountCode;
+      String? accountName;
+      double glDebit = 0.0;
+      double glCredit = 0.0;
+      double glNet = 0.0;
+
+      if (resolvedAccountId != null) {
+        try {
+          final accRes = await _client
+              .from('accounts')
+              .select('id, account_code, name, account_name')
+              .eq('id', resolvedAccountId)
+              .maybeSingle();
+          if (accRes != null) {
+            accountCode = accRes['account_code']?.toString();
+            accountName = accRes['account_name']?.toString() ?? accRes['name']?.toString();
+          }
+
+          final ales = await _client
+              .from('account_ledger_entries')
+              .select('debit, credit')
+              .eq('account_id', resolvedAccountId);
+          if (ales is List) {
+            for (final e in ales) {
+              glDebit += (e['debit'] as num?)?.toDouble() ?? 0.0;
+              glCredit += (e['credit'] as num?)?.toDouble() ?? 0.0;
+            }
+            glNet = glDebit - glCredit;
+          }
+        } catch (_) {}
+      }
+
+      // Operational cash balance is primary for spending; fallback to ledger net if opBalance is 0
+      final effectiveBalance = opBalance > 0.0 ? opBalance : (glNet > 0.0 ? glNet : opBalance);
+
+      return {
+        'custody_id': treasuryId,
+        'custody_name': tData?['name']?.toString() ?? '',
+        'balance': effectiveBalance,
+        'operational_balance': opBalance,
+        'gl_debit': glDebit,
+        'gl_credit': glCredit,
+        'gl_net': glNet,
+        'account_id': resolvedAccountId,
+        'account_code': accountCode,
+        'account_name': accountName,
+        'currency': currency,
+      };
+    } catch (e) {
+      debugPrint('⚠️ TreasuryDao.getCustodyBalanceDetails error: $e');
+      return {
+        'custody_id': treasuryId,
+        'balance': 0.0,
+        'operational_balance': 0.0,
+        'currency': currency,
+      };
+    }
+  }
+
   Future<double> _getCurrentBalance(String treasuryId, String currency) async {
     final data = await _client
         .from('treasury_balances')
@@ -1209,10 +1504,11 @@ class TreasuryDao {
 
   Future<void> _updateBalance(
       String treasuryId, String currency, double delta) async {
+    final parsedTreasuryId = int.tryParse(treasuryId) ?? treasuryId;
     final existing = await _client
         .from('treasury_balances')
         .select('id, balance')
-        .eq('treasury_id', treasuryId)
+        .eq('treasury_id', parsedTreasuryId)
         .eq('currency', currency)
         .maybeSingle();
 
@@ -1220,17 +1516,17 @@ class TreasuryDao {
       final current = (existing['balance'] as num?)?.toDouble() ?? 0.0;
       final newBal = current + delta;
       if (newBal < 0) {
-        throw Exception('الرصيد غير كافٍ في $currency');
+        throw Exception('الرصيد غير كافٍ في $currency (المتوفر: ${current.toStringAsFixed(2)})');
       }
       await _client
           .from('treasury_balances')
           .update({'balance': newBal}).eq('id', existing['id']);
     } else {
       if (delta < 0) {
-        throw Exception('الرصيد غير كافٍ في $currency');
+        throw Exception('الرصيد غير كافٍ في $currency (المتوفر: 0.00)');
       }
       await _client.from('treasury_balances').insert({
-        'treasury_id': treasuryId,
+        'treasury_id': parsedTreasuryId,
         'currency': currency,
         'balance': delta,
       });
@@ -1508,7 +1804,18 @@ class TreasuryDao {
     int? shippingCompanyId,
     String? shareholderId,
     Map<String, dynamic>? payload,
+    String? costCenterId,
+    dynamic branchId,
+    dynamic toBranchId,
+    String? toCostCenterId,
   }) async {
+    final combinedPayload = <String, dynamic>{
+      if (payload != null) ...payload,
+      if (costCenterId != null && costCenterId.isNotEmpty) 'cost_center_id': costCenterId,
+      if (branchId != null) 'branch_id': branchId,
+      if (toBranchId != null) 'to_branch_id': toBranchId,
+      if (toCostCenterId != null && toCostCenterId.isNotEmpty) 'to_cost_center_id': toCostCenterId,
+    };
     final res = await _client.rpc('rpc_save_treasury_draft', params: {
       'p_treasury_id': treasuryId,
       'p_type': type,
@@ -1524,7 +1831,11 @@ class TreasuryDao {
       if (clearingAgentId != null) 'p_clearing_agent_id': clearingAgentId,
       if (shippingCompanyId != null) 'p_shipping_company_id': shippingCompanyId,
       if (shareholderId != null && shareholderId.isNotEmpty) 'p_shareholder_id': shareholderId,
-      if (payload != null) 'p_payload': payload,
+      if (combinedPayload.isNotEmpty) 'p_payload': combinedPayload,
+      if (costCenterId != null && costCenterId.isNotEmpty) 'p_cost_center_id': costCenterId,
+      if (branchId != null) 'p_branch_id': int.tryParse(branchId.toString()) ?? branchId,
+      if (toBranchId != null) 'p_to_branch_id': int.tryParse(toBranchId.toString()) ?? toBranchId,
+      if (toCostCenterId != null && toCostCenterId.isNotEmpty) 'p_to_cost_center_id': toCostCenterId,
     });
     return (res as num).toInt();
   }
@@ -1545,7 +1856,24 @@ class TreasuryDao {
     int? shippingCompanyId,
     String? shareholderId,
     Map<String, dynamic>? payload,
+    String? costCenterId,
+    dynamic branchId,
+    dynamic toBranchId,
+    String? toCostCenterId,
   }) async {
+    final combinedPayload = payload != null ? Map<String, dynamic>.from(payload) : <String, dynamic>{};
+    if (costCenterId != null && costCenterId.isNotEmpty) {
+      combinedPayload['cost_center_id'] = costCenterId;
+    }
+    if (branchId != null) {
+      combinedPayload['branch_id'] = branchId;
+    }
+    if (toBranchId != null) {
+      combinedPayload['to_branch_id'] = toBranchId;
+    }
+    if (toCostCenterId != null && toCostCenterId.isNotEmpty) {
+      combinedPayload['to_cost_center_id'] = toCostCenterId;
+    }
     await _client.rpc('rpc_update_treasury_draft', params: {
       'p_transaction_id': transactionId,
       if (treasuryId != null) 'p_treasury_id': treasuryId,
@@ -1561,7 +1889,11 @@ class TreasuryDao {
       if (clearingAgentId != null) 'p_clearing_agent_id': clearingAgentId,
       if (shippingCompanyId != null) 'p_shipping_company_id': shippingCompanyId,
       if (shareholderId != null && shareholderId.isNotEmpty) 'p_shareholder_id': shareholderId,
-      if (payload != null) 'p_payload': payload,
+      if (combinedPayload.isNotEmpty) 'p_payload': combinedPayload,
+      if (costCenterId != null && costCenterId.isNotEmpty) 'p_cost_center_id': costCenterId,
+      if (branchId != null) 'p_branch_id': int.tryParse(branchId.toString()) ?? branchId,
+      if (toBranchId != null) 'p_to_branch_id': int.tryParse(toBranchId.toString()) ?? toBranchId,
+      if (toCostCenterId != null && toCostCenterId.isNotEmpty) 'p_to_cost_center_id': toCostCenterId,
     });
   }
 

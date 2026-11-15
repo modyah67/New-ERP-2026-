@@ -4,6 +4,7 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import '../../data/dao/shipping_company_dao.dart';
 import '../../data/dao/shipment_cost_item_dao.dart';
 import '../../data/models/shipping_company_model.dart';
+import '../../data/services/currency_conversion_service.dart';
 import '../../core/data_change_event_bus.dart';
 import 'shipping_company_state.dart';
 
@@ -22,7 +23,7 @@ class ShippingCompanyCubit extends Cubit<ShippingCompanyState> {
   final nameController = TextEditingController();
   final phoneController = TextEditingController();
   final emailController = TextEditingController();
-  final initialBalanceController = TextEditingController();
+  final initialBalanceController = TextEditingController(text: '0.00');
 
   String? selectedCurrency;
   String initialBalanceDirection = 'CREDIT';
@@ -37,9 +38,23 @@ class ShippingCompanyCubit extends Cubit<ShippingCompanyState> {
 
   Future<void> init() async => await loadAll(reset: true);
 
+  /// Fetch current exchange rates (EGP = 1.0 baseline).
+  Future<Map<String, double>> _fetchRates() async {
+    try {
+      final svc = CurrencyConversionService.instance;
+      final usd = await svc.getRate('USD');
+      final eur = await svc.getRate('EUR');
+      final gbp = await svc.getRate('GBP');
+      return {'EGP': 1.0, 'USD': usd, 'EUR': eur, 'GBP': gbp};
+    } catch (_) {
+      return {'EGP': 1.0, 'USD': 50.0, 'EUR': 55.0, 'GBP': 65.0};
+    }
+  }
+
   Future<void> prepareAddForm() async {
     _formState = const ShippingCompanyFormState(isEditing: false);
     _clearForm();
+    initialBalanceController.text = '0.00';
     initialBalanceDirection = 'CREDIT';
     codeController.text = await _dao.generateNextCode();
   }
@@ -54,7 +69,7 @@ class ShippingCompanyCubit extends Cubit<ShippingCompanyState> {
     selectedCurrency = company.currency;
     initialBalanceDirection = company.initialBalanceDirection;
     initialBalanceController.text = company.initialBalance == 0.0
-        ? ''
+        ? '0.00'
         : company.initialBalance.toString();
   }
 
@@ -69,24 +84,40 @@ class ShippingCompanyCubit extends Cubit<ShippingCompanyState> {
     final currentState = state;
     if (currentState is ShippingCompanyLoaded &&
         !currentState.hasMore &&
-        !reset) return;
+        !reset) {
+      return;
+    }
 
     try {
-      final newItems = await _dao.getAll(limit: _limit, offset: _offset);
+      final results = await Future.wait([
+        _dao.getAll(limit: _limit, offset: _offset),
+        _fetchRates(),
+      ]);
       if (isClosed) return;
+      final newItems = results[0] as List<ShippingCompanyModel>;
+      final rates = results[1] as Map<String, double>;
       final hasMore = newItems.length >= _limit;
       _offset += _limit;
 
       if (reset) {
-        emit(ShippingCompanyLoaded(companies: newItems, hasMore: hasMore));
+        emit(ShippingCompanyLoaded.fromList(
+          companies: newItems,
+          hasMore: hasMore,
+          rates: rates,
+        ));
       } else if (currentState is ShippingCompanyLoaded) {
-        emit(currentState.copyWith(
+        final combinedRates = currentState.exchangeRates.isNotEmpty
+            ? currentState.exchangeRates
+            : rates;
+        emit(ShippingCompanyLoaded.fromList(
           companies: [...currentState.companies, ...newItems],
           hasMore: hasMore,
           isFetchingMore: false,
+          rates: combinedRates,
         ));
       }
     } catch (e) {
+      if (isClosed) return;
       emit(ShippingCompanyError(
           message: 'حدث خطأ أثناء تحميل البيانات: $e'));
     }
@@ -104,7 +135,9 @@ class ShippingCompanyCubit extends Cubit<ShippingCompanyState> {
     final currentState = state;
     if (currentState is ShippingCompanyLoaded &&
         !currentState.hasMore &&
-        !reset) return;
+        !reset) {
+      return;
+    }
 
     try {
       if (_currentQuery.isEmpty) {
@@ -112,29 +145,41 @@ class ShippingCompanyCubit extends Cubit<ShippingCompanyState> {
         return;
       }
 
-      final newItems = await _dao.search(
-        _currentQuery,
-        limit: _limit,
-        offset: _offset,
-      );
+      final results = await Future.wait([
+        _dao.search(
+          _currentQuery,
+          limit: _limit,
+          offset: _offset,
+        ),
+        _fetchRates(),
+      ]);
       if (isClosed) return;
+      final newItems = results[0] as List<ShippingCompanyModel>;
+      final rates = results[1] as Map<String, double>;
       final hasMore = newItems.length >= _limit;
       _offset += _limit;
 
       if (reset) {
-        emit(ShippingCompanyLoaded(
-            companies: newItems,
-            searchQuery: _currentQuery,
-            hasMore: hasMore));
+        emit(ShippingCompanyLoaded.fromList(
+          companies: newItems,
+          searchQuery: _currentQuery,
+          hasMore: hasMore,
+          rates: rates,
+        ));
       } else if (currentState is ShippingCompanyLoaded) {
-        emit(currentState.copyWith(
+        final combinedRates = currentState.exchangeRates.isNotEmpty
+            ? currentState.exchangeRates
+            : rates;
+        emit(ShippingCompanyLoaded.fromList(
           companies: [...currentState.companies, ...newItems],
           searchQuery: _currentQuery,
           hasMore: hasMore,
           isFetchingMore: false,
+          rates: combinedRates,
         ));
       }
     } catch (e) {
+      if (isClosed) return;
       emit(ShippingCompanyError(message: 'حدث خطأ أثناء البحث: $e'));
     }
   }
@@ -220,7 +265,7 @@ class ShippingCompanyCubit extends Cubit<ShippingCompanyState> {
     nameController.clear();
     phoneController.clear();
     emailController.clear();
-    initialBalanceController.clear();
+    initialBalanceController.text = '0.00';
     selectedCurrency = null;
     _formState = _formState.copyWith(clearEditingCompany: true);
   }

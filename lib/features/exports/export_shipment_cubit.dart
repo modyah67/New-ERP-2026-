@@ -191,7 +191,7 @@ class ExportShipmentCubit extends Cubit<ExportShipmentState> {
         } catch (_) {}
       }
       final results = await Future.wait([
-        _customerDao.getAll(limit: 2000),
+        _customerDao.getAll(limit: 2000, customerType: 'export'),
         _invoiceDao.getAll(limit: 2000),
       ]);
       final customers = results[0] as List<CustomerModel>;
@@ -217,14 +217,6 @@ class ExportShipmentCubit extends Cubit<ExportShipmentState> {
       {List<Map<String, dynamic>> items = const []}) async {
     emit(ExportShipmentLoading());
     try {
-      final packingOrderIds = items
-          .map((i) => i['packingOrderId'])
-          .where((id) => id != null)
-          .map((id) => id is int ? id : int.tryParse('$id'))
-          .where((id) => id != null)
-          .cast<int>()
-          .toList();
-
       if (shipment.id != null) {
         // Get old shipment for payment delta calculation
         ExportShipmentModel? oldShipment;
@@ -240,7 +232,11 @@ class ExportShipmentCubit extends Cubit<ExportShipmentState> {
           } catch (e) {
             debugPrint('Cost accumulation failed: $e');
           }
+        }
+        try {
           await _dao.syncLedger(shipment.id);
+        } catch (e) {
+          debugPrint('⚠️ Sync ledger on update: $e');
         }
 
         // Process treasury/bank payment delta (edit case)
@@ -284,7 +280,11 @@ class ExportShipmentCubit extends Cubit<ExportShipmentState> {
           } catch (e) {
             debugPrint('Cost accumulation failed: $e');
           }
+        }
+        try {
           await _dao.syncLedger(newId);
+        } catch (e) {
+          debugPrint('⚠️ Sync ledger on new shipment: $e');
         }
 
         // Process treasury/bank deposit (insert case)

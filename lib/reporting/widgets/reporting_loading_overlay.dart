@@ -14,21 +14,24 @@ class ReportingLoadingOverlay extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!isVisible) return const SizedBox.shrink();
 
+    final isDark = AppTheme.isDark(context);
+    final primary = isDark ? AppTheme.primary : AppTheme.lightPrimary;
+
     return Positioned(
       top: 8,
       left: 8,
       child: Container(
         padding: const EdgeInsets.all(8),
         decoration: BoxDecoration(
-          color: AppTheme.primary.withAlpha(30),
+          color: primary.withAlpha(30),
           borderRadius: BorderRadius.circular(8),
         ),
-        child: const SizedBox(
+        child: SizedBox(
           width: 16,
           height: 16,
           child: CircularProgressIndicator(
             strokeWidth: 2,
-            color: AppTheme.primary,
+            color: primary,
           ),
         ),
       ),

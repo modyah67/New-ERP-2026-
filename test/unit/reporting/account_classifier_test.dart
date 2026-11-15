@@ -44,6 +44,30 @@ void main() {
           throwsA(isA<ArgumentError>()),
         );
       });
+
+      test('reclassifies 9112 and 9111 operational loss accounts to expense', () {
+        expect(
+          AccountClassifier.classify('system', accountCode: '9112'),
+          AccountClassification.expense,
+        );
+        expect(
+          AccountClassifier.classify('system', accountCode: '9111'),
+          AccountClassification.expense,
+        );
+        expect(
+          AccountClassifier.classify('unknown', accountCode: '9112'),
+          AccountClassification.expense,
+        );
+      });
+
+      test('identifies operational loss and cost accounts correctly', () {
+        expect(AccountClassifier.isOperationalLossOrCostAccount('9112'), isTrue);
+        expect(AccountClassifier.isOperationalLossOrCostAccount('9111'), isTrue);
+        expect(AccountClassifier.isOperationalLossOrCostAccount('3131'), isTrue);
+        expect(AccountClassifier.isOperationalLossOrCostAccount('1000'), isFalse);
+        expect(AccountClassifier.isOperationalLossOrCostAccount('9000'), isFalse);
+        expect(AccountClassifier.isOperationalLossOrCostAccount(null), isFalse);
+      });
     });
 
     group('isBalanceSheet', () {

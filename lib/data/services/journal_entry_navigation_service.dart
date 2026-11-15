@@ -37,6 +37,44 @@ class JournalEntryNavigationService {
     );
   }
 
+  /// Open journal entry for a warehouse stock transfer.
+  static Future<void> openForWarehouseTransfer(
+    BuildContext context, {
+    required dynamic transferId,
+    dynamic journalEntryId,
+  }) async {
+    if (journalEntryId != null) {
+      final id = journalEntryId.toString().trim();
+      if (id.isNotEmpty && id != '0') {
+        openById(context, journalEntryId: id);
+        return;
+      }
+    }
+
+    try {
+      final tId = transferId?.toString().trim() ?? '';
+      if (tId.isNotEmpty) {
+        final res = await _client
+            .from('journal_entries')
+            .select('id, entry_number')
+            .eq('source_type', 'stock_transfer')
+            .eq('source_id', tId)
+            .isFilter('deleted_at', null)
+            .maybeSingle();
+
+        if (res != null) {
+          final id = res['id'] ?? res['entry_number'];
+          if (id != null) {
+            openById(context, journalEntryId: id);
+            return;
+          }
+        }
+      }
+    } catch (_) {}
+
+    openById(context, journalEntryId: journalEntryId);
+  }
+
   /// Open journal entry for a purchase invoice.
   /// Priority: direct entry_number/id → v_journal_entry_lines search → purchase_invoices table → error.
   static Future<void> openForPurchase(
@@ -136,10 +174,23 @@ class JournalEntryNavigationService {
       }
     }
 
-    // 2. Direct navigation by entryNumber (only if it looks like a numeric ID)
+    // 2. Direct navigation by entryNumber (whether numeric ID or formatted entry code like JE-00001, LOT-00001)
     if (entryNumber != null) {
       final numStr = entryNumber.toString().trim().replaceAll('#', '');
-      if (numStr.isNotEmpty && int.tryParse(numStr) != null) {
+      if (numStr.isNotEmpty) {
+        try {
+          final res = await _client
+              .from('journal_entries')
+              .select('id')
+              .eq('entry_number', numStr)
+              .isFilter('deleted_at', null)
+              .limit(1)
+              .maybeSingle();
+          if (res != null && res['id'] != null) {
+            openById(context, journalEntryId: res['id']);
+            return;
+          }
+        } catch (_) {}
         openById(context, journalEntryId: numStr);
         return;
       }

@@ -68,6 +68,7 @@ class MockReportDao extends ReportDao {
     String? currency,
     DateTime? fromDate,
     DateTime? toDate,
+    bool excludeClosing = false,
   }) async {
     if (exceptionToThrow != null) throw exceptionToThrow!;
     return accountTotalsToReturn ?? [];
@@ -96,6 +97,7 @@ class MockReportDao extends ReportDao {
   Future<({double debit, double credit})> getBalanceBeforeDate({
     required String accountId,
     required DateTime beforeDate,
+    String? currency,
   }) async {
     if (exceptionToThrow != null) throw exceptionToThrow!;
     return balanceBeforeDateToReturn ?? (debit: 0.0, credit: 0.0);

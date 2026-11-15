@@ -1,22 +1,25 @@
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../dao/supplier_dao.dart';
 import '../models/supplier_model.dart';
 import '../models/stock_distribution_model.dart';
-import '../../core/services/tenant_service.dart';
 
 class SupplierRepository {
   final _client = Supabase.instance.client;
 
   Future<String> generateNextCode() async {
     try {
-      final companyId = TenantService().tenantId;
-      final data = await _client.rpc('get_next_entity_account_code', params: {
-        'p_entity_type': 'supplier',
-        'p_company_id': companyId,
-      });
-      return data?.toString() ?? '21001';
+      final response = await _client.from('suppliers').select('code');
+      int maxCode = 49999;
+      for (var row in response) {
+        final codeStr = row['code']?.toString() ?? '';
+        final num = int.tryParse(codeStr.replaceAll(RegExp(r'[^0-9]'), '')) ?? 0;
+        if (num >= 50000 && num < 60000 && num > maxCode) maxCode = num;
+      }
+      if (maxCode < 50000) return '50000';
+      return (maxCode + 1).toString();
     } catch (e) {
-      return '21001';
+      return '50000';
     }
   }
 
@@ -70,8 +73,21 @@ class SupplierRepository {
         }
       }
 
-      // 3. Ledger entries for supplier (expenses/payments/reversals)
-      //    lot_receipt entries already counted from lot_receipts above — skip
+      // 3. Harvest lot returns / purchase returns (reduces payable to supplier)
+      final returnRows = await _client
+          .from('lot_returns')
+          .select('supplier_id, return_value')
+          .gt('return_value', 0);
+      for (final row in returnRows) {
+        final sid = row['supplier_id']?.toString() ?? '';
+        final amt = (row['return_value'] as num?)?.toDouble() ?? 0.0;
+        if (sid.isNotEmpty && amt > 0) {
+          result[sid] = (result[sid] ?? 0.0) - amt;
+        }
+      }
+
+      // 4. Ledger entries for supplier (expenses/payments/reversals)
+      //    lot_receipt and lot_return entries already counted from tables above — skip
       final ledgerRows = await _client
           .from('ledger_entries')
           .select('entity_id, amount, reference_type')
@@ -81,7 +97,7 @@ class SupplierRepository {
         final amt = (row['amount'] as num?)?.toDouble() ?? 0.0;
         final refType = row['reference_type']?.toString() ?? '';
         if (sid.isEmpty) continue;
-        if (refType == 'lot_receipt') {
+        if (refType == 'lot_receipt' || refType == 'lot_return') {
           continue;
         } else if (refType == 'reversal' || refType == 'packing_cost_item') {
           result[sid] = (result[sid] ?? 0.0) + amt;
@@ -208,21 +224,23 @@ class SupplierRepository {
   }
 
   Future<void> insert(SupplierModel supplier) async {
-    await _client.from('suppliers').insert(supplier.toInsertMap());
+    await SupplierDao().insert(supplier);
   }
 
   Future<void> update(SupplierModel supplier) async {
-    await _client
-        .from('suppliers')
-        .update(supplier.toInsertMap())
-        .eq('supplier_code', supplier.supplierCode);
+    await SupplierDao().update(supplier);
   }
 
   Future<void> delete(String supplierCode) async {
-    await _client
-        .from('suppliers')
-        .delete()
-        .eq('supplier_code', supplierCode);
+    final sup = await getByCode(supplierCode);
+    if (sup != null && sup.id != null) {
+      await SupplierDao().delete(sup.id!);
+    } else {
+      await _client
+          .from('suppliers')
+          .delete()
+          .eq('supplier_code', supplierCode);
+    }
   }
 
   Future<int> getCount() async {
